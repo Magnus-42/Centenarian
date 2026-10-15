@@ -5,8 +5,8 @@
 // File Name   : cmac_test_top.v
 // Module Name : cmac_test_top
 // Author      : LiXintao
-// Date        : 2026-09-13
-// Version     : v1.0
+// Date        : 2026-10-12
+// Version     : v2.1
 // ----------------------------------------------------------------------------
 // Description : 测试CMAC核是否正常工作
 //              测试内容：A口对B口打流，B口接收并校验
@@ -60,7 +60,7 @@ module cmac_test_top(
   wire                 [      AXIS_WIDTH/8-1: 0]       test_axis_skeep    ;
   wire                                                 test_axis_svalid   ;
   wire                                                 test_axis_slast    ;
-  wire                 [   AXIS_USER_WIDTH-1: 0]       test_axis_suser    ;
+  wire                 [   AXIS_USER_WIDTH-1: 0]       test_axis_susr     ;
   wire                                                 test_axis_sready   ;
 
   // ----------------------------------------------------------------------------
@@ -70,7 +70,7 @@ module cmac_test_top(
   wire                 [      AXIS_WIDTH/8-1: 0]       asyn_test_axis_skeep  ;
   wire                                                 asyn_test_axis_svalid  ;
   wire                                                 asyn_test_axis_slast  ;
-  wire                 [   AXIS_USER_WIDTH-1: 0]       asyn_test_axis_suser  ;
+  wire                 [   AXIS_USER_WIDTH-1: 0]       asyn_test_axis_susr   ;
   wire                                                 asyn_test_axis_sready  ;
 
   // ----------------------------------------------------------------------------
@@ -80,7 +80,7 @@ module cmac_test_top(
   wire                 [      AXIS_WIDTH/8-1: 0]       test_axis_mkeep    ;
   wire                                                 test_axis_mvalid   ;
   wire                                                 test_axis_mlast    ;
-  wire                 [   AXIS_USER_WIDTH-1: 0]       test_axis_muser    ;
+  wire                 [   AXIS_USER_WIDTH-1: 0]       test_axis_musr     ;
   wire                                                 test_axis_mready   ;
 
   // ----------------------------------------------------------------------------
@@ -90,7 +90,7 @@ module cmac_test_top(
   wire                 [      AXIS_WIDTH/8-1: 0]       asyn_test_axis_mkeep  ;
   wire                                                 asyn_test_axis_mvalid  ;
   wire                                                 asyn_test_axis_mlast  ;
-  wire                 [   AXIS_USER_WIDTH-1: 0]       asyn_test_axis_muser  ;
+  wire                 [   AXIS_USER_WIDTH-1: 0]       asyn_test_axis_musr   ;
   wire                                                 asyn_test_axis_mready  ;
 
   assign  qsfp_usr_rst     = usr_tx_reset_a | usr_rx_reset_a | usr_tx_reset_b | usr_rx_reset_b;
@@ -130,7 +130,7 @@ module cmac_test_top(
     .axis_sdata       (asyn_test_axis_mdata),// (input)
     .axis_slast       (asyn_test_axis_mlast),// (input)
     .axis_skeep       (asyn_test_axis_mkeep),// (input)
-    .axis_susr        (asyn_test_axis_muser),// (input)
+    .axis_susr        (asyn_test_axis_musr),// (input)
     .axis_sready      (asyn_test_axis_mready),// (output)
     .usr_tx_reset     (usr_tx_reset_a   ),// (output)
     .usr_rx_reset     (usr_rx_reset_a   ),// (output)
@@ -157,7 +157,7 @@ module cmac_test_top(
     .axis_mdata       (test_axis_sdata  ),// (output)
     .axis_mlast       (test_axis_slast  ),// (output)
     .axis_mkeep       (test_axis_skeep  ),// (output)
-    .axis_musr        (test_axis_suser  ),// (output)
+    .axis_musr        (test_axis_susr  ),// (output)
     .axis_svalid      ('d0              ),// (input)
     .axis_sdata       ('d0              ),// (input)
     .axis_slast       ('d0              ),// (input)
@@ -196,7 +196,7 @@ module cmac_test_top(
     .axis_svalid      (test_axis_svalid ),// (input)// 数据有效
     .axis_slast       (test_axis_slast  ),// (input)// 包结束标志
     .axis_sready      (                 ),// (output)// 反压: 还能写入
-    .axis_suser       (test_axis_suser  ),// (input)// 用户自定义信息
+    .axis_susr        (test_axis_susr   ),// (input)// 用户自定义信息
     .axis_sstrb       ('d0              ),// (input)// 字节选通
     .axis_sid         ('d0              ),// (input)// 流标识
     .axis_sdest       ('d0              ),// (input)// 路由信息
@@ -208,7 +208,7 @@ module cmac_test_top(
     .axis_mvalid      (asyn_test_axis_svalid),// (output)// 有数据可读
     .axis_mlast       (asyn_test_axis_slast),// (output)// 包结束标志
     .axis_mready      (asyn_test_axis_sready),// (input)// 下游能接收
-    .axis_muser       (asyn_test_axis_suser),// (output)// 用户自定义信息
+    .axis_musr        (asyn_test_axis_susr),// (output)// 用户自定义信息
     .axis_mstrb       (                 ),// (output)// 字节选通
     .axis_mid         (                 ),// (output)// 流标识
     .axis_mdest       (                 ),// (output)// 路由信息
@@ -230,7 +230,8 @@ module cmac_test_top(
     .AXIS_WIDTH       (AXIS_WIDTH       ),
     .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ),
     .PKT_LEN_BEATS    (16               ),
-    .ONE_SEC_CYCLES   (32'd200_000_000  ) 
+    .ONE_SEC_CYCLES   (32'd200_000_000  ),
+    .AXIS_USER_VAL    (1'b0             ) // 本路径直连 CMAC(tx tuser), 须 0(非 0=注入 CRC 错帧)
   )
   u_eth_100g_tester(
   // --- TX 域 (发包机) ---
@@ -240,14 +241,14 @@ module cmac_test_top(
     .axis_mkeep       (test_axis_mkeep  ),// (output)
     .axis_mvalid      (test_axis_mvalid ),// (output)
     .axis_mlast       (test_axis_mlast  ),// (output)
-    .axis_muser       (test_axis_muser  ),// (output)
+    .axis_musr        (test_axis_musr  ),// (output)
     .axis_mready      (test_axis_mready ),// (input)
   // --- RX 域 (校验机) ---
     .axis_sdata       (asyn_test_axis_sdata),// (input)
     .axis_skeep       (asyn_test_axis_skeep),// (input)
     .axis_svalid      (asyn_test_axis_svalid),// (input)
     .axis_slast       (asyn_test_axis_slast),// (input)
-    .axis_suser       (asyn_test_axis_suser),// (input)
+    .axis_susr        (asyn_test_axis_susr),// (input)
     .axis_sready      (asyn_test_axis_sready),// (output)
   // --- 控制与状态 ---
     .test_enable      (test_enable      ) // (input)// 高电平启动打流
@@ -275,7 +276,7 @@ module cmac_test_top(
     .axis_svalid      (test_axis_mvalid ),// (input)// 数据有效
     .axis_slast       (test_axis_mlast  ),// (input)// 包结束标志
     .axis_sready      (test_axis_mready ),// (output)// 反压: 还能写入
-    .axis_suser       (test_axis_muser  ),// (input)// 用户自定义信息
+    .axis_susr        (test_axis_musr   ),// (input)// 用户自定义信息
     .axis_sstrb       ('d0              ),// (input)// 字节选通
     .axis_sid         ('d0              ),// (input)// 流标识
     .axis_sdest       ('d0              ),// (input)// 路由信息
@@ -287,7 +288,7 @@ module cmac_test_top(
     .axis_mvalid      (asyn_test_axis_mvalid),// (output)// 有数据可读
     .axis_mlast       (asyn_test_axis_mlast),// (output)// 包结束标志
     .axis_mready      (asyn_test_axis_mready),// (input)// 下游能接收
-    .axis_muser       (asyn_test_axis_muser),// (output)// 用户自定义信息
+    .axis_musr        (asyn_test_axis_musr),// (output)// 用户自定义信息
     .axis_mstrb       (                 ),// (output)// 字节选通
     .axis_mid         (                 ),// (output)// 流标识
     .axis_mdest       (                 ),// (output)// 路由信息

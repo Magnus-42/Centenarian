@@ -22,14 +22,14 @@ module udp_ipv4_rx(
   input  wire          [                  63:0]        ipv4_axis_skeep ,
   input  wire                                          ipv4_axis_slast ,
   input  wire                                          ipv4_axis_svalid,
-  input  wire          [                  95:0]        ipv4_axis_susr  ,
+  input  wire          [                  96:0]        ipv4_axis_susr  ,
   output wire                                          ipv4_axis_sready,
 
   output wire          [                 511:0]        udp_axis_mdata  ,
   output wire          [                  63:0]        udp_axis_mkeep  ,
   output wire                                          udp_axis_mlast  ,
   output wire                                          udp_axis_mvalid ,
-  output wire          [                  95:0]        udp_axis_musr   ,
+  output wire          [                  96:0]        udp_axis_musr   ,
   input  wire                                          udp_axis_mready ,
 
   output wire          [                   7:0]        protocol        ,
@@ -45,13 +45,13 @@ module udp_ipv4_rx(
   reg                  [                  63:0]        ipv4_axis_skeep_s1;
   reg                                                  ipv4_axis_slast_s1;
   reg                                                  ipv4_axis_svalid_s1;
-  reg                  [                  95:0]        ipv4_axis_susr_s1;
+  reg                  [                  96:0]        ipv4_axis_susr_s1;
 
   reg                  [                 511:0]        udp_axis_mdata_reg;
   reg                  [                  63:0]        udp_axis_mkeep_reg;
   reg                                                  udp_axis_mlast_reg;
   reg                                                  udp_axis_mvalid_reg;
-  reg                  [                  95:0]        udp_axis_musr_reg;
+  reg                  [                  96:0]        udp_axis_musr_reg;
 
   reg                  [                   7:0]        protocol_reg     ;
   reg                  [                  15:0]        total_len_reg    ;
@@ -74,7 +74,7 @@ module udp_ipv4_rx(
   wire                                                 m_handshake       = udp_axis_mready&&udp_axis_mvalid                                   ;
 
   // ipv4_axis_svalid_s1
-  always @(posedge clk or posedge rst) begin
+  always @(posedge clk) begin
     if (rst) begin
       ipv4_axis_svalid_s1 <= 'd0;
     end

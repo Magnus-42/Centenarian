@@ -7,24 +7,25 @@
 // File Name   : eth_top.v
 // Module Name : eth_top
 // Author      : LiXintao
-// Date        : 2026-09-24
-// Version     : v1.0
+// Date        : 2026-10-11
+// Version     : v4.0
 // ----------------------------------------------------------------------------
 // Description : 一个 100G 网口的完整以太网层封装(L1 端口 + L2 成帧)
 //
-//   RX: cmac_x_if -> SLR 寄存slice -> RX CDC FIFO(usrclk->400M) -> skid
-//        -> eth_type_demux -> 三类流输出 arp / other / ipv4
-//   TX: 三类流入口 arp / other / ipv4
-//        -> eth_tx_mux(优先级 other > arp > ipv4)
+//   RX: cmac_x_if -> SLR 寄存slice -> RX CDC FIFO(usrclk->用户时钟域) -> skid
+//        -> eth_type_demux(RX_TYPE_DICT 字典匹配) -> RX flat 输出(RX_TYPE_NUM 路, other 由 demux 内部自动补出)
+//   TX:  -> eth_tx_mux 数选器
 //        -> eth_frame_pad60(单实例, 统一补齐最小帧长)
-//        -> TX CDC FIFO(400M->usrclk) -> SLR 寄存slice -> cmac_x_if
+//        -> TX CDC FIFO(用户时钟域->usrclk) -> SLR 寄存slice -> cmac_x_if
 // ============================================================================
 
 module eth_top #(
   parameter  PORT_SEL= 0 ,// 0 = cmac_a_if, 1 = cmac_b_if
-  parameter  AXIS_WIDTH= 512,
-  parameter  AXIS_USER_WIDTH= 1 ,
-  parameter  TX_PKT_BUF_DEPTH= 512,// 吸收 CMAC 周期性反压, 不可随意缩小
+  parameter  RX_TYPE_NUM= 4 ,
+  parameter  [    RX_TYPE_NUM*16-1:0]        RX_TYPE_DICT= {16'hB588, 16'hDD86, 16'h0608, 16'h0008}, // 88B5/ipv6/arp/ipv4
+  parameter  TX_TYPE_NUM= 4 ,
+  parameter  TX_IDX_W= (TX_TYPE_NUM <= 1) ? 1 : $clog2(TX_TYPE_NUM),
+  parameter  AXIS_TX_USER_WIDTH= 4 ,
   parameter  CDC_FIFO_DEPTH= 512
 )(
   // ============================================================================
@@ -40,10 +41,10 @@ module eth_top #(
   // ============================================================================
   // GT / QSFP
   // ============================================================================
-  output wire          [                   3: 0]       gt_txp_out      ,
-  output wire          [                   3: 0]       gt_txn_out      ,
-  input  wire          [                   3: 0]       gt_rxp_in       ,
-  input  wire          [                   3: 0]       gt_rxn_in       ,
+  output wire          [                   3:0]        gt_txp_out      ,
+  output wire          [                   3:0]        gt_txn_out      ,
+  input  wire          [                   3:0]        gt_rxp_in       ,
+  input  wire          [                   3:0]        gt_rxn_in       ,
   input  wire                                          gt_ref_clk_p    ,
   input  wire                                          gt_ref_clk_n    ,
   output wire                                          qsfp_rstn_port  ,
@@ -53,118 +54,94 @@ module eth_top #(
   output wire                                          qsfp_led_port   ,
 
   // ============================================================================
-  // 400M 用户域
+  // 用户时钟域 用户域
   // ============================================================================
-  input  wire                                          clk             ,// 400M
-  input  wire                                          rst             ,// 400M 域逻辑复位
-  input  wire                                          fifo_tx_rst     ,// 400M 域 TX CDC FIFO 复位
+  input  wire                                          clk             ,// 用户时钟域
+  input  wire                                          rst             ,// 用户时钟域 域逻辑复位
+  input  wire                                          fifo_tx_rst     ,// 用户时钟域 域 TX CDC FIFO 复位
 
   // ============================================================================
-  // RX 三类流输出(400M 域)
+  // RX flat 流输出 : RX_TYPE_NUM 路, 第 k 档 = [k*512 +: 512]
+  //   RX_TYPE_NUM 路全部为用户侧档; RX_TYPE_DICT 未命中的帧由 demux 内部 other 兜底档吸收
   // ============================================================================
-  output wire          [        AXIS_WIDTH-1: 0]       arp_axis_mdata  ,
-  output wire          [      AXIS_WIDTH/8-1: 0]       arp_axis_mkeep  ,
-  output wire                                          arp_axis_mlast  ,
-  output wire                                          arp_axis_mvalid ,
-  input  wire                                          arp_axis_mready ,
-
-  output wire          [        AXIS_WIDTH-1: 0]       other_axis_mdata,
-  output wire          [      AXIS_WIDTH/8-1: 0]       other_axis_mkeep,
-  output wire                                          other_axis_mlast,
-  output wire                                          other_axis_mvalid,
-  input  wire                                          other_axis_mready,
-
-  output wire          [        AXIS_WIDTH-1: 0]       ipv4_axis_mdata ,
-  output wire          [      AXIS_WIDTH/8-1: 0]       ipv4_axis_mkeep ,
-  output wire                                          ipv4_axis_mlast ,
-  output wire                                          ipv4_axis_mvalid,
-  input  wire                                          ipv4_axis_mready,
+  output wire          [512*(RX_TYPE_NUM+1)-1:0]       mac_axis_mdata  ,
+  output wire          [64*(RX_TYPE_NUM+1)-1:0]        mac_axis_mkeep  ,
+  output wire          [         RX_TYPE_NUM:0]        mac_axis_mlast  ,
+  output wire          [         RX_TYPE_NUM:0]        mac_axis_mvalid ,
+  output wire          [         RX_TYPE_NUM:0]        mac_axis_musr   ,
+  input  wire          [         RX_TYPE_NUM:0]        mac_axis_mready ,
 
   // ============================================================================
-  // TX 三类流入口(400M 域)
+  // TX 
   // ============================================================================
-  input  wire          [        AXIS_WIDTH-1: 0]       arp_axis_sdata  ,
-  input  wire          [      AXIS_WIDTH/8-1: 0]       arp_axis_skeep  ,
-  input  wire                                          arp_axis_slast  ,
-  input  wire                                          arp_axis_svalid ,
-  output wire                                          arp_axis_sready ,
+  input  wire          [   512*TX_TYPE_NUM-1:0]        mac_axis_sdata  ,
+  input  wire          [    64*TX_TYPE_NUM-1:0]        mac_axis_skeep  ,
+  input  wire          [       TX_TYPE_NUM-1:0]        mac_axis_slast  ,
+  input  wire          [       TX_TYPE_NUM-1:0]        mac_axis_svalid ,
+  input  wire          [AXIS_TX_USER_WIDTH*TX_TYPE_NUM-1:0]mac_axis_susr   ,
+  output wire          [       TX_TYPE_NUM-1:0]        mac_axis_sready ,
 
-  input  wire          [        AXIS_WIDTH-1: 0]       other_axis_sdata,
-  input  wire          [      AXIS_WIDTH/8-1: 0]       other_axis_skeep,
-  input  wire                                          other_axis_slast,
-  input  wire                                          other_axis_svalid,
-  output wire                                          other_axis_sready,
-
-  input  wire          [        AXIS_WIDTH-1: 0]       ipv4_axis_sdata ,
-  input  wire          [      AXIS_WIDTH/8-1: 0]       ipv4_axis_skeep ,
-  input  wire                                          ipv4_axis_slast ,
-  input  wire                                          ipv4_axis_svalid,
-  output wire                                          ipv4_axis_sready,
-
-  // ============================================================================
-  // 状态
-  // ============================================================================
-  output wire          [                   1: 0]       stat_tx_active_port,// 0=other 1=arp 2=ipv4
+  output wire          [          TX_IDX_W-1:0]        stat_tx_active_port,
   output wire                                          stat_tx_idle     
 );
 
   // ============================================================================
   // 内部连线 : CMAC <-> SLR slice
   // ============================================================================
-  wire                 [        AXIS_WIDTH-1: 0]       cr_data            ;// cmac 收
-  wire                 [      AXIS_WIDTH/8-1: 0]       cr_keep            ;
-  wire                                                 cr_last            ;
-  wire                                                 cr_valid           ;
-  wire                 [   AXIS_USER_WIDTH-1: 0]       cr_user            ;
+  wire                 [                 511:0]        cr_data          ;// cmac 收
+  wire                 [                  63:0]        cr_keep          ;
+  wire                                                 cr_last          ;
+  wire                                                 cr_valid         ;
+  wire                                                 cr_usr           ;
 
-  wire                 [        AXIS_WIDTH-1: 0]       ct_data            ;// cmac 发
-  wire                 [      AXIS_WIDTH/8-1: 0]       ct_keep            ;
-  wire                                                 ct_last            ;
-  wire                                                 ct_valid           ;
-  wire                 [   AXIS_USER_WIDTH-1: 0]       ct_user            ;
-  wire                                                 ct_ready           ;
+  wire                 [                 511:0]        ct_data          ;// cmac 发
+  wire                 [                  63:0]        ct_keep          ;
+  wire                                                 ct_last          ;
+  wire                                                 ct_valid         ;
+  wire                                                 ct_usr           ;
+  wire                                                 ct_ready         ;
 
   // ============================================================================
   // 内部连线 : SLR slice <-> CDC FIFO(usrclk 域)
   // ============================================================================
-  wire                 [        AXIS_WIDTH-1: 0]       sk_rx_s_data     ,sk_tx_m_data ;
-  wire                 [      AXIS_WIDTH/8-1: 0]       sk_rx_s_keep     ,sk_tx_m_keep ;
-  wire                 [   AXIS_USER_WIDTH-1: 0]       sk_rx_s_user     ,sk_tx_m_user ;
-  wire                                                 sk_rx_s_last     ,sk_tx_m_last ;
-  wire                                                 sk_rx_s_valid    ,sk_tx_m_valid ;
-  wire                                                 sk_rx_s_ready    ,sk_tx_m_ready ;
+  wire                 [                 511:0]        sk_rx_s_data     ,sk_tx_m_data;
+  wire                 [                  63:0]        sk_rx_s_keep     ,sk_tx_m_keep;
+  wire                                                 sk_rx_s_usr      ,sk_tx_m_usr;
+  wire                                                 sk_rx_s_last     ,sk_tx_m_last;
+  wire                                                 sk_rx_s_valid    ,sk_tx_m_valid;
+  wire                                                 sk_rx_s_ready    ,sk_tx_m_ready;
 
   // ============================================================================
-  // 内部连线 : RX CDC FIFO <-> skid <-> demux(400M 域)
+  // 内部连线 : RX CDC FIFO <-> skid <-> demux
   // ============================================================================
-  wire                 [        AXIS_WIDTH-1: 0]       sk_dem_s_data      ;
-  wire                 [      AXIS_WIDTH/8-1: 0]       sk_dem_s_keep      ;
-  wire                                                 sk_dem_s_last      ;
-  wire                                                 sk_dem_s_valid     ;
-  wire                                                 sk_dem_s_ready     ;
+  wire                 [                 511:0]        sk_dem_s_data    ;
+  wire                 [                  63:0]        sk_dem_s_keep    ;
+  wire                                                 sk_dem_s_last    ;
+  wire                                                 sk_dem_s_valid   ;
+  wire                                                 sk_dem_s_usr     ;
+  wire                                                 sk_dem_s_ready   ;
 
-  wire                 [        AXIS_WIDTH-1: 0]       rx_data            ;
-  wire                 [      AXIS_WIDTH/8-1: 0]       rx_keep            ;
-  wire                                                 rx_last            ;
-  wire                                                 rx_valid           ;
-  wire                                                 rx_ready           ;
+  wire                 [                 511:0]        rx_data          ;
+  wire                 [                  63:0]        rx_keep          ;
+  wire                                                 rx_last          ;
+  wire                                                 rx_valid         ;
+  wire                                                 rx_usr           ;
+  wire                                                 rx_ready         ;
 
   // ============================================================================
-  // 内部连线 : TX mux -> pad -> tx_pkt_buf -> TX CDC FIFO(400M 域)
+  // 内部连线 : TX 单路 -> pad -> tx_pkt_buf -> TX CDC FIFO
   // ============================================================================
-  wire                 [        AXIS_WIDTH-1: 0]       mux_data           ;
-  wire                 [      AXIS_WIDTH/8-1: 0]       mux_keep           ;
-  wire                                                 mux_last           ;
-  wire                                                 mux_valid          ;
-  wire                                                 mux_ready          ;
-  wire                 [   AXIS_USER_WIDTH-1: 0]       mux_user           ;
+  wire                 [                 511:0]        pad_data         ;
+  wire                 [                  63:0]        pad_keep         ;
+  wire                                                 pad_last         ;
+  wire                                                 pad_valid        ;
+  wire                                                 pad_ready        ;
 
-  wire                 [        AXIS_WIDTH-1: 0]       pad_data           ;
-  wire                 [      AXIS_WIDTH/8-1: 0]       pad_keep           ;
-  wire                                                 pad_last           ;
-  wire                                                 pad_valid          ;
-  wire                                                 pad_ready          ;
-
+  wire                 [                 511:0]        mux_mdata        ;
+  wire                 [                  63:0]        mux_mkeep        ;
+  wire                                                 mux_mlast        ;
+  wire                                                 mux_mvalid       ;
+  wire                                                 mux_mready       ;
 
   // ============================================================================
   // CMAC : 按 PORT_SEL 选择 A / B 两片 IP 的封装
@@ -186,12 +163,12 @@ module eth_top #(
     .axis_mdata       (cr_data          ),
     .axis_mlast       (cr_last          ),
     .axis_mkeep       (cr_keep          ),
-    .axis_musr        (cr_user          ),
+    .axis_musr        (cr_usr           ),
     .axis_svalid      (ct_valid         ),
     .axis_sdata       (ct_data          ),
     .axis_slast       (ct_last          ),
     .axis_skeep       (ct_keep          ),
-    .axis_susr        (ct_user          ),
+    .axis_susr        (ct_usr           ),
     .axis_sready      (ct_ready         ),
     .usr_tx_reset     (usr_tx_reset     ),
     .usr_rx_reset     (usr_rx_reset     ),
@@ -217,12 +194,12 @@ module eth_top #(
     .axis_mdata       (cr_data          ),
     .axis_mlast       (cr_last          ),
     .axis_mkeep       (cr_keep          ),
-    .axis_musr        (cr_user          ),
+    .axis_musr        (cr_usr           ),
     .axis_svalid      (ct_valid         ),
     .axis_sdata       (ct_data          ),
     .axis_slast       (ct_last          ),
     .axis_skeep       (ct_keep          ),
-    .axis_susr        (ct_user          ),
+    .axis_susr        (ct_usr           ),
     .axis_sready      (ct_ready         ),
     .usr_tx_reset     (usr_tx_reset     ),
     .usr_rx_reset     (usr_rx_reset     ),
@@ -236,7 +213,7 @@ module eth_top #(
   endgenerate
 
   // ============================================================================
-  // RX : CMAC 收 -> SLR 寄存slice(usrclk) -> RX CDC FIFO -> 400M
+  // RX : CMAC 收 -> SLR 寄存slice(usrclk) -> RX CDC FIFO -> 用户时钟域
   // ============================================================================
   axis_slr_crossing u_slr_x_rx (
     .aclk             (gt_rxusrclk      ),
@@ -246,24 +223,24 @@ module eth_top #(
     .s_axis_tdata     (cr_data          ),
     .s_axis_tkeep     (cr_keep          ),
     .s_axis_tlast     (cr_last          ),
-    .s_axis_tuser     (cr_user          ),
+    .s_axis_tuser     (cr_usr           ),
     .m_axis_tvalid    (sk_rx_s_valid    ),
     .m_axis_tready    (sk_rx_s_ready    ),
     .m_axis_tdata     (sk_rx_s_data     ),
     .m_axis_tkeep     (sk_rx_s_keep     ),
     .m_axis_tlast     (sk_rx_s_last     ),
-    .m_axis_tuser     (sk_rx_s_user     ) 
+    .m_axis_tuser     (sk_rx_s_usr      ) 
   );
 
   axis_fifo_async #(
     .FIFO_DEPTH       (CDC_FIFO_DEPTH   ),
-    .AXIS_WIDTH       (AXIS_WIDTH       ),
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ),
+    .AXIS_WIDTH       (512              ),
+    .AXIS_USER_WIDTH  (1                ),
     .AXIS_ID_WIDTH    (1                ),
     .AXIS_DEST_WIDTH  (1                ),
     .FIFO_MEMORY_TYPE ("auto"           ),
     .PACKET_FIFO      (0                ),
-    .BRAM_DO_REG      (2                )
+    .BRAM_DO_REG      (2                ) 
   ) u_fifo_rx (
     .srst             (usr_rx_reset     ),
     .sclk             (gt_rxusrclk      ),
@@ -273,7 +250,7 @@ module eth_top #(
     .axis_svalid      (sk_rx_s_valid    ),
     .axis_slast       (sk_rx_s_last     ),
     .axis_sready      (sk_rx_s_ready    ),
-    .axis_suser       (sk_rx_s_user     ),
+    .axis_susr        (sk_rx_s_usr      ),
     .axis_sstrb       ('d0              ),
     .axis_sid         ('d0              ),
     .axis_sdest       ('d0              ),
@@ -282,7 +259,7 @@ module eth_top #(
     .axis_mvalid      (sk_dem_s_valid   ),
     .axis_mlast       (sk_dem_s_last    ),
     .axis_mready      (sk_dem_s_ready   ),
-    .axis_muser       (                 ),
+    .axis_musr        (sk_dem_s_usr     ),
     .axis_mstrb       (                 ),
     .axis_mid         (                 ),
     .axis_mdest       (                 ),
@@ -295,8 +272,8 @@ module eth_top #(
   );
 
   axis_skid_buffer #(
-    .AXIS_DATA_WIDTH  (AXIS_WIDTH       ),
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ),
+    .AXIS_DATA_WIDTH  (512              ),
+    .AXIS_USER_WIDTH  (1                ),
     .AXIS_ID_WIDTH    (1                ),
     .AXIS_DEST_WIDTH  (1                ) 
   ) u_skid_rx (
@@ -307,7 +284,7 @@ module eth_top #(
     .axis_slast       (sk_dem_s_last    ),
     .axis_svalid      (sk_dem_s_valid   ),
     .axis_sready      (sk_dem_s_ready   ),
-    .axis_suser       ('d0              ),
+    .axis_susr        (sk_dem_s_usr     ),
     .axis_sid         ('d0              ),
     .axis_sdest       ('d0              ),
     .axis_sstrb       ('d0              ),
@@ -316,82 +293,75 @@ module eth_top #(
     .axis_mlast       (rx_last          ),
     .axis_mvalid      (rx_valid         ),
     .axis_mready      (rx_ready         ),
-    .axis_muser       (                 ),
+    .axis_musr        (rx_usr           ),
     .axis_mid         (                 ),
     .axis_mdest       (                 ),
     .axis_mstrb       (                 ) 
   );
 
-  eth_type_demux u_demux (
+  // ============================================================================
+  // RX demux : TYPE_DICT 字典匹配 -> RX flat(参数由上层配置)
+  // ============================================================================
+  eth_type_demux #(
+    .TYPE_NUM         (RX_TYPE_NUM      ),
+    .TYPE_DICT        (RX_TYPE_DICT     ) 
+  ) u_demux (
     .clk              (clk              ),
     .rst              (rst              ),
     .eth_axis_sdata   (rx_data          ),
     .eth_axis_skeep   (rx_keep          ),
     .eth_axis_slast   (rx_last          ),
     .eth_axis_svalid  (rx_valid         ),
+    .eth_axis_susr    (rx_usr           ),
     .eth_axis_sready  (rx_ready         ),
-    .eth_ipv4_axis_mdata(ipv4_axis_mdata  ),
-    .eth_ipv4_axis_mkeep(ipv4_axis_mkeep  ),
-    .eth_ipv4_axis_mlast(ipv4_axis_mlast  ),
-    .eth_ipv4_axis_mvalid(ipv4_axis_mvalid ),
-    .eth_ipv4_axis_mready(ipv4_axis_mready ),
-    .eth_arp_axis_mdata(arp_axis_mdata   ),
-    .eth_arp_axis_mkeep(arp_axis_mkeep   ),
-    .eth_arp_axis_mlast(arp_axis_mlast   ),
-    .eth_arp_axis_mvalid(arp_axis_mvalid  ),
-    .eth_arp_axis_mready(arp_axis_mready  ),
-    .eth_other_axis_mdata(other_axis_mdata ),
-    .eth_other_axis_mkeep(other_axis_mkeep ),
-    .eth_other_axis_mlast(other_axis_mlast ),
-    .eth_other_axis_mvalid(other_axis_mvalid),
-    .eth_other_axis_mready(other_axis_mready) 
+    .eth_axis_mdata   (mac_axis_mdata   ),
+    .eth_axis_mkeep   (mac_axis_mkeep   ),
+    .eth_axis_mlast   (mac_axis_mlast   ),
+    .eth_axis_mvalid  (mac_axis_mvalid  ),
+    .eth_axis_musr    (mac_axis_musr    ),
+    .eth_axis_mready  (mac_axis_mready  ) 
   );
 
   // ============================================================================
-  // TX : 三类入口 -> mux(400M) -> pad -> tx_pkt_buf -> TX CDC FIFO -> usrclk
+  // TX : 单路入口 -> pad -> tx_pkt_buf -> TX CDC FIFO -> usrclk
   // ============================================================================
-  eth_tx_mux #(
-    .AXIS_WIDTH       (AXIS_WIDTH       ),
-    .AXIS_ID_WIDTH    (1                ),
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ) 
-  ) u_tx_mux (
-    .clk              (clk              ),
-    .rst              (rst              ),
-    .other_axis_sdata (other_axis_sdata ),
-    .other_axis_skeep (other_axis_skeep ),
-    .other_axis_slast (other_axis_slast ),
-    .other_axis_svalid(other_axis_svalid),
-    .other_axis_sready(other_axis_sready),
-    .arp_axis_sdata   (arp_axis_sdata   ),
-    .arp_axis_skeep   (arp_axis_skeep   ),
-    .arp_axis_slast   (arp_axis_slast   ),
-    .arp_axis_svalid  (arp_axis_svalid  ),
-    .arp_axis_sready  (arp_axis_sready  ),
-    .ipv4_axis_sdata  (ipv4_axis_sdata  ),
-    .ipv4_axis_skeep  (ipv4_axis_skeep  ),
-    .ipv4_axis_slast  (ipv4_axis_slast  ),
-    .ipv4_axis_svalid (ipv4_axis_svalid ),
-    .ipv4_axis_sready (ipv4_axis_sready ),
-    .eth_axis_mdata   (mux_data         ),
-    .eth_axis_mkeep   (mux_keep         ),
-    .eth_axis_mlast   (mux_last         ),
-    .eth_axis_mvalid  (mux_valid        ),
-    .eth_axis_muser   (mux_user         ),
-    .eth_axis_mready  (mux_ready        ),
-    .stat_active_port (stat_tx_active_port),
-    .stat_idle        (stat_tx_idle     ) 
+  eth_tx_mux#(
+    .TYPE_NUM         (TX_TYPE_NUM      ),
+    .AXIS_USER_WIDTH  (AXIS_TX_USER_WIDTH) 
+  )
+  u_eth_tx_mux(
+    .clk              (clk              ),// (input)
+    .rst              (rst              ),// (input)
+    // ---- 入口 ----
+    .eth_axis_sdata   (mac_axis_sdata   ),// (input)
+    .eth_axis_skeep   (mac_axis_skeep   ),// (input)
+    .eth_axis_slast   (mac_axis_slast   ),// (input)
+    .eth_axis_svalid  (mac_axis_svalid  ),// (input)
+    .eth_axis_susr    (mac_axis_susr    ),// (input)
+    .eth_axis_sready  (mac_axis_sready  ),// (output)
+    // ---- 出口 ----
+    .eth_axis_mdata   (mux_mdata        ),// (output)
+    .eth_axis_mkeep   (mux_mkeep        ),// (output)
+    .eth_axis_mlast   (mux_mlast        ),// (output)
+    .eth_axis_mvalid  (mux_mvalid       ),// (output)
+    .eth_axis_musr    (                 ),// (output)
+    .eth_axis_mready  (mux_mready       ),// (input)
+    // ---- 状态 ----
+    .stat_active_port (stat_tx_active_port),// (output)
+    .stat_idle        (stat_tx_idle     ) // (output)
   );
+
 
   eth_frame_pad60 #(
     .MIN_FRAME_BYTES  (60               ) 
   ) u_frame_pad (
     .clk              (clk              ),
     .rst              (rst              ),
-    .eth_axis_sdata   (mux_data         ),
-    .eth_axis_skeep   (mux_keep         ),
-    .eth_axis_slast   (mux_last         ),
-    .eth_axis_svalid  (mux_valid        ),
-    .eth_axis_sready  (mux_ready        ),
+    .eth_axis_sdata   (mux_mdata        ),
+    .eth_axis_skeep   (mux_mkeep        ),
+    .eth_axis_slast   (mux_mlast        ),
+    .eth_axis_svalid  (mux_mvalid       ),
+    .eth_axis_sready  (mux_mready       ),
     .eth_axis_mdata   (pad_data         ),
     .eth_axis_mkeep   (pad_keep         ),
     .eth_axis_mlast   (pad_last         ),
@@ -401,13 +371,13 @@ module eth_top #(
 
   axis_fifo_async #(
     .FIFO_DEPTH       (CDC_FIFO_DEPTH   ),
-    .AXIS_WIDTH       (AXIS_WIDTH       ),
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ),
+    .AXIS_WIDTH       (512              ),
+    .AXIS_USER_WIDTH  (1                ),
     .AXIS_ID_WIDTH    (1                ),
     .AXIS_DEST_WIDTH  (1                ),
     .FIFO_MEMORY_TYPE ("auto"           ),
     .PACKET_FIFO      (0                ),
-    .BRAM_DO_REG      (2                )
+    .BRAM_DO_REG      (2                ) 
   ) u_fifo_tx (
     .srst             (fifo_tx_rst      ),
     .sclk             (clk              ),
@@ -417,7 +387,7 @@ module eth_top #(
     .axis_svalid      (pad_valid        ),
     .axis_slast       (pad_last         ),
     .axis_sready      (pad_ready        ),
-    .axis_suser       (1'b0             ),
+    .axis_susr        ('d0              ),
     .axis_sstrb       ('d0              ),
     .axis_sid         ('d0              ),
     .axis_sdest       ('d0              ),
@@ -426,7 +396,7 @@ module eth_top #(
     .axis_mvalid      (sk_tx_m_valid    ),
     .axis_mlast       (sk_tx_m_last     ),
     .axis_mready      (sk_tx_m_ready    ),
-    .axis_muser       (sk_tx_m_user     ),
+    .axis_musr        (sk_tx_m_usr      ),
     .axis_mstrb       (                 ),
     .axis_mid         (                 ),
     .axis_mdest       (                 ),
@@ -446,13 +416,13 @@ module eth_top #(
     .s_axis_tdata     (sk_tx_m_data     ),
     .s_axis_tkeep     (sk_tx_m_keep     ),
     .s_axis_tlast     (sk_tx_m_last     ),
-    .s_axis_tuser     (sk_tx_m_user     ),
+    .s_axis_tuser     (1'b0             ),
     .m_axis_tvalid    (ct_valid         ),
     .m_axis_tready    (ct_ready         ),
     .m_axis_tdata     (ct_data          ),
     .m_axis_tkeep     (ct_keep          ),
     .m_axis_tlast     (ct_last          ),
-    .m_axis_tuser     (ct_user          ) 
+    .m_axis_tuser     (ct_usr           ) 
   );
 
 endmodule

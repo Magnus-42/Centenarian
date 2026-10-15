@@ -8,119 +8,68 @@
 // Module Name : ipv4_type_demux
 // Author      : LiXintao
 // Date        : 2026-09-29
-// Version     : v1.0
+// Version     : v2.0
 // ----------------------------------------------------------------------------
-// Description : 支持流水线设计，将数据分为udp、icmp、ospf、其他数据
+// Description : 支持流水线设计，将数据按TYPE_DICT匹配，没有匹配到的走默认通道
 // 
 // ============================================================================
 
-module ipv4_type_demux(
+module ipv4_type_demux#(
+  parameter  TYPE_NUM= 3 ,
+  localparam TYPE_NUM_EFF = (TYPE_NUM > 0) ? TYPE_NUM : 1,  // 字典占位项数(>=1；TYPE_NUM=0 时为 1 项占位，内容不被读取)
+  parameter  [TYPE_NUM_EFF*8-1:0]        TYPE_DICT= {8'h59,8'h01,8'h11} // ospf/icmp/udp
+)(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
 
-  input  wire          [                 511: 0]       ipv4_axis_sdata ,
-  input  wire          [                  63: 0]       ipv4_axis_skeep ,
+  input  wire          [                 511:0]        ipv4_axis_sdata ,
+  input  wire          [                  63:0]        ipv4_axis_skeep ,
   input  wire                                          ipv4_axis_slast ,
   input  wire                                          ipv4_axis_svalid,
-  input  wire          [                  95: 0]       ipv4_axis_susr  ,
+  input  wire          [                  96:0]        ipv4_axis_susr  ,
   output wire                                          ipv4_axis_sready,
 
-  output wire          [                 511: 0]       ipv4_udp_axis_mdata,
-  output wire          [                  63: 0]       ipv4_udp_axis_mkeep,
-  output wire                                          ipv4_udp_axis_mlast,
-  output wire                                          ipv4_udp_axis_mvalid,
-  output wire          [                  95: 0]       ipv4_udp_axis_musr,
-  input  wire                                          ipv4_udp_axis_mready,
-
-  output wire          [                 511: 0]       ipv4_icmp_axis_mdata,
-  output wire          [                  63: 0]       ipv4_icmp_axis_mkeep,
-  output wire                                          ipv4_icmp_axis_mlast,
-  output wire                                          ipv4_icmp_axis_mvalid,
-  output wire          [                  95: 0]       ipv4_icmp_axis_musr,
-  input  wire                                          ipv4_icmp_axis_mready,
-
-  output wire          [                 511: 0]       ipv4_ospf_axis_mdata,
-  output wire          [                  63: 0]       ipv4_ospf_axis_mkeep,
-  output wire                                          ipv4_ospf_axis_mlast,
-  output wire                                          ipv4_ospf_axis_mvalid,
-  output wire          [                  95: 0]       ipv4_ospf_axis_musr,
-  input  wire                                          ipv4_ospf_axis_mready,
-
-  output wire          [                 511: 0]       ipv4_other_axis_mdata,
-  output wire          [                  63: 0]       ipv4_other_axis_mkeep,
-  output wire                                          ipv4_other_axis_mlast,
-  output wire                                          ipv4_other_axis_mvalid,
-  output wire          [                  95: 0]       ipv4_other_axis_musr,
-  input  wire                                          ipv4_other_axis_mready 
+  output wire          [  512*(TYPE_NUM+1)-1:0]        ipv4_axis_mdata ,
+  output wire          [   64*(TYPE_NUM+1)-1:0]        ipv4_axis_mkeep ,
+  output wire          [            TYPE_NUM:0]        ipv4_axis_mlast ,
+  output wire          [            TYPE_NUM:0]        ipv4_axis_mvalid,
+  output wire          [   97*(TYPE_NUM+1)-1:0]        ipv4_axis_musr  ,
+  input  wire          [            TYPE_NUM:0]        ipv4_axis_mready 
 );
-  reg                                                  is_first_beat      ;
 
-  reg                  [                 511: 0]       ipv4_axis_sdata_s1  ;
-  reg                  [                  63: 0]       ipv4_axis_skeep_s1  ;
-  reg                                                  ipv4_axis_slast_s1  ;
-  reg                                                  ipv4_axis_svalid_s1  ;
-  reg                  [                  95: 0]       ipv4_axis_susr_s1  ;
+  // raw 比较
+  // s1 出比较结果
+  // s2 输出
 
-  reg                  [                 511: 0]       ipv4_udp_axis_mdata_reg  ;
-  reg                  [                  63: 0]       ipv4_udp_axis_mkeep_reg  ;
-  reg                                                  ipv4_udp_axis_mlast_reg  ;
-  reg                                                  ipv4_udp_axis_mvalid_reg  ;
-  reg                  [                  95: 0]       ipv4_udp_axis_musr_reg  ;
+  reg                                                  is_first_beat    ;
 
-  reg                  [                 511: 0]       ipv4_udp_axis_mdata_skid  ;
-  reg                  [                  63: 0]       ipv4_udp_axis_mkeep_skid  ;
-  reg                                                  ipv4_udp_axis_mlast_skid  ;
-  reg                                                  ipv4_udp_axis_mvalid_skid  ;
-  reg                  [                  95: 0]       ipv4_udp_axis_musr_skid  ;
+  reg                  [                 511:0]        ipv4_axis_sdata_s1;
+  reg                  [                  63:0]        ipv4_axis_skeep_s1;
+  reg                                                  ipv4_axis_slast_s1;
+  reg                                                  ipv4_axis_svalid_s1;
+  reg                  [                  96:0]        ipv4_axis_susr_s1;
 
-  reg                  [                 511: 0]       ipv4_icmp_axis_mdata_reg  ;
-  reg                  [                  63: 0]       ipv4_icmp_axis_mkeep_reg  ;
-  reg                                                  ipv4_icmp_axis_mlast_reg  ;
-  reg                                                  ipv4_icmp_axis_mvalid_reg  ;
-  reg                  [                  95: 0]       ipv4_icmp_axis_musr_reg  ;
+  reg                  [  512*(TYPE_NUM+1)-1:0]        ipv4_axis_mdata_reg;
+  reg                  [   64*(TYPE_NUM+1)-1:0]        ipv4_axis_mkeep_reg;
+  reg                  [            TYPE_NUM:0]        ipv4_axis_mlast_reg;
+  reg                  [            TYPE_NUM:0]        ipv4_axis_mvalid_reg;
+  reg                  [   97*(TYPE_NUM+1)-1:0]        ipv4_axis_musr_reg;
 
-  reg                  [                 511: 0]       ipv4_icmp_axis_mdata_skid  ;
-  reg                  [                  63: 0]       ipv4_icmp_axis_mkeep_skid  ;
-  reg                                                  ipv4_icmp_axis_mlast_skid  ;
-  reg                                                  ipv4_icmp_axis_mvalid_skid  ;
-  reg                  [                  95: 0]       ipv4_icmp_axis_musr_skid  ;
+  reg                  [  512*(TYPE_NUM+1)-1:0]        ipv4_axis_mdata_skid;
+  reg                  [   64*(TYPE_NUM+1)-1:0]        ipv4_axis_mkeep_skid;
+  reg                  [            TYPE_NUM:0]        ipv4_axis_mlast_skid;
+  reg                  [            TYPE_NUM:0]        ipv4_axis_mvalid_skid;
+  reg                  [   97*(TYPE_NUM+1)-1:0]        ipv4_axis_musr_skid;
 
-  reg                  [                 511: 0]       ipv4_ospf_axis_mdata_reg  ;
-  reg                  [                  63: 0]       ipv4_ospf_axis_mkeep_reg  ;
-  reg                                                  ipv4_ospf_axis_mlast_reg  ;
-  reg                                                  ipv4_ospf_axis_mvalid_reg  ;
-  reg                  [                  95: 0]       ipv4_ospf_axis_musr_reg  ;
+  wire                 [            TYPE_NUM:0]        type_compare     ;
+  wire                 [            TYPE_NUM:0]        type_hit         ;
 
-  reg                  [                 511: 0]       ipv4_ospf_axis_mdata_skid  ;
-  reg                  [                  63: 0]       ipv4_ospf_axis_mkeep_skid  ;
-  reg                                                  ipv4_ospf_axis_mlast_skid  ;
-  reg                                                  ipv4_ospf_axis_mvalid_skid  ;
-  reg                  [                  95: 0]       ipv4_ospf_axis_musr_skid  ;
+  reg                  [            TYPE_NUM:0]        sel_type_one_hot_s1;
 
-  reg                  [                 511: 0]       ipv4_other_axis_mdata_reg  ;
-  reg                  [                  63: 0]       ipv4_other_axis_mkeep_reg  ;
-  reg                                                  ipv4_other_axis_mlast_reg  ;
-  reg                                                  ipv4_other_axis_mvalid_reg  ;
-  reg                  [                  95: 0]       ipv4_other_axis_musr_reg  ;
-
-  reg                  [                 511: 0]       ipv4_other_axis_mdata_skid  ;
-  reg                  [                  63: 0]       ipv4_other_axis_mkeep_skid  ;
-  reg                                                  ipv4_other_axis_mlast_skid  ;
-  reg                                                  ipv4_other_axis_mvalid_skid  ;
-  reg                  [                  95: 0]       ipv4_other_axis_musr_skid  ;
-
-  reg                  [                   3: 0]       sel_type_one_hot_s1  ;
-  wire                                                 s_handshake      =ipv4_axis_svalid&&ipv4_axis_sready;
-  wire s1_ready = (sel_type_one_hot_s1[0] && !ipv4_udp_axis_mvalid_skid)  ||
-                  (sel_type_one_hot_s1[1] && !ipv4_icmp_axis_mvalid_skid) ||
-                  (sel_type_one_hot_s1[2] && !ipv4_ospf_axis_mvalid_skid) ||
-                  (sel_type_one_hot_s1[3] && !ipv4_other_axis_mvalid_skid);
-  wire                                                 s1_handshake     =s1_ready&&ipv4_axis_svalid_s1;
+  wire                                                 s_handshake       = ipv4_axis_svalid&&ipv4_axis_sready                              ;
+  wire                                                 s1_ready          = |(sel_type_one_hot_s1&(~ipv4_axis_mvalid_skid))                   ;
+  wire                                                 s1_handshake      = s1_ready&&ipv4_axis_svalid_s1                                   ;
   assign  ipv4_axis_sready = !ipv4_axis_svalid_s1 || s1_ready;
-  wire                                                 ipv4_udp_handshake=ipv4_udp_axis_mvalid_reg&&ipv4_udp_axis_mready  ;
-  wire                                                 ipv4_icmp_handshake=ipv4_icmp_axis_mvalid_reg&&ipv4_icmp_axis_mready  ;
-  wire                                                 ipv4_ospf_handshake=ipv4_ospf_axis_mvalid_reg&&ipv4_ospf_axis_mready  ;
-  wire                                                 ipv4_other_handshake=ipv4_other_axis_mvalid_reg&&ipv4_other_axis_mready  ;
 
   // s1: data keep last
   always @(posedge clk) begin
@@ -146,214 +95,80 @@ module ipv4_type_demux(
     end
   end
 
-  wire                                                 udp_reg_can_take =ipv4_udp_handshake||!ipv4_udp_axis_mvalid_reg;
-  wire                                                 udp_skid_to_reg  =ipv4_udp_axis_mvalid_skid&&udp_reg_can_take;
-  wire                                                 udp_s1_to_skid   =s1_handshake&&sel_type_one_hot_s1[0]&&!udp_reg_can_take;
-  wire                                                 udp_s1_to_reg    =s1_handshake&&sel_type_one_hot_s1[0]&&udp_reg_can_take;
 
-  wire                                                 icmp_reg_can_take=ipv4_icmp_handshake||!ipv4_icmp_axis_mvalid_reg  ;
-  wire                                                 icmp_skid_to_reg =ipv4_icmp_axis_mvalid_skid&&icmp_reg_can_take;
-  wire                                                 icmp_s1_to_skid  =s1_handshake&&sel_type_one_hot_s1[1]&&!icmp_reg_can_take;
-  wire                                                 icmp_s1_to_reg   =s1_handshake&&sel_type_one_hot_s1[1]&&icmp_reg_can_take;
+  genvar type_index;
+  generate
+    for (type_index = 0; type_index<=TYPE_NUM; type_index=type_index+1) begin:gen_type
+  wire                                                 m_handshake       = ipv4_axis_mready[type_index] && ipv4_axis_mvalid[type_index]    ;
+  wire                                                 reg_can_take      = !ipv4_axis_mvalid_reg[type_index] || m_handshake                ;
+  wire                                                 skid_to_reg       = ipv4_axis_mvalid_skid[type_index] && reg_can_take               ;
+  wire                                                 s1_to_reg         = s1_handshake && sel_type_one_hot_s1[type_index] && reg_can_take ;
+  wire                                                 s1_to_skid        = s1_handshake && sel_type_one_hot_s1[type_index] && !reg_can_take;
 
-  wire                                                 ospf_reg_can_take=ipv4_ospf_handshake||!ipv4_ospf_axis_mvalid_reg  ;
-  wire                                                 ospf_skid_to_reg =ipv4_ospf_axis_mvalid_skid&&ospf_reg_can_take;
-  wire                                                 ospf_s1_to_skid  =s1_handshake&&sel_type_one_hot_s1[2]&&!ospf_reg_can_take;
-  wire                                                 ospf_s1_to_reg   =s1_handshake&&sel_type_one_hot_s1[2]&&ospf_reg_can_take;
-
-  wire                                                 other_reg_can_take=ipv4_other_handshake||!ipv4_other_axis_mvalid_reg  ;
-  wire                                                 other_skid_to_reg=ipv4_other_axis_mvalid_skid&&other_reg_can_take  ;
-  wire                                                 other_s1_to_skid =s1_handshake&&sel_type_one_hot_s1[3]&&!other_reg_can_take;
-  wire                                                 other_s1_to_reg  =s1_handshake&&sel_type_one_hot_s1[3]&&other_reg_can_take;
-
-  // udp
-  always @(posedge clk) begin
-    if (rst) begin
-      ipv4_udp_axis_mvalid_reg <= 'd0;
-      ipv4_udp_axis_mvalid_skid <= 'd0;
-    end
-    else begin
-      if (udp_skid_to_reg || udp_s1_to_reg) begin
-        ipv4_udp_axis_mvalid_reg <= 1'b1;
+      if (type_index == TYPE_NUM) begin:gen_default_type
+  assign  type_hit[type_index]= 1'b0             ;
+        // other(兜底)档命中逻辑：TYPE_NUM=0 ⇒ 无用户档，所有帧全部落 other
+        if (TYPE_NUM == 0) begin:gen_no_user_type
+  assign  type_compare[type_index]= 1'b1 ;
+        end
+        else begin:gen_has_user_type
+  assign  type_compare[type_index]= ~(|type_hit[TYPE_NUM-1:0]) ;
+        end
       end
-      else if (ipv4_udp_handshake) begin
-        ipv4_udp_axis_mvalid_reg <= 1'b0;
+      else begin:gen_range_type
+  wire                                                 is_match          = TYPE_DICT[type_index*8+:8]==ipv4_axis_sdata[72 +: 8]            ;
+        
+  assign  type_hit[type_index]= is_match         ;
+  assign  type_compare[type_index]= type_hit[type_index] && ~(|type_index == 0 ? 1'b0 : type_hit[type_index-1:0]);
       end
 
-      if (udp_s1_to_skid) begin
-        ipv4_udp_axis_mvalid_skid <= 1'b1;
-      end
-      else if (udp_skid_to_reg) begin
-        ipv4_udp_axis_mvalid_skid <= 1'b0;
-      end
-    end
-  end
+      // udp
+      always @(posedge clk) begin
+        if (rst) begin
+          ipv4_axis_mvalid_reg[type_index] <= 'd0;
+          ipv4_axis_mvalid_skid[type_index] <= 'd0;
+        end
+        else begin
+          if (skid_to_reg || s1_to_reg) begin
+            ipv4_axis_mvalid_reg[type_index] <= 1'b1;
+          end
+          else if (m_handshake) begin
+            ipv4_axis_mvalid_reg[type_index] <= 1'b0;
+          end
 
-  always @(posedge clk) begin
-    if (udp_skid_to_reg) begin
-      ipv4_udp_axis_mdata_reg <= ipv4_udp_axis_mdata_skid;
-      ipv4_udp_axis_mkeep_reg <= ipv4_udp_axis_mkeep_skid;
-      ipv4_udp_axis_mlast_reg <= ipv4_udp_axis_mlast_skid;
-      ipv4_udp_axis_musr_reg <= ipv4_udp_axis_musr_skid;
-    end
-    else if (udp_s1_to_reg) begin
-      ipv4_udp_axis_mdata_reg <= ipv4_axis_sdata_s1;
-      ipv4_udp_axis_mkeep_reg <= ipv4_axis_skeep_s1;
-      ipv4_udp_axis_mlast_reg <= ipv4_axis_slast_s1;
-      ipv4_udp_axis_musr_reg <= ipv4_axis_susr_s1;
-    end
-  end
-
-  always @(posedge clk) begin
-    if (udp_s1_to_skid) begin
-      ipv4_udp_axis_mdata_skid <= ipv4_axis_sdata_s1;
-      ipv4_udp_axis_mkeep_skid <= ipv4_axis_skeep_s1;
-      ipv4_udp_axis_mlast_skid <= ipv4_axis_slast_s1;
-      ipv4_udp_axis_musr_skid <= ipv4_axis_susr_s1;
-    end
-  end
-
-  // icmp
-  always @(posedge clk) begin
-    if (rst) begin
-      ipv4_icmp_axis_mvalid_reg <= 'd0;
-      ipv4_icmp_axis_mvalid_skid <= 'd0;
-    end
-    else begin
-      if (icmp_skid_to_reg || icmp_s1_to_reg) begin
-        ipv4_icmp_axis_mvalid_reg <= 1'b1;
-      end
-      else if (ipv4_icmp_handshake) begin
-        ipv4_icmp_axis_mvalid_reg <= 1'b0;
+          if (s1_to_skid) begin
+            ipv4_axis_mvalid_skid[type_index] <= 1'b1;
+          end
+          else if (skid_to_reg) begin
+            ipv4_axis_mvalid_skid[type_index] <= 1'b0;
+          end
+        end
       end
 
-      if (icmp_s1_to_skid) begin
-        ipv4_icmp_axis_mvalid_skid <= 1'b1;
-      end
-      else if (icmp_skid_to_reg) begin
-        ipv4_icmp_axis_mvalid_skid <= 1'b0;
-      end
-    end
-  end
+      always @(posedge clk) begin
+        if (skid_to_reg) begin
+          ipv4_axis_mdata_reg[type_index*512+:512] <= ipv4_axis_mdata_skid[type_index*512+:512];
+          ipv4_axis_mkeep_reg[type_index*64+:64] <= ipv4_axis_mkeep_skid[type_index*64+:64];
+          ipv4_axis_mlast_reg[type_index] <= ipv4_axis_mlast_skid[type_index];
+          ipv4_axis_musr_reg[type_index*97+:97] <= ipv4_axis_musr_skid[type_index*97+:97];
+        end
+        else if (s1_to_reg) begin
+          ipv4_axis_mdata_reg[type_index*512+:512] <= ipv4_axis_sdata_s1;
+          ipv4_axis_mkeep_reg[type_index*64+:64] <= ipv4_axis_skeep_s1;
+          ipv4_axis_mlast_reg[type_index] <= ipv4_axis_slast_s1;
+          ipv4_axis_musr_reg[type_index*97+:97] <= ipv4_axis_susr_s1;
+        end
 
-  always @(posedge clk) begin
-    if (icmp_skid_to_reg) begin
-      ipv4_icmp_axis_mdata_reg <= ipv4_icmp_axis_mdata_skid;
-      ipv4_icmp_axis_mkeep_reg <= ipv4_icmp_axis_mkeep_skid;
-      ipv4_icmp_axis_mlast_reg <= ipv4_icmp_axis_mlast_skid;
-      ipv4_icmp_axis_musr_reg <= ipv4_icmp_axis_musr_skid;
-    end
-    else if (icmp_s1_to_reg) begin
-      ipv4_icmp_axis_mdata_reg <= ipv4_axis_sdata_s1;
-      ipv4_icmp_axis_mkeep_reg <= ipv4_axis_skeep_s1;
-      ipv4_icmp_axis_mlast_reg <= ipv4_axis_slast_s1;
-      ipv4_icmp_axis_musr_reg <= ipv4_axis_susr_s1;
-    end
-  end
-
-  always @(posedge clk) begin
-    if (icmp_s1_to_skid) begin
-      ipv4_icmp_axis_mdata_skid <= ipv4_axis_sdata_s1;
-      ipv4_icmp_axis_mkeep_skid <= ipv4_axis_skeep_s1;
-      ipv4_icmp_axis_mlast_skid <= ipv4_axis_slast_s1;
-      ipv4_icmp_axis_musr_skid <= ipv4_axis_susr_s1;
-    end
-  end
-
-  // ospf
-  always @(posedge clk) begin
-    if (rst) begin
-      ipv4_ospf_axis_mvalid_reg <= 'd0;
-      ipv4_ospf_axis_mvalid_skid <= 'd0;
-    end
-    else begin
-      if (ospf_skid_to_reg || ospf_s1_to_reg) begin
-        ipv4_ospf_axis_mvalid_reg <= 1'b1;
-      end
-      else if (ipv4_ospf_handshake) begin
-        ipv4_ospf_axis_mvalid_reg <= 1'b0;
-      end
-
-      if (ospf_s1_to_skid) begin
-        ipv4_ospf_axis_mvalid_skid <= 1'b1;
-      end
-      else if (ospf_skid_to_reg) begin
-        ipv4_ospf_axis_mvalid_skid <= 1'b0;
+        if (s1_to_skid) begin
+          ipv4_axis_mdata_skid[type_index*512+:512] <= ipv4_axis_sdata_s1;
+          ipv4_axis_mkeep_skid[type_index*64+:64] <= ipv4_axis_skeep_s1;
+          ipv4_axis_mlast_skid[type_index] <= ipv4_axis_slast_s1;
+          ipv4_axis_musr_skid[type_index*97+:97] <= ipv4_axis_susr_s1;
+        end
       end
     end
-  end
-
-  always @(posedge clk) begin
-    if (ospf_skid_to_reg) begin
-      ipv4_ospf_axis_mdata_reg <= ipv4_ospf_axis_mdata_skid;
-      ipv4_ospf_axis_mkeep_reg <= ipv4_ospf_axis_mkeep_skid;
-      ipv4_ospf_axis_mlast_reg <= ipv4_ospf_axis_mlast_skid;
-      ipv4_ospf_axis_musr_reg <= ipv4_ospf_axis_musr_skid;
-    end
-    else if (ospf_s1_to_reg) begin
-      ipv4_ospf_axis_mdata_reg <= ipv4_axis_sdata_s1;
-      ipv4_ospf_axis_mkeep_reg <= ipv4_axis_skeep_s1;
-      ipv4_ospf_axis_mlast_reg <= ipv4_axis_slast_s1;
-      ipv4_ospf_axis_musr_reg <= ipv4_axis_susr_s1;
-    end
-  end
-
-  always @(posedge clk) begin
-    if (ospf_s1_to_skid) begin
-      ipv4_ospf_axis_mdata_skid <= ipv4_axis_sdata_s1;
-      ipv4_ospf_axis_mkeep_skid <= ipv4_axis_skeep_s1;
-      ipv4_ospf_axis_mlast_skid <= ipv4_axis_slast_s1;
-      ipv4_ospf_axis_musr_skid <= ipv4_axis_susr_s1;
-    end
-  end
-
-  // other
-  always @(posedge clk) begin
-    if (rst) begin
-      ipv4_other_axis_mvalid_reg <= 'd0;
-      ipv4_other_axis_mvalid_skid <= 'd0;
-    end
-    else begin
-      if (other_skid_to_reg || other_s1_to_reg) begin
-        ipv4_other_axis_mvalid_reg <= 1'b1;
-      end
-      else if (ipv4_other_handshake) begin
-        ipv4_other_axis_mvalid_reg <= 1'b0;
-      end
-
-      if (other_s1_to_skid) begin
-        ipv4_other_axis_mvalid_skid <= 1'b1;
-      end
-      else if (other_skid_to_reg) begin
-        ipv4_other_axis_mvalid_skid <= 1'b0;
-      end
-    end
-  end
-
-  always @(posedge clk) begin
-    if (other_skid_to_reg) begin
-      ipv4_other_axis_mdata_reg <= ipv4_other_axis_mdata_skid;
-      ipv4_other_axis_mkeep_reg <= ipv4_other_axis_mkeep_skid;
-      ipv4_other_axis_mlast_reg <= ipv4_other_axis_mlast_skid;
-      ipv4_other_axis_musr_reg <= ipv4_other_axis_musr_skid;
-    end
-    else if (other_s1_to_reg) begin
-      ipv4_other_axis_mdata_reg <= ipv4_axis_sdata_s1;
-      ipv4_other_axis_mkeep_reg <= ipv4_axis_skeep_s1;
-      ipv4_other_axis_mlast_reg <= ipv4_axis_slast_s1;
-      ipv4_other_axis_musr_reg <= ipv4_axis_susr_s1;
-    end
-  end
-
-  always @(posedge clk) begin
-    if (other_s1_to_skid) begin
-      ipv4_other_axis_mdata_skid <= ipv4_axis_sdata_s1;
-      ipv4_other_axis_mkeep_skid <= ipv4_axis_skeep_s1;
-      ipv4_other_axis_mlast_skid <= ipv4_axis_slast_s1;
-      ipv4_other_axis_musr_skid <= ipv4_axis_susr_s1;
-    end
-  end
-
+  endgenerate
+  
   // sel_type_one_hot_s1
   always @(posedge clk) begin
     if (rst) begin
@@ -361,18 +176,7 @@ module ipv4_type_demux(
     end
     else begin
       if (s_handshake && is_first_beat) begin
-        if (ipv4_axis_sdata[72 +: 8] == 8'h11) begin
-          sel_type_one_hot_s1 <= 4'b001;
-        end
-        else if (ipv4_axis_sdata[72 +: 8] == 8'h01) begin
-          sel_type_one_hot_s1 <= 4'b010;
-        end
-        else if (ipv4_axis_sdata[72 +: 8] == 8'h59) begin
-          sel_type_one_hot_s1 <= 4'b0100;
-        end
-        else begin
-          sel_type_one_hot_s1 <= 4'b1000;
-        end
+        sel_type_one_hot_s1 <= type_compare;
       end
     end
   end
@@ -389,26 +193,11 @@ module ipv4_type_demux(
     end
   end
 
-  assign  ipv4_udp_axis_mdata= ipv4_udp_axis_mdata_reg;
-  assign  ipv4_udp_axis_mkeep= ipv4_udp_axis_mkeep_reg;
-  assign  ipv4_udp_axis_mlast= ipv4_udp_axis_mlast_reg;
-  assign  ipv4_udp_axis_mvalid= ipv4_udp_axis_mvalid_reg;
-  assign  ipv4_udp_axis_musr= ipv4_udp_axis_musr_reg;
-  assign  ipv4_icmp_axis_mdata= ipv4_icmp_axis_mdata_reg;
-  assign  ipv4_icmp_axis_mkeep= ipv4_icmp_axis_mkeep_reg;
-  assign  ipv4_icmp_axis_mlast= ipv4_icmp_axis_mlast_reg;
-  assign  ipv4_icmp_axis_mvalid= ipv4_icmp_axis_mvalid_reg;
-  assign  ipv4_icmp_axis_musr= ipv4_icmp_axis_musr_reg;
-  assign  ipv4_ospf_axis_mdata= ipv4_ospf_axis_mdata_reg;
-  assign  ipv4_ospf_axis_mkeep= ipv4_ospf_axis_mkeep_reg;
-  assign  ipv4_ospf_axis_mlast= ipv4_ospf_axis_mlast_reg;
-  assign  ipv4_ospf_axis_mvalid= ipv4_ospf_axis_mvalid_reg;
-  assign  ipv4_ospf_axis_musr= ipv4_ospf_axis_musr_reg;
-  assign  ipv4_other_axis_mdata= ipv4_other_axis_mdata_reg;
-  assign  ipv4_other_axis_mkeep= ipv4_other_axis_mkeep_reg;
-  assign  ipv4_other_axis_mlast= ipv4_other_axis_mlast_reg;
-  assign  ipv4_other_axis_mvalid= ipv4_other_axis_mvalid_reg;
-  assign  ipv4_other_axis_musr= ipv4_other_axis_musr_reg;
+  assign  ipv4_axis_mdata  = ipv4_axis_mdata_reg;
+  assign  ipv4_axis_mkeep  = ipv4_axis_mkeep_reg;
+  assign  ipv4_axis_mlast  = ipv4_axis_mlast_reg;
+  assign  ipv4_axis_mvalid = ipv4_axis_mvalid_reg;
+  assign  ipv4_axis_musr   = ipv4_axis_musr_reg;
 
 endmodule
 `resetall

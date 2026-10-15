@@ -19,7 +19,7 @@
 module axis_fifo_async #(
   parameter  FIFO_DEPTH= 512,  // FIFO 深度, 需为 2 的幂
   parameter  AXIS_WIDTH= 512,  // 数据位宽 (字节整数倍)
-  parameter  AXIS_USER_WIDTH= 1,  // 用户自定义信息位宽
+  parameter  AXIS_USER_WIDTH= 1 ,  // 用户自定义信息位宽
   parameter  AXIS_ID_WIDTH= 1 ,  // 流标识位宽
   parameter  AXIS_DEST_WIDTH= 1 ,  // 路由信息位宽
   parameter  PACKET_FIFO= 1 ,  // 包模式开关: 1 开启, 0 关闭
@@ -37,28 +37,28 @@ module axis_fifo_async #(
     // ============================================================================
     // AXI-Stream 从机接口 (上游写)
     // ============================================================================
-  input  wire          [        AXIS_WIDTH-1: 0]       axis_sdata      ,// 数据
-  input  wire          [      AXIS_WIDTH/8-1: 0]       axis_skeep      ,// 字节有效标志
+  input  wire          [        AXIS_WIDTH-1:0]        axis_sdata      ,// 数据
+  input  wire          [      AXIS_WIDTH/8-1:0]        axis_skeep      ,// 字节有效标志
   input  wire                                          axis_svalid     ,// 数据有效
   input  wire                                          axis_slast      ,// 包结束标志
   output wire                                          axis_sready     ,// 反压: 还能写入
-  input  wire          [   AXIS_USER_WIDTH-1: 0]       axis_suser      ,// 用户自定义信息
-  input  wire          [      AXIS_WIDTH/8-1: 0]       axis_sstrb      ,// 字节选通
-  input  wire          [     AXIS_ID_WIDTH-1: 0]       axis_sid        ,// 流标识
-  input  wire          [   AXIS_DEST_WIDTH-1: 0]       axis_sdest      ,// 路由信息
+  input  wire          [   AXIS_USER_WIDTH-1:0]        axis_susr       ,// 用户自定义信息
+  input  wire          [      AXIS_WIDTH/8-1:0]        axis_sstrb      ,// 字节选通
+  input  wire          [     AXIS_ID_WIDTH-1:0]        axis_sid        ,// 流标识
+  input  wire          [   AXIS_DEST_WIDTH-1:0]        axis_sdest      ,// 路由信息
 
     // ============================================================================
     // AXI-Stream 主机接口 (下游读)
     // ============================================================================
-  output wire          [        AXIS_WIDTH-1: 0]       axis_mdata      ,// 数据
-  output wire          [      AXIS_WIDTH/8-1: 0]       axis_mkeep      ,// 字节有效标志
+  output wire          [        AXIS_WIDTH-1:0]        axis_mdata      ,// 数据
+  output wire          [      AXIS_WIDTH/8-1:0]        axis_mkeep      ,// 字节有效标志
   output wire                                          axis_mvalid     ,// 有数据可读
   output wire                                          axis_mlast      ,// 包结束标志
   input  wire                                          axis_mready     ,// 下游能接收
-  output wire          [   AXIS_USER_WIDTH-1: 0]       axis_muser      ,// 用户自定义信息
-  output wire          [      AXIS_WIDTH/8-1: 0]       axis_mstrb      ,// 字节选通
-  output wire          [     AXIS_ID_WIDTH-1: 0]       axis_mid        ,// 流标识
-  output wire          [   AXIS_DEST_WIDTH-1: 0]       axis_mdest      ,// 路由信息
+  output wire          [   AXIS_USER_WIDTH-1:0]        axis_musr       ,// 用户自定义信息
+  output wire          [      AXIS_WIDTH/8-1:0]        axis_mstrb      ,// 字节选通
+  output wire          [     AXIS_ID_WIDTH-1:0]        axis_mid        ,// 流标识
+  output wire          [   AXIS_DEST_WIDTH-1:0]        axis_mdest      ,// 路由信息
 
     // ============================================================================
     // 状态端口
@@ -69,8 +69,8 @@ module axis_fifo_async #(
   output wire                                          almost_empty    ,// FIFO 空
   output wire                                          almost_full     ,// FIFO 满
 
-  output wire          [REMAIN_COUNT_WIDTH-1: 0]       wr_almost_remain_count,
-  output wire          [REMAIN_COUNT_WIDTH-1: 0]       rd_almost_remain_count
+  output wire          [REMAIN_COUNT_WIDTH-1:0]        wr_almost_remain_count,
+  output wire          [REMAIN_COUNT_WIDTH-1:0]        rd_almost_remain_count 
 );
 
   // --- 参数与复位 ---
@@ -115,75 +115,75 @@ module axis_fifo_async #(
                               ID_MEMORY_TYPE  == "distributed" &&
                               DEST_MEMORY_TYPE == "distributed";
 
-(* ASYNC_REG = "true" *)   reg                                                  mrst_d0,         mrst_d1;
+(* ASYNC_REG = "true" *)   reg                                                  mrst_d0          , mrst_d1;
 
   // --- FIFO 存储体 ---
-(* ram_style = DATA_MEMORY_TYPE *)   reg                  [        AXIS_WIDTH-1: 0]       ram_data[0:FIFO_DEPTH-1]  ;
-(* ram_style = KEEP_MEMORY_TYPE *)   reg                  [      AXIS_WIDTH/8-1: 0]       ram_keep[0:FIFO_DEPTH-1]  ;
-(* ram_style = USER_MEMORY_TYPE *)   reg                  [   AXIS_USER_WIDTH-1: 0]       ram_user[0:FIFO_DEPTH-1]  ;
-(* ram_style = ID_MEMORY_TYPE *)   reg                  [     AXIS_ID_WIDTH-1: 0]       ram_id[0:FIFO_DEPTH-1]  ;
-(* ram_style = DEST_MEMORY_TYPE *)   reg                  [   AXIS_DEST_WIDTH-1: 0]       ram_dest[0:FIFO_DEPTH-1]  ;
-(* ram_style = STRB_MEMORY_TYPE *)   reg                  [      AXIS_WIDTH/8-1: 0]       ram_strb[0:FIFO_DEPTH-1]  ;
-(* ram_style = LAST_MEMORY_TYPE *)   reg                                                  ram_last[0:FIFO_DEPTH-1]  ;
+(* ram_style = DATA_MEMORY_TYPE *)   reg                  [        AXIS_WIDTH-1:0]        ram_data[0:FIFO_DEPTH-1];
+(* ram_style = KEEP_MEMORY_TYPE *)   reg                  [      AXIS_WIDTH/8-1:0]        ram_keep[0:FIFO_DEPTH-1];
+(* ram_style = USER_MEMORY_TYPE *)   reg                  [   AXIS_USER_WIDTH-1:0]        ram_usr[0:FIFO_DEPTH-1];
+(* ram_style = ID_MEMORY_TYPE *)   reg                  [     AXIS_ID_WIDTH-1:0]        ram_id[0:FIFO_DEPTH-1];
+(* ram_style = DEST_MEMORY_TYPE *)   reg                  [   AXIS_DEST_WIDTH-1:0]        ram_dest[0:FIFO_DEPTH-1];
+(* ram_style = STRB_MEMORY_TYPE *)   reg                  [      AXIS_WIDTH/8-1:0]        ram_strb[0:FIFO_DEPTH-1];
+(* ram_style = LAST_MEMORY_TYPE *)   reg                                                  ram_last[0:FIFO_DEPTH-1];
 
   // --- 读写指针及跨时钟域同步 ---
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_ptr_gray        ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_ptr_bin         ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_ptr_bin_sync    ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_ptr_gray        ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_ptr_bin         ;
-  wire                 [    FIFO_DEPTH_WIDTH: 0]       rd_ptr_bin_next    ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_ptr_bin_sync    ;
-  wire                 [    FIFO_DEPTH_WIDTH: 0]       wr_ptr_bin_next    ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_ptr_gray      ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_ptr_bin       ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_ptr_bin_sync  ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_ptr_gray      ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_ptr_bin       ;
+  wire                 [    FIFO_DEPTH_WIDTH:0]        rd_ptr_bin_next  ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_ptr_bin_sync  ;
+  wire                 [    FIFO_DEPTH_WIDTH:0]        wr_ptr_bin_next  ;
 
-(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_ptr_gray_sync_0  ;
-(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_ptr_gray_sync_0  ;
-(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_ptr_gray_sync_1  ;
-(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_ptr_gray_sync_1  ;
+(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH:0]        wr_ptr_gray_sync_0;
+(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH:0]        rd_ptr_gray_sync_0;
+(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH:0]        wr_ptr_gray_sync_1;
+(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH:0]        rd_ptr_gray_sync_1;
 
   // --- 状态与握手 ---
-  wire                                                 internal_empty  ;
-  wire                                                 s_handshake        ;
-  wire                                                 m_handshake        ;
-  wire                                                 deadlock_risk      ;
+  wire                                                 internal_empty   ;
+  wire                                                 s_handshake      ;
+  wire                                                 m_handshake      ;
+  wire                                                 deadlock_risk    ;
 
   // --- 包计数 ---
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_pkt_cnt_gray    ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_pkt_cnt_bin     ;
-(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_pkt_cnt_gray_sync_0  ;
-(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_pkt_cnt_gray_sync_1  ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_pkt_cnt_gray    ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_pkt_cnt_bin     ;
-  wire                 [    FIFO_DEPTH_WIDTH: 0]       rd_pkt_cnt_bin_next  ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_pkt_cnt_bin_sync  ;
-  wire                 [    FIFO_DEPTH_WIDTH: 0]       wr_pkt_cnt_bin_next  ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_pkt_cnt_gray  ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_pkt_cnt_bin   ;
+(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH:0]        wr_pkt_cnt_gray_sync_0;
+(* ASYNC_REG = "true" *)   reg                  [    FIFO_DEPTH_WIDTH:0]        wr_pkt_cnt_gray_sync_1;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_pkt_cnt_gray  ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_pkt_cnt_bin   ;
+  wire                 [    FIFO_DEPTH_WIDTH:0]        rd_pkt_cnt_bin_next;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_pkt_cnt_bin_sync;
+  wire                 [    FIFO_DEPTH_WIDTH:0]        wr_pkt_cnt_bin_next;
 
-  reg [    FIFO_DEPTH_WIDTH: 0] wr_almost_remain_count_reg;
-  reg [    FIFO_DEPTH_WIDTH: 0] rd_almost_remain_count_reg;
-  reg prog_almost_empty_reg;
-  reg prog_almost_full_reg;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_almost_remain_count_reg;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_almost_remain_count_reg;
+  reg                                                  prog_almost_empty_reg;
+  reg                                                  prog_almost_full_reg;
 
   // --- 格雷码转换索引 ---
-  integer                                              i                  ;
+  integer                                              i                ;
 
   // --- 状态组合信号 ---
-  wire                 [    FIFO_DEPTH_WIDTH: 0]       wr_remain_count    ;
-  wire                 [    FIFO_DEPTH_WIDTH: 0]       rd_remain_count    ;
-  assign  wr_remain_count  = wr_ptr_bin - rd_ptr_bin_sync; // 因为同步比真实值大于等于
-  assign  rd_remain_count  = wr_ptr_bin_sync - rd_ptr_bin; // 因为同步比真实值小于等于
+  wire                 [    FIFO_DEPTH_WIDTH:0]        wr_remain_count  ;
+  wire                 [    FIFO_DEPTH_WIDTH:0]        rd_remain_count  ;
+  assign  wr_remain_count  = wr_ptr_bin - rd_ptr_bin_sync;// 因为同步比真实值大于等于
+  assign  rd_remain_count  = wr_ptr_bin_sync - rd_ptr_bin;// 因为同步比真实值小于等于
 
-  assign  internal_empty= (wr_ptr_gray_sync_1 == rd_ptr_gray) ; // 等价： rd_remain_count == 'd0;，但是时序好
+  assign  internal_empty   = (wr_ptr_gray_sync_1 == rd_ptr_gray);// 等价： rd_remain_count == 'd0;，但是时序好
   
   assign  deadlock_risk    = (rd_remain_count >= (FIFO_DEPTH - 4));
 
   assign  almost_full    = (wr_ptr_gray[FIFO_DEPTH_WIDTH] != rd_ptr_gray_sync_1[FIFO_DEPTH_WIDTH]) &&
                         (wr_ptr_gray[FIFO_DEPTH_WIDTH-1] != rd_ptr_gray_sync_1[FIFO_DEPTH_WIDTH-1]) &&
-                        (wr_ptr_gray[FIFO_DEPTH_WIDTH-2:0] == rd_ptr_gray_sync_1[FIFO_DEPTH_WIDTH-2:0]); // 等价：wr_remain_count == FIFO_DEPTH ;
+                        (wr_ptr_gray[FIFO_DEPTH_WIDTH-2:0] == rd_ptr_gray_sync_1[FIFO_DEPTH_WIDTH-2:0]);// 等价：wr_remain_count == FIFO_DEPTH ;
   assign  wr_almost_remain_count= wr_almost_remain_count_reg;
   assign  rd_almost_remain_count= rd_almost_remain_count_reg;
   assign  prog_almost_empty= prog_almost_empty_reg;
   assign  prog_almost_full = prog_almost_full_reg;
-  assign  axis_sready      = !almost_full;
+  assign  axis_sready      = !almost_full     ;
 
   assign  s_handshake      = axis_svalid & axis_sready;
   assign  m_handshake      = axis_mvalid & axis_mready;
@@ -266,7 +266,7 @@ module axis_fifo_async #(
     if (s_handshake) begin
       ram_data[wr_ptr_bin[FIFO_DEPTH_WIDTH-1:0]] <= axis_sdata;
       ram_keep[wr_ptr_bin[FIFO_DEPTH_WIDTH-1:0]] <= axis_skeep;
-      ram_user[wr_ptr_bin[FIFO_DEPTH_WIDTH-1:0]] <= axis_suser;
+      ram_usr[wr_ptr_bin[FIFO_DEPTH_WIDTH-1:0]] <= axis_susr;
       ram_id[wr_ptr_bin[FIFO_DEPTH_WIDTH-1:0]]   <= axis_sid;
       ram_dest[wr_ptr_bin[FIFO_DEPTH_WIDTH-1:0]] <= axis_sdest;
       ram_strb[wr_ptr_bin[FIFO_DEPTH_WIDTH-1:0]] <= axis_sstrb;
@@ -297,40 +297,40 @@ module axis_fifo_async #(
   generate
     if (FIFO_MEMORY_TYPE == "distributed" || ALL_DISTRIBUTED) begin : g_distributed
 
-    reg                  [        AXIS_WIDTH-1: 0]       axis_mdata_direct  ;
-    reg                  [      AXIS_WIDTH/8-1: 0]       axis_mkeep_direct  ;
-    reg                  [   AXIS_USER_WIDTH-1: 0]       axis_muser_direct  ;
-    reg                  [     AXIS_ID_WIDTH-1: 0]       axis_mid_direct    ;
-    reg                  [   AXIS_DEST_WIDTH-1: 0]       axis_mdest_direct  ;
-    reg                  [      AXIS_WIDTH/8-1: 0]       axis_mstrb_direct  ;
-    reg                                                  axis_mlast_direct  ;
-    reg                                                  axis_mvalid_direct  ;
+  reg                  [        AXIS_WIDTH-1:0]        axis_mdata_direct;
+  reg                  [      AXIS_WIDTH/8-1:0]        axis_mkeep_direct;
+  reg                  [   AXIS_USER_WIDTH-1:0]        axis_musr_direct ;
+  reg                  [     AXIS_ID_WIDTH-1:0]        axis_mid_direct  ;
+  reg                  [   AXIS_DEST_WIDTH-1:0]        axis_mdest_direct;
+  reg                  [      AXIS_WIDTH/8-1:0]        axis_mstrb_direct;
+  reg                                                  axis_mlast_direct;
+  reg                                                  axis_mvalid_direct;
 
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_pkt_cnt_bin_plus1  ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_pkt_cnt_bin_sync_reg  ;
-  wire                                                 allow_read         ;
-  wire                                                 ram_read_en        ;
-  wire                                                 is_holding_last    ;
-  wire                 [    FIFO_DEPTH_WIDTH: 0]       cmp_rd_pkt_cnt     ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_pkt_cnt_bin_plus1;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_pkt_cnt_bin_sync_reg;
+  wire                                                 allow_read       ;
+  wire                                                 ram_read_en      ;
+  wire                                                 is_holding_last  ;
+  wire                 [    FIFO_DEPTH_WIDTH:0]        cmp_rd_pkt_cnt   ;
 
       // ========================================================================
       // 分布式 RAM 组合读出
       // ========================================================================
-  assign  almost_empty = internal_empty && !axis_mvalid_direct;
-  assign  axis_mvalid = axis_mvalid_direct;
+  assign  almost_empty     = internal_empty && !axis_mvalid_direct;
+  assign  axis_mvalid      = axis_mvalid_direct;
   assign  is_holding_last  = axis_mvalid_direct && axis_mlast_direct;
   assign  cmp_rd_pkt_cnt   = is_holding_last ? rd_pkt_cnt_bin_plus1 : rd_pkt_cnt_bin;
   assign  allow_read       = PACKET_FIFO ? (DEADLOCK_RISK ? wr_pkt_cnt_bin_sync_reg != cmp_rd_pkt_cnt : ((wr_pkt_cnt_bin_sync_reg != cmp_rd_pkt_cnt) || deadlock_risk)) : !internal_empty;
-  assign  ram_read_en    = allow_read && (!axis_mvalid_direct || axis_mready);
+  assign  ram_read_en      = allow_read && (!axis_mvalid_direct || axis_mready);
 
   
-  assign  axis_mdata  = axis_mdata_direct;
-  assign  axis_mkeep  = axis_mkeep_direct;
-  assign  axis_muser  = axis_muser_direct;
-  assign  axis_mid    = axis_mid_direct;
-  assign  axis_mdest  = axis_mdest_direct;
-  assign  axis_mstrb  = axis_mstrb_direct;
-  assign  axis_mlast  = axis_mlast_direct;
+  assign  axis_mdata       = axis_mdata_direct;
+  assign  axis_mkeep       = axis_mkeep_direct;
+  assign  axis_musr        = axis_musr_direct ;
+  assign  axis_mid         = axis_mid_direct  ;
+  assign  axis_mdest       = axis_mdest_direct;
+  assign  axis_mstrb       = axis_mstrb_direct;
+  assign  axis_mlast       = axis_mlast_direct;
 
   // 使用延后感知包写入，来换取时序
   always @(posedge mclk) begin
@@ -345,7 +345,7 @@ module axis_fifo_async #(
     if (ram_read_en) begin
       axis_mdata_direct <= ram_data[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
       axis_mkeep_direct <= ram_keep[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
-      axis_muser_direct <= ram_user[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
+      axis_musr_direct <= ram_usr[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
       axis_mid_direct   <= ram_id[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
       axis_mdest_direct <= ram_dest[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
       axis_mstrb_direct <= ram_strb[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
@@ -379,21 +379,21 @@ module axis_fifo_async #(
   end
 
     end else begin : g_block
-  reg                  [        AXIS_WIDTH-1: 0]       axis_mdata_direct  ;
-  reg                  [      AXIS_WIDTH/8-1: 0]       axis_mkeep_direct  ;
-  reg                  [   AXIS_USER_WIDTH-1: 0]       axis_muser_direct  ;
-  reg                  [     AXIS_ID_WIDTH-1: 0]       axis_mid_direct    ;
-  reg                  [   AXIS_DEST_WIDTH-1: 0]       axis_mdest_direct  ;
-  reg                  [      AXIS_WIDTH/8-1: 0]       axis_mstrb_direct  ;
-  reg                                                  axis_mlast_direct  ;
-  reg                                                  axis_mvalid_direct  ;
+  reg                  [        AXIS_WIDTH-1:0]        axis_mdata_direct;
+  reg                  [      AXIS_WIDTH/8-1:0]        axis_mkeep_direct;
+  reg                  [   AXIS_USER_WIDTH-1:0]        axis_musr_direct ;
+  reg                  [     AXIS_ID_WIDTH-1:0]        axis_mid_direct  ;
+  reg                  [   AXIS_DEST_WIDTH-1:0]        axis_mdest_direct;
+  reg                  [      AXIS_WIDTH/8-1:0]        axis_mstrb_direct;
+  reg                                                  axis_mlast_direct;
+  reg                                                  axis_mvalid_direct;
 
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_pkt_cnt_bin_plus1  ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_pkt_cnt_bin_sync_reg  ;
-  wire                                                 allow_read         ;
-  wire                                                 ram_read_en        ;
-  wire                                                 is_holding_last    ;
-  wire                 [    FIFO_DEPTH_WIDTH: 0]       cmp_rd_pkt_cnt     ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_pkt_cnt_bin_plus1;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_pkt_cnt_bin_sync_reg;
+  wire                                                 allow_read       ;
+  wire                                                 ram_read_en      ;
+  wire                                                 is_holding_last  ;
+  wire                 [    FIFO_DEPTH_WIDTH:0]        cmp_rd_pkt_cnt   ;
 
       // 使用延后感知包写入，来换取时序
       always @(posedge mclk) begin
@@ -409,7 +409,7 @@ module axis_fifo_async #(
         if (ram_read_en) begin
           axis_mdata_direct <= ram_data[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
           axis_mkeep_direct <= ram_keep[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
-          axis_muser_direct <= ram_user[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
+          axis_musr_direct <= ram_usr[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
           axis_mid_direct    <= ram_id[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
           axis_mdest_direct <= ram_dest[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
           axis_mstrb_direct <= ram_strb[rd_ptr_bin[FIFO_DEPTH_WIDTH-1:0]];
@@ -418,7 +418,7 @@ module axis_fifo_async #(
       end
 
       if (BRAM_DO_REG == 1) begin : gen_direct_reg
-  assign  almost_empty = internal_empty && !axis_mvalid_direct;
+  assign  almost_empty     = internal_empty && !axis_mvalid_direct;
   assign  axis_mvalid      = axis_mvalid_direct;
   assign  is_holding_last  = axis_mvalid_direct && axis_mlast_direct;
   assign  cmp_rd_pkt_cnt   = is_holding_last ? rd_pkt_cnt_bin_plus1 : rd_pkt_cnt_bin;
@@ -454,28 +454,28 @@ module axis_fifo_async #(
 
   assign  axis_mdata       = axis_mdata_direct;
   assign  axis_mkeep       = axis_mkeep_direct;
-  assign  axis_muser       = axis_muser_direct;
+  assign  axis_musr        = axis_musr_direct ;
   assign  axis_mid         = axis_mid_direct  ;
   assign  axis_mdest       = axis_mdest_direct;
   assign  axis_mstrb       = axis_mstrb_direct;
   assign  axis_mlast       = axis_mlast_direct;
       end
       else if (BRAM_DO_REG == 2) begin : gen_do_reg
-  reg                  [        AXIS_WIDTH-1: 0]       axis_mdata_do_reg  ;
-  reg                  [      AXIS_WIDTH/8-1: 0]       axis_mkeep_do_reg  ;
-  reg                  [   AXIS_USER_WIDTH-1: 0]       axis_muser_do_reg  ;
-  reg                  [     AXIS_ID_WIDTH-1: 0]       axis_mid_do_reg    ;
-  reg                  [   AXIS_DEST_WIDTH-1: 0]       axis_mdest_do_reg  ;
-  reg                  [      AXIS_WIDTH/8-1: 0]       axis_mstrb_do_reg  ;
-  reg                                                  axis_mlast_do_reg  ;
-  reg                                                  axis_mvalid_do_reg  ;
+  reg                  [        AXIS_WIDTH-1:0]        axis_mdata_do_reg;
+  reg                  [      AXIS_WIDTH/8-1:0]        axis_mkeep_do_reg;
+  reg                  [   AXIS_USER_WIDTH-1:0]        axis_musr_do_reg ;
+  reg                  [     AXIS_ID_WIDTH-1:0]        axis_mid_do_reg  ;
+  reg                  [   AXIS_DEST_WIDTH-1:0]        axis_mdest_do_reg;
+  reg                  [      AXIS_WIDTH/8-1:0]        axis_mstrb_do_reg;
+  reg                                                  axis_mlast_do_reg;
+  reg                                                  axis_mvalid_do_reg;
         
-  wire                                                 axis_mready_do_reg=m_handshake||!axis_mvalid_do_reg  ;
-  wire                                                 do_handshake     =m_handshake;
-  wire                                                 axis_mready_direct=axis_mready_do_reg||!axis_mvalid_direct  ;
-  wire                                                 direct_handshake =axis_mready_direct&&axis_mvalid_direct;
+  wire                                                 axis_mready_do_reg = m_handshake||!axis_mvalid_do_reg                                                                   ;
+  wire                                                 do_handshake      = m_handshake                                                                                        ;
+  wire                                                 axis_mready_direct = axis_mready_do_reg||!axis_mvalid_direct                                                            ;
+  wire                                                 direct_handshake  = axis_mready_direct&&axis_mvalid_direct                                                             ;
 
-  assign  almost_empty = internal_empty && !axis_mvalid_direct && !axis_mvalid_do_reg;
+  assign  almost_empty     = internal_empty && !axis_mvalid_direct && !axis_mvalid_do_reg;
   assign  axis_mvalid      = axis_mvalid_do_reg;
   assign  is_holding_last  = axis_mvalid_direct && axis_mlast_direct;
   assign  cmp_rd_pkt_cnt   = is_holding_last ? rd_pkt_cnt_bin_plus1 : rd_pkt_cnt_bin;
@@ -488,7 +488,7 @@ module axis_fifo_async #(
           if (axis_mready_do_reg && axis_mvalid_direct) begin
             axis_mdata_do_reg <= axis_mdata_direct;
             axis_mkeep_do_reg <= axis_mkeep_direct;
-            axis_muser_do_reg <= axis_muser_direct;
+            axis_musr_do_reg <= axis_musr_direct;
             axis_mid_do_reg   <= axis_mid_direct  ;
             axis_mdest_do_reg <= axis_mdest_direct;
             axis_mstrb_do_reg <= axis_mstrb_direct;
@@ -527,7 +527,7 @@ module axis_fifo_async #(
         
   assign  axis_mdata       = axis_mdata_do_reg;
   assign  axis_mkeep       = axis_mkeep_do_reg;
-  assign  axis_muser       = axis_muser_do_reg;
+  assign  axis_musr        = axis_musr_do_reg ;
   assign  axis_mid         = axis_mid_do_reg  ;
   assign  axis_mdest       = axis_mdest_do_reg;
   assign  axis_mstrb       = axis_mstrb_do_reg;

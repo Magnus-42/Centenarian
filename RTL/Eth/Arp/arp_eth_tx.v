@@ -15,7 +15,9 @@
 // ============================================================================
 
 module arp_eth_tx#(
-  parameter  AXIS_WIDTH= 512
+  parameter  AXIS_WIDTH= 512,
+  parameter  AXIS_TX_USR_WID = 4,
+  parameter  ARP_PRIORITY = 15
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
@@ -41,6 +43,7 @@ module arp_eth_tx#(
   output wire          [      AXIS_WIDTH/8-1: 0]       arp_axis_mkeep  ,
   output wire                                          arp_axis_mvalid ,
   output wire                                          arp_axis_mlast  ,
+  output wire          [   AXIS_TX_USR_WID-1: 0]       arp_axis_musr   ,
   input  wire                                          arp_axis_mready  
 );
 
@@ -92,6 +95,7 @@ module arp_eth_tx#(
   reg                  [      AXIS_WIDTH/8-1: 0]       arp_axis_mkeep_reg  ;
   reg                                                  arp_axis_mvalid_reg  ;
   reg                                                  arp_axis_mlast_reg  ;
+  reg                  [   AXIS_TX_USR_WID-1: 0]       arp_axis_musr_reg   ; 
 
   wire                                                 arp_frame_handshake  ;
   wire                                                 m_handshake        ;
@@ -111,6 +115,7 @@ always @(posedge clk) begin
       arp_axis_mkeep_reg <= 64'h 0fff_ffff_ffff_ffff;
       arp_axis_mvalid_reg <= 1'b1;
       arp_axis_mlast_reg <= 1'b1;
+      arp_axis_musr_reg <= ARP_PRIORITY;
     end
     else if (m_handshake) begin
       arp_axis_mvalid_reg <= 1'b0;
@@ -123,6 +128,7 @@ end
   assign  arp_axis_mkeep   = arp_axis_mkeep_reg;
   assign  arp_axis_mvalid  = arp_axis_mvalid_reg;
   assign  arp_axis_mlast   = arp_axis_mlast_reg;
+  assign  arp_axis_musr    = arp_axis_musr_reg ;
 
 endmodule
 `resetall

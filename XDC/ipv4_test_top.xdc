@@ -140,6 +140,14 @@ create_pblock pb_fifo_rx_a
 add_cells_to_pblock [get_pblocks pb_fifo_rx_a] [get_cells -hierarchical -filter {NAME =~ *u_eth_top_a*u_fifo_rx*}]
 resize_pblock [get_pblocks pb_fifo_rx_a] -add {SLR1}
 
+create_pblock pb_fifo_tx_a
+add_cells_to_pblock [get_pblocks pb_fifo_tx_a] [get_cells -hierarchical -filter {NAME =~ *u_eth_top_a*u_fifo_tx*}]
+resize_pblock [get_pblocks pb_fifo_tx_a] -add {SLR1}
+
+create_pblock pb_fifo_tx_b
+add_cells_to_pblock [get_pblocks pb_fifo_tx_b] [get_cells -hierarchical -filter {NAME =~ *u_eth_top_b*u_fifo_tx*}]
+resize_pblock [get_pblocks pb_fifo_tx_b] -add {SLR1}
+
 # ------------------------------------------------------------------------------
 # 跨时钟域复位信号
 # ------------------------------------------------------------------------------

@@ -15,57 +15,65 @@
 // 
 // ============================================================================
 
-module ipv4_mac_add(
+module ipv4_mac_add#(
+  parameter  AXIS_USER_WIDTH= 4 
+)(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
 
-  input  wire          [                 511: 0]       ipv4_axis_sdata ,
-  input  wire          [                  63: 0]       ipv4_axis_skeep ,
+  input  wire          [                 511:0]        ipv4_axis_sdata ,
+  input  wire          [                  63:0]        ipv4_axis_skeep ,
   input  wire                                          ipv4_axis_slast ,
   input  wire                                          ipv4_axis_svalid,
+  input  wire          [   AXIS_USER_WIDTH-1:0]        ipv4_axis_susr  ,
   output wire                                          ipv4_axis_sready,
 
-  input  wire          [                  47: 0]       dst_mac         ,
-  input  wire          [                  47: 0]       src_mac         ,
+  input  wire          [                  47:0]        dst_mac         ,
+  input  wire          [                  47:0]        src_mac         ,
 
-  output wire          [                 511: 0]       eth_axis_mdata  ,
-  output wire          [                  63: 0]       eth_axis_mkeep  ,
+  output wire          [                 511:0]        eth_axis_mdata  ,
+  output wire          [                  63:0]        eth_axis_mkeep  ,
   output wire                                          eth_axis_mlast  ,
   output wire                                          eth_axis_mvalid ,
-  input  wire                                          eth_axis_mready
+  output wire          [   AXIS_USER_WIDTH-1:0]        eth_axis_musr   ,
+  input  wire                                          eth_axis_mready  
 );
 
   localparam ETH_HDR_BITS= 112;
   
-  reg                  [                 511: 0]       ipv4_axis_sdata_d0  ;
-  reg                  [                  63: 0]       ipv4_axis_skeep_d0  ;
-  reg                                                  ipv4_axis_slast_d0  ;
-  reg                                                  ipv4_axis_svalid_d0  ;
+  reg                  [                 511:0]        ipv4_axis_sdata_d0;
+  reg                  [                  63:0]        ipv4_axis_skeep_d0;
+  reg                                                  ipv4_axis_slast_d0;
+  reg                                                  ipv4_axis_svalid_d0;
+  reg                  [   AXIS_USER_WIDTH-1:0]        ipv4_axis_susr_d0;
 
-  reg                  [                  47: 0]       dst_mac_d0         ;
-  reg                  [                  47: 0]       src_mac_d0         ;
+  reg                  [                  47:0]        dst_mac_d0       ;
+  reg                  [                  47:0]        src_mac_d0       ;
 
-  reg                                                  is_first_beat      ;
-
-  reg                  [    ETH_HDR_BITS-1: 0]       data_remain_reg    ;
-  reg                  [  ETH_HDR_BITS/8-1: 0]       keep_remain_reg    ;
+  reg                                                  is_first_beat    ;
 
 
+  reg                  [      ETH_HDR_BITS-1:0]        data_remain_reg  ;
+  reg                  [    ETH_HDR_BITS/8-1:0]        keep_remain_reg  ;
+  reg                  [   AXIS_USER_WIDTH-1:0]        usr_remain_reg   ;
 
-  reg                  [                 511: 0]       eth_axis_mdata_reg  ;
-  reg                  [                  63: 0]       eth_axis_mkeep_reg  ;
-  reg                                                  eth_axis_mlast_reg  ;
-  reg                                                  eth_axis_mvalid_reg  ;
 
-  reg                                                  is_insert_beat,  is_insert_beat_d0; // 末拍高 14 字节含有效数据 ⇒ 还需补发一个插入拍
+
+  reg                  [                 511:0]        eth_axis_mdata_reg;
+  reg                  [                  63:0]        eth_axis_mkeep_reg;
+  reg                                                  eth_axis_mlast_reg;
+  reg                                                  eth_axis_mvalid_reg;
+  reg                  [   AXIS_USER_WIDTH-1:0]        eth_axis_musr_reg;
+
+  reg                                                  is_insert_beat   , is_insert_beat_d0;// 末拍高 14 字节含有效数据 ⇒ 还需补发一个插入拍
 
   
-  wire out_reg_free        = !eth_axis_mvalid_reg || eth_axis_mready;
-  wire insert_en           = is_insert_beat_d0 && out_reg_free;
+  wire                                                 out_reg_free      = !eth_axis_mvalid_reg || eth_axis_mready                        ;
+  wire                                                 insert_en         = is_insert_beat_d0 && out_reg_free                              ;
   wire                                                 ipv4_axis_sready_d0 = (!eth_axis_mvalid_reg || eth_axis_mready) && !is_insert_beat_d0;
-  wire                                                 m_handshake      =eth_axis_mvalid_reg && eth_axis_mready;
-  wire                                                 s_handshake      =ipv4_axis_sready && ipv4_axis_svalid;
-  wire                                                 d0_handshake     =ipv4_axis_sready_d0 && ipv4_axis_svalid_d0;
+  wire                                                 m_handshake       = eth_axis_mvalid_reg && eth_axis_mready                         ;
+  wire                                                 s_handshake       = ipv4_axis_sready && ipv4_axis_svalid                           ;
+  wire                                                 d0_handshake      = ipv4_axis_sready_d0 && ipv4_axis_svalid_d0                     ;
   assign  ipv4_axis_sready = (!ipv4_axis_svalid_d0 || ipv4_axis_sready_d0) && !is_insert_beat;
 
   always @(posedge clk) begin
@@ -73,6 +81,7 @@ module ipv4_mac_add(
       ipv4_axis_sdata_d0 <= ipv4_axis_sdata;
       ipv4_axis_skeep_d0 <= ipv4_axis_skeep;
       ipv4_axis_slast_d0 <= ipv4_axis_slast;
+      ipv4_axis_susr_d0 <= ipv4_axis_susr;
       dst_mac_d0 <= dst_mac;
       src_mac_d0 <= src_mac;
     end
@@ -141,6 +150,13 @@ module ipv4_mac_add(
     end
   end
 
+  // usr_remain_reg (帧内保持值; insert 拍沿用)
+  always @(posedge clk) begin
+    if (d0_handshake) begin
+      usr_remain_reg <= ipv4_axis_susr_d0;
+    end
+  end
+
   // eth_axis_mdata_reg
   always @(posedge clk) begin
     if (insert_en) begin
@@ -151,6 +167,16 @@ module ipv4_mac_add(
     end
     else if (d0_handshake) begin
       eth_axis_mdata_reg <= {ipv4_axis_sdata_d0[511-ETH_HDR_BITS:0],data_remain_reg};
+    end
+  end
+
+  // eth_axis_musr_reg
+  always @(posedge clk) begin
+    if (insert_en) begin
+      eth_axis_musr_reg <= usr_remain_reg;
+    end
+    else if (d0_handshake) begin
+      eth_axis_musr_reg <= ipv4_axis_susr_d0;
     end
   end
 
@@ -204,6 +230,7 @@ module ipv4_mac_add(
   assign  eth_axis_mkeep   = eth_axis_mkeep_reg;
   assign  eth_axis_mlast   = eth_axis_mlast_reg;
   assign  eth_axis_mvalid  = eth_axis_mvalid_reg;
+  assign  eth_axis_musr    = eth_axis_musr_reg;
 
 endmodule
 `resetall

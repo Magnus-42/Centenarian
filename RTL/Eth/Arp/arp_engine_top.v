@@ -25,7 +25,9 @@ module arp_engine_top#(
   parameter  PENDING_ADDR_WIDTH= PENDING_DEEP == 1? 1 : $clog2(PENDING_DEEP),
   parameter  PENDING_TIME_WIDTH= 57, // 57位，10年以上
   parameter  HASH_WAY_CNT= 4,
-  parameter  LOCAL_IP_NUM = 1
+  parameter  LOCAL_IP_NUM = 1,
+  parameter  AXIS_TX_USR_WID = 4,
+  parameter  ARP_PRIORITY = 15
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
@@ -44,6 +46,7 @@ module arp_engine_top#(
   input  wire          [      AXIS_WIDTH/8-1: 0]       arp_axis_skeep  ,
   input  wire                                          arp_axis_svalid ,
   input  wire                                          arp_axis_slast  ,
+  input  wire                                          arp_axis_susr   ,
   output wire                                          arp_axis_sready ,
 
   // eth_arp axis out
@@ -51,6 +54,7 @@ module arp_engine_top#(
   output wire          [      AXIS_WIDTH/8-1: 0]       arp_axis_mkeep  ,
   output wire                                          arp_axis_mvalid ,
   output wire                                          arp_axis_mlast  ,
+  output wire          [   AXIS_TX_USR_WID-1: 0]       arp_axis_musr   ,
   input  wire                                          arp_axis_mready ,
 
   // cfg
@@ -714,7 +718,9 @@ arbiter#(
 );
 
 arp_eth_tx#(
-    .AXIS_WIDTH       (AXIS_WIDTH       ) 
+    .AXIS_WIDTH       (AXIS_WIDTH       ) ,
+    .AXIS_TX_USR_WID  (AXIS_TX_USR_WID  ) ,
+    .ARP_PRIORITY     (ARP_PRIORITY     )
 )
  u_arp_eth_tx(
     .clk              (clk              ),// (input)
@@ -739,6 +745,7 @@ arp_eth_tx#(
     .arp_axis_mkeep   (arp_axis_mkeep   ),// (output)
     .arp_axis_mvalid  (arp_axis_mvalid  ),// (output)
     .arp_axis_mlast   (arp_axis_mlast   ),// (output)
+    .arp_axis_musr    (arp_axis_musr    ),// (output)
     .arp_axis_mready  (arp_axis_mready  ) // (input)
 );
 
@@ -766,6 +773,7 @@ arp_eth_rx#(
     // eth_arp axis out
     .arp_axis_sdata   (arp_axis_sdata   ),// (input)
     .arp_axis_skeep   (arp_axis_skeep   ),// (input)
+    .arp_axis_susr    (arp_axis_susr    ),// (input)
     .arp_axis_svalid  (arp_axis_svalid  ),// (input)
     .arp_axis_slast   (arp_axis_slast   ),// (input)
     .arp_axis_sready  (arp_axis_sready  ),// (output)

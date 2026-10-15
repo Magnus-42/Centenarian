@@ -8,89 +8,75 @@
 // Module Name : eth_tx_mux
 // Author      : LiXintao
 // Date        : 2026-09-24
-// Version     : v1.0
+// Version     : v2.0
 // ----------------------------------------------------------------------------
-// Description : 以太网出口复用: 三类以太帧(other / arp / ipv4)仲裁复用到一路
-// Note        : 优先级：other- > arp -> ipv4
+// Description : 以太网出口复用: 以太帧仲裁复用到一路
+// Note        : 优先级：低位优先
 // ============================================================================
 
 module eth_tx_mux#(
-  parameter AXIS_WIDTH      = 512,
-  parameter AXIS_ID_WIDTH   = 1  ,
-  parameter AXIS_USER_WIDTH = 1
+  parameter  TYPE_NUM= 4 ,
+  parameter  AXIS_USER_WIDTH= 4 ,
+  parameter  IDX_W= (TYPE_NUM <= 1) ? 1 : $clog2(TYPE_NUM)
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
 
-  // ---- 入口 0: other(优先级最高) ----
-  input  wire          [        AXIS_WIDTH-1: 0]       other_axis_sdata ,
-  input  wire          [      AXIS_WIDTH/8-1: 0]       other_axis_skeep ,
-  input  wire                                          other_axis_slast ,
-  input  wire                                          other_axis_svalid,
-  output wire                                          other_axis_sready,
-
-  // ---- 入口 1: arp ----
-  input  wire          [        AXIS_WIDTH-1: 0]       arp_axis_sdata ,
-  input  wire          [      AXIS_WIDTH/8-1: 0]       arp_axis_skeep ,
-  input  wire                                          arp_axis_slast ,
-  input  wire                                          arp_axis_svalid,
-  output wire                                          arp_axis_sready,
-
-  // ---- 入口 2: ipv4(优先级最低) ----
-  input  wire          [        AXIS_WIDTH-1: 0]       ipv4_axis_sdata ,
-  input  wire          [      AXIS_WIDTH/8-1: 0]       ipv4_axis_skeep ,
-  input  wire                                          ipv4_axis_slast ,
-  input  wire                                          ipv4_axis_svalid,
-  output wire                                          ipv4_axis_sready,
+  // ---- 入口 ----
+  input  wire          [      512*TYPE_NUM-1:0]        eth_axis_sdata  ,
+  input  wire          [       64*TYPE_NUM-1:0]        eth_axis_skeep  ,
+  input  wire          [          TYPE_NUM-1:0]        eth_axis_slast  ,
+  input  wire          [          TYPE_NUM-1:0]        eth_axis_svalid ,
+  input  wire          [AXIS_USER_WIDTH*TYPE_NUM-1:0]  eth_axis_susr   ,
+  output wire          [          TYPE_NUM-1:0]        eth_axis_sready ,
 
   // ---- 出口 ----
-  output wire          [        AXIS_WIDTH-1: 0]       eth_axis_mdata  ,
-  output wire          [      AXIS_WIDTH/8-1: 0]       eth_axis_mkeep  ,
+  output wire          [                 511:0]        eth_axis_mdata  ,
+  output wire          [                  63:0]        eth_axis_mkeep  ,
   output wire                                          eth_axis_mlast  ,
   output wire                                          eth_axis_mvalid ,
-  output wire          [   AXIS_USER_WIDTH-1: 0]       eth_axis_muser  ,
+  output wire          [   AXIS_USER_WIDTH-1:0]        eth_axis_musr   ,
   input  wire                                          eth_axis_mready ,
 
   // ---- 状态 ----
-  output wire          [                   1: 0]       stat_active_port ,// 0=other 1=arp 2=ipv4
-  output wire                                          stat_idle
+  output wire          [             IDX_W-1:0]        stat_active_port,
+  output wire                                          stat_idle        
 );
 
-  wire                 [               3-1: 0]       arb_sready       ;
+  axis_nto1_by_val#(
+    .NUM_PORTS        (TYPE_NUM         ),
+    .AXIS_WIDTH       (512              ),
+    .AXIS_ID_WIDTH    (1                ),
+    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ),
+    .ARBITER_VAL_WIDTH(AXIS_USER_WIDTH  ),
+    .LOW_FIRST        (0                ),
+    .UPDATE_TID       (0                ) 
+)
+ u_axis_nto1_by_val(
+    .clk              (clk              ),// (input)
+    .rst              (rst              ),// (input)
+    // --- N 路 Slave 输入 (Packed Array) ---
+    // 数据通道
+    .axis_sdata       (eth_axis_sdata   ),// (input)
+    .axis_skeep       (eth_axis_skeep   ),// (input)
+    .axis_sid         ('d0              ),// (input)
+    .axis_susr        (eth_axis_susr    ),// (input)
+    .axis_svalid      (eth_axis_svalid  ),// (input)
+    .axis_slast       (eth_axis_slast   ),// (input)
+    .axis_sready      (eth_axis_sready  ),// (output)
+// --- 1 路 Master 输出 ---
+    .axis_mdata       (eth_axis_mdata   ),// (output)
+    .axis_mkeep       (eth_axis_mkeep   ),// (output)
+    .axis_mid         (                 ),// (output)
+    .axis_musr        (eth_axis_musr    ),// (output)
+    .axis_mvalid      (eth_axis_mvalid  ),// (output)
+    .axis_mlast       (eth_axis_mlast   ),// (output)
+    .axis_mready      (eth_axis_mready  ),// (input)
+// --- 状态 / 调试 ---
+    .stat_active_port (stat_active_port ),// (output)// 当前正在传输的端口号
+    .stat_idle        (stat_idle        ) // (output)// 空闲状态指示
+);
 
-  axis_nto1 #(
-    .NUM_PORTS       (3                ),
-    .IDX_W           (2                ),
-    .AXIS_WIDTH      (AXIS_WIDTH       ),
-    .AXIS_ID_WIDTH   (AXIS_ID_WIDTH    ),
-    .AXIS_USER_WIDTH (AXIS_USER_WIDTH  ),
-    .ARB_TYPE        (1                ),// 1 = 严格优先(低位优先 => port0 最高)
-    .UPDATE_TID      (0                ) // 不覆写 tid
-  ) u_arb (
-    .clk              (clk              ),
-    .rst              (rst              ),
-    //  打包顺序: {ipv4, arp, other} => port0=other(最高) port1=arp port2=ipv4
-    .axis_sdata       ({ipv4_axis_sdata , arp_axis_sdata , other_axis_sdata }),
-    .axis_skeep       ({ipv4_axis_skeep , arp_axis_skeep , other_axis_skeep }),
-    .axis_sid         ({(3*AXIS_ID_WIDTH){1'b0}}),
-    .axis_suser       ({(3*AXIS_USER_WIDTH){1'b0}}),
-    .axis_svalid      ({ipv4_axis_svalid, arp_axis_svalid, other_axis_svalid}),
-    .axis_slast       ({ipv4_axis_slast , arp_axis_slast , other_axis_slast }),
-    .axis_sready      (arb_sready       ),
-    .axis_mdata       (eth_axis_mdata   ),
-    .axis_mkeep       (eth_axis_mkeep   ),
-    .axis_mid         (                 ),
-    .axis_muser       (eth_axis_muser   ),
-    .axis_mvalid      (eth_axis_mvalid  ),
-    .axis_mlast       (eth_axis_mlast   ),
-    .axis_mready      (eth_axis_mready  ),
-    .stat_active_port (stat_active_port ),
-    .stat_idle        (stat_idle        )
-  );
-
-  assign other_axis_sready = arb_sready[0];
-  assign arp_axis_sready   = arb_sready[1];
-  assign ipv4_axis_sready  = arb_sready[2];
 
 endmodule
 `resetall

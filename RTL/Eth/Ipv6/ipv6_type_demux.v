@@ -1,0 +1,204 @@
+`resetall
+`default_nettype none
+`timescale 1ns/100ps
+
+// Language: Verilog 2001
+// ============================================================================
+// File Name   : ipv6_type_demux.v
+// Module Name : ipv6_type_demux
+// Author      : LiXintao
+// Date        : 2026-09-29
+// Version     : v2.0
+// ----------------------------------------------------------------------------
+// Description : 支持流水线设计，将数据按TYPE_DICT匹配，没有匹配到的走默认通道
+// Note        : 比较位置 = IPv6 Next-Header, 纯 IPv6 包首拍 byte6 (sdata[48 +: 8]);
+//               默认字典 ch0=udp(0x11) ch1=icmpv6(0x3A) ch2=ospf(0x59) ch3=default(other)
+// 
+// ============================================================================
+
+module ipv6_type_demux#(
+  parameter  TYPE_NUM= 3 ,
+  localparam TYPE_NUM_EFF = (TYPE_NUM > 0) ? TYPE_NUM : 1,  // 字典占位项数(>=1；TYPE_NUM=0 时为 1 项占位，内容不被读取)
+  parameter  [TYPE_NUM_EFF*8-1:0]        TYPE_DICT= {8'h59,8'h3A,8'h11} // ospf/icmpv6/udp
+)(
+  input  wire                                          clk             ,
+  input  wire                                          rst             ,
+
+  input  wire          [                 511:0]        ipv6_axis_sdata ,
+  input  wire          [                  63:0]        ipv6_axis_skeep ,
+  input  wire                                          ipv6_axis_slast ,
+  input  wire                                          ipv6_axis_svalid,
+  input  wire          [                  96:0]        ipv6_axis_susr  ,
+  output wire                                          ipv6_axis_sready,
+
+  output wire          [  512*(TYPE_NUM+1)-1:0]        ipv6_axis_mdata ,
+  output wire          [   64*(TYPE_NUM+1)-1:0]        ipv6_axis_mkeep ,
+  output wire          [            TYPE_NUM:0]        ipv6_axis_mlast ,
+  output wire          [            TYPE_NUM:0]        ipv6_axis_mvalid,
+  output wire          [   97*(TYPE_NUM+1)-1:0]        ipv6_axis_musr  ,
+  input  wire          [            TYPE_NUM:0]        ipv6_axis_mready 
+);
+
+  // raw 比较
+  // s1 出比较结果
+  // s2 输出
+
+  reg                                                  is_first_beat    ;
+
+  reg                  [                 511:0]        ipv6_axis_sdata_s1;
+  reg                  [                  63:0]        ipv6_axis_skeep_s1;
+  reg                                                  ipv6_axis_slast_s1;
+  reg                                                  ipv6_axis_svalid_s1;
+  reg                  [                  96:0]        ipv6_axis_susr_s1;
+
+  reg                  [  512*(TYPE_NUM+1)-1:0]        ipv6_axis_mdata_reg;
+  reg                  [   64*(TYPE_NUM+1)-1:0]        ipv6_axis_mkeep_reg;
+  reg                  [            TYPE_NUM:0]        ipv6_axis_mlast_reg;
+  reg                  [            TYPE_NUM:0]        ipv6_axis_mvalid_reg;
+  reg                  [   97*(TYPE_NUM+1)-1:0]        ipv6_axis_musr_reg;
+
+  reg                  [  512*(TYPE_NUM+1)-1:0]        ipv6_axis_mdata_skid;
+  reg                  [   64*(TYPE_NUM+1)-1:0]        ipv6_axis_mkeep_skid;
+  reg                  [            TYPE_NUM:0]        ipv6_axis_mlast_skid;
+  reg                  [            TYPE_NUM:0]        ipv6_axis_mvalid_skid;
+  reg                  [   97*(TYPE_NUM+1)-1:0]        ipv6_axis_musr_skid;
+
+  wire                 [            TYPE_NUM:0]        type_compare     ;
+  wire                 [            TYPE_NUM:0]        type_hit         ;
+
+  reg                  [            TYPE_NUM:0]        sel_type_one_hot_s1;
+
+  wire                                                 s_handshake       = ipv6_axis_svalid&&ipv6_axis_sready                              ;
+  wire                                                 s1_ready          = |(sel_type_one_hot_s1&(~ipv6_axis_mvalid_skid))                   ;
+  wire                                                 s1_handshake      = s1_ready&&ipv6_axis_svalid_s1                                   ;
+  assign  ipv6_axis_sready = !ipv6_axis_svalid_s1 || s1_ready;
+
+  // s1: data keep last
+  always @(posedge clk) begin
+    if (s_handshake) begin
+      ipv6_axis_sdata_s1 <= ipv6_axis_sdata;
+      ipv6_axis_skeep_s1 <= ipv6_axis_skeep;
+      ipv6_axis_slast_s1 <= ipv6_axis_slast;
+      ipv6_axis_susr_s1  <= ipv6_axis_susr;
+    end
+  end
+  // s1: valid
+  always @(posedge clk) begin
+    if (rst) begin
+      ipv6_axis_svalid_s1 <= 1'd0;
+    end
+    else begin
+      if (s_handshake) begin
+        ipv6_axis_svalid_s1 <= 1'b1;
+      end
+      else if (s1_handshake) begin
+        ipv6_axis_svalid_s1 <= 1'b0;
+      end
+    end
+  end
+
+
+  genvar type_index;
+  generate
+    for (type_index = 0; type_index<=TYPE_NUM; type_index=type_index+1) begin:gen_type
+  wire                                                 m_handshake       = ipv6_axis_mready[type_index] && ipv6_axis_mvalid[type_index]    ;
+  wire                                                 reg_can_take      = !ipv6_axis_mvalid_reg[type_index] || m_handshake                ;
+  wire                                                 skid_to_reg       = ipv6_axis_mvalid_skid[type_index] && reg_can_take               ;
+  wire                                                 s1_to_reg         = s1_handshake && sel_type_one_hot_s1[type_index] && reg_can_take ;
+  wire                                                 s1_to_skid        = s1_handshake && sel_type_one_hot_s1[type_index] && !reg_can_take;
+
+      if (type_index == TYPE_NUM) begin:gen_default_type
+  assign  type_hit[type_index]= 1'b0             ;
+        // other(兜底)档命中逻辑：TYPE_NUM=0 ⇒ 无用户档，所有帧全部落 other
+        if (TYPE_NUM == 0) begin:gen_no_user_type
+  assign  type_compare[type_index]= 1'b1 ;
+        end
+        else begin:gen_has_user_type
+  assign  type_compare[type_index]= ~(|type_hit[TYPE_NUM-1:0]) ;
+        end
+      end
+      else begin:gen_range_type
+  wire                                                 is_match          = TYPE_DICT[type_index*8+:8]==ipv6_axis_sdata[48 +: 8]            ;
+        
+  assign  type_hit[type_index]= is_match         ;
+  assign  type_compare[type_index]= type_hit[type_index] && ~(|type_index == 0 ? 1'b0 : type_hit[type_index-1:0]);
+      end
+
+      always @(posedge clk) begin
+        if (rst) begin
+          ipv6_axis_mvalid_reg[type_index] <= 'd0;
+          ipv6_axis_mvalid_skid[type_index] <= 'd0;
+        end
+        else begin
+          if (skid_to_reg || s1_to_reg) begin
+            ipv6_axis_mvalid_reg[type_index] <= 1'b1;
+          end
+          else if (m_handshake) begin
+            ipv6_axis_mvalid_reg[type_index] <= 1'b0;
+          end
+
+          if (s1_to_skid) begin
+            ipv6_axis_mvalid_skid[type_index] <= 1'b1;
+          end
+          else if (skid_to_reg) begin
+            ipv6_axis_mvalid_skid[type_index] <= 1'b0;
+          end
+        end
+      end
+
+      always @(posedge clk) begin
+        if (skid_to_reg) begin
+          ipv6_axis_mdata_reg[type_index*512+:512] <= ipv6_axis_mdata_skid[type_index*512+:512];
+          ipv6_axis_mkeep_reg[type_index*64+:64] <= ipv6_axis_mkeep_skid[type_index*64+:64];
+          ipv6_axis_mlast_reg[type_index] <= ipv6_axis_mlast_skid[type_index];
+          ipv6_axis_musr_reg[type_index*97+:97] <= ipv6_axis_musr_skid[type_index*97+:97];
+        end
+        else if (s1_to_reg) begin
+          ipv6_axis_mdata_reg[type_index*512+:512] <= ipv6_axis_sdata_s1;
+          ipv6_axis_mkeep_reg[type_index*64+:64] <= ipv6_axis_skeep_s1;
+          ipv6_axis_mlast_reg[type_index] <= ipv6_axis_slast_s1;
+          ipv6_axis_musr_reg[type_index*97+:97] <= ipv6_axis_susr_s1;
+        end
+
+        if (s1_to_skid) begin
+          ipv6_axis_mdata_skid[type_index*512+:512] <= ipv6_axis_sdata_s1;
+          ipv6_axis_mkeep_skid[type_index*64+:64] <= ipv6_axis_skeep_s1;
+          ipv6_axis_mlast_skid[type_index] <= ipv6_axis_slast_s1;
+          ipv6_axis_musr_skid[type_index*97+:97] <= ipv6_axis_susr_s1;
+        end
+      end
+    end
+  endgenerate
+  
+  // sel_type_one_hot_s1
+  always @(posedge clk) begin
+    if (rst) begin
+      sel_type_one_hot_s1 <= 'd0;
+    end
+    else begin
+      if (s_handshake && is_first_beat) begin
+        sel_type_one_hot_s1 <= type_compare;
+      end
+    end
+  end
+
+  // is_first_beat
+  always @(posedge clk) begin
+    if (rst) begin
+      is_first_beat <= 1'b1;                                        // 复位后第一拍视为首拍
+    end
+    else begin
+      if (s_handshake) begin
+        is_first_beat <= ipv6_axis_slast;                           // 本拍收的是本包最后一拍 -> 下一拍即新包首拍
+      end
+    end
+  end
+
+  assign  ipv6_axis_mdata  = ipv6_axis_mdata_reg;
+  assign  ipv6_axis_mkeep  = ipv6_axis_mkeep_reg;
+  assign  ipv6_axis_mlast  = ipv6_axis_mlast_reg;
+  assign  ipv6_axis_mvalid = ipv6_axis_mvalid_reg;
+  assign  ipv6_axis_musr   = ipv6_axis_musr_reg;
+
+endmodule
+`resetall

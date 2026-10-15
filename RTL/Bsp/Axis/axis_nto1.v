@@ -21,7 +21,7 @@ module axis_nto1 #(
     parameter AXIS_ID_WIDTH = 8,
     parameter AXIS_USER_WIDTH = 1,
     parameter ARB_TYPE = 0,  // 0=RR, 1=Strict Priority
-    parameter UPDATE_TID = 1  // 是否在输出端覆写 tid 为当前选中的端口号
+    parameter UPDATE_TID = 0 // 是否在输出端覆写 tid 为当前选中的端口号
 ) (
     input wire clk,
     input wire rst,
@@ -31,7 +31,7 @@ module axis_nto1 #(
     input  wire [     NUM_PORTS*AXIS_WIDTH-1:0] axis_sdata,
     input  wire [   NUM_PORTS*AXIS_WIDTH/8-1:0] axis_skeep,
     input  wire [  NUM_PORTS*AXIS_ID_WIDTH-1:0] axis_sid,
-    input  wire [NUM_PORTS*AXIS_USER_WIDTH-1:0] axis_suser,
+    input  wire [NUM_PORTS*AXIS_USER_WIDTH-1:0] axis_susr,
     input  wire [                NUM_PORTS-1:0] axis_svalid,
     input  wire [                NUM_PORTS-1:0] axis_slast,
     output wire [                NUM_PORTS-1:0] axis_sready,
@@ -40,7 +40,7 @@ module axis_nto1 #(
     output wire [     AXIS_WIDTH-1:0] axis_mdata,
     output wire [   AXIS_WIDTH/8-1:0] axis_mkeep,
     output wire [  AXIS_ID_WIDTH-1:0] axis_mid,
-    output wire [AXIS_USER_WIDTH-1:0] axis_muser,
+    output wire [AXIS_USER_WIDTH-1:0] axis_musr,
     output wire                       axis_mvalid,
     output wire                       axis_mlast,
     input  wire                       axis_mready,
@@ -70,7 +70,7 @@ module axis_nto1 #(
   reg [NUM_PORTS*AXIS_WIDTH-1:0]      axis_sdata_d0;
   reg [NUM_PORTS*AXIS_WIDTH/8-1:0]    axis_skeep_d0;
   reg [NUM_PORTS*AXIS_ID_WIDTH-1:0]   axis_sid_d0;
-  reg [NUM_PORTS*AXIS_USER_WIDTH-1:0] axis_suser_d0;
+  reg [NUM_PORTS*AXIS_USER_WIDTH-1:0] axis_susr_d0;
   reg [NUM_PORTS-1:0]                 axis_svalid_d0;
   reg [NUM_PORTS-1:0]                 axis_slast_d0;
 
@@ -80,7 +80,7 @@ module axis_nto1 #(
   reg [AXIS_WIDTH-1:0]      axis_sdata_d1;
   reg [AXIS_WIDTH/8-1:0]    axis_skeep_d1;
   reg [AXIS_ID_WIDTH-1:0]   axis_sid_d1;
-  reg [AXIS_USER_WIDTH-1:0] axis_suser_d1;
+  reg [AXIS_USER_WIDTH-1:0] axis_susr_d1;
   reg                       axis_svalid_d1;
   reg                       axis_slast_d1;
 
@@ -90,7 +90,7 @@ module axis_nto1 #(
   reg [AXIS_WIDTH-1:0]      axis_mdata_reg;
   reg [AXIS_WIDTH/8-1:0]    axis_mkeep_reg;
   reg [AXIS_ID_WIDTH-1:0]   axis_mid_reg;
-  reg [AXIS_USER_WIDTH-1:0] axis_muser_reg;
+  reg [AXIS_USER_WIDTH-1:0] axis_musr_reg;
   reg                       axis_mvalid_reg;
   reg                       axis_mlast_reg;
 
@@ -100,7 +100,7 @@ module axis_nto1 #(
   reg [AXIS_WIDTH-1:0]      skid_data_reg;
   reg [AXIS_WIDTH/8-1:0]    skid_keep_reg;
   reg [AXIS_ID_WIDTH-1:0]   skid_id_reg;
-  reg [AXIS_USER_WIDTH-1:0] skid_user_reg;
+  reg [AXIS_USER_WIDTH-1:0] skid_usr_reg;
   reg                       skid_valid_reg;
   reg                       skid_last_reg;
 
@@ -108,6 +108,7 @@ module axis_nto1 #(
   // 仲裁输出 (由 arbiter 例化驱动)
   // ----------------------------------------------------------------------------
   wire [IDX_W-1:0] arbiter_out;
+  wire [NUM_PORTS-1:0] arbiter_onehot;
   wire             arbiter_valid;
 
   // ----------------------------------------------------------------------------
@@ -115,7 +116,7 @@ module axis_nto1 #(
   // ----------------------------------------------------------------------------
   wire                axis_sready_d1  = !skid_valid_reg;
   // 仅选中的一路获得反向 ready
-  wire [NUM_PORTS-1:0] axis_sready_d0 = (arbiter_valid && axis_sready_d1) ? (1 << arbiter_out) : 'd0;
+  wire [NUM_PORTS-1:0] axis_sready_d0 = (arbiter_valid && axis_sready_d1) ? arbiter_onehot : 'd0;
   // 各级握手
   wire [NUM_PORTS-1:0] s_handshake    = axis_sready & axis_svalid;
   wire [NUM_PORTS-1:0] d0_handshake   = axis_sready_d0 & axis_svalid_d0;
@@ -127,7 +128,7 @@ module axis_nto1 #(
   // ----------------------------------------------------------------------------
   wire arbiter_ack = d0_handshake[arbiter_out] & axis_slast_d0[arbiter_out];
   // 引入axis_svalid，但是必须已经握手，否则以axis_svalid_d0管道中的为准。而axis_svalid_d0管道中需要屏蔽掉已经服务过的位
-  wire [NUM_PORTS-1:0] axis_svalid_mask = axis_svalid_d0&(~(1 << arbiter_out)); // 屏蔽掉已经服务过的位，是管道的残留
+  wire [NUM_PORTS-1:0] axis_svalid_mask = axis_svalid_d0&(~arbiter_onehot); // 屏蔽掉已经服务过的位，是管道的残留
   wire [NUM_PORTS-1:0] arbiter_din = (axis_svalid_mask| s_handshake);
 
   // ============================================================================
@@ -146,7 +147,7 @@ module axis_nto1 #(
           axis_sdata_d0[AXIS_WIDTH*i+:AXIS_WIDTH]           <= 'd0;
           axis_skeep_d0[AXIS_WIDTH/8*i+:AXIS_WIDTH/8]       <= 'd0;
           axis_sid_d0[AXIS_ID_WIDTH*i+:AXIS_ID_WIDTH]       <= 'd0;
-          axis_suser_d0[AXIS_USER_WIDTH*i+:AXIS_USER_WIDTH] <= 'd0;
+          axis_susr_d0[AXIS_USER_WIDTH*i+:AXIS_USER_WIDTH] <= 'd0;
           axis_svalid_d0[i]                                 <= 'd0;
           axis_slast_d0[i]                                  <= 'd0;
         end else begin
@@ -154,7 +155,7 @@ module axis_nto1 #(
             axis_sdata_d0[AXIS_WIDTH*i+:AXIS_WIDTH]           <= axis_sdata[AXIS_WIDTH*i+:AXIS_WIDTH];
             axis_skeep_d0[AXIS_WIDTH/8*i+:AXIS_WIDTH/8]       <= axis_skeep[AXIS_WIDTH/8*i+:AXIS_WIDTH/8];
             axis_sid_d0[AXIS_ID_WIDTH*i+:AXIS_ID_WIDTH]       <= axis_sid[AXIS_ID_WIDTH*i+:AXIS_ID_WIDTH];
-            axis_suser_d0[AXIS_USER_WIDTH*i+:AXIS_USER_WIDTH] <= axis_suser[AXIS_USER_WIDTH*i+:AXIS_USER_WIDTH];
+            axis_susr_d0[AXIS_USER_WIDTH*i+:AXIS_USER_WIDTH] <= axis_susr[AXIS_USER_WIDTH*i+:AXIS_USER_WIDTH];
             axis_svalid_d0[i]                                 <= axis_svalid[i];
             axis_slast_d0[i]                                  <= axis_slast[i];
           end else if (d0_handshake[i]) begin
@@ -175,7 +176,7 @@ module axis_nto1 #(
       axis_sdata_d1 <= 'd0;
       axis_skeep_d1 <= 'd0;
       axis_sid_d1 <= 'd0;
-      axis_suser_d1 <= 'd0;
+      axis_susr_d1 <= 'd0;
       axis_slast_d1 <= 'd0;
     end else begin
       if (d0_handshake[arbiter_out]) begin
@@ -185,7 +186,7 @@ module axis_nto1 #(
         axis_sid_d1 <= UPDATE_TID ?
                     {{UPDATE_TID_PAD{1'b0}}, arbiter_out} :
                     axis_sid_d0[arbiter_out*AXIS_ID_WIDTH+:AXIS_ID_WIDTH];
-        axis_suser_d1 <= axis_suser_d0[arbiter_out*AXIS_USER_WIDTH+:AXIS_USER_WIDTH];
+        axis_susr_d1 <= axis_susr_d0[arbiter_out*AXIS_USER_WIDTH+:AXIS_USER_WIDTH];
         axis_slast_d1 <= axis_slast_d0[arbiter_out];
         axis_svalid_d1 <= 1'b1;
       end else if (d1_handshake) begin
@@ -210,14 +211,14 @@ module axis_nto1 #(
       axis_mdata_reg <= skid_data_reg;
       axis_mkeep_reg <= skid_keep_reg;
       axis_mid_reg   <= skid_id_reg;
-      axis_muser_reg <= skid_user_reg;
+      axis_musr_reg <= skid_usr_reg;
       axis_mlast_reg <= skid_last_reg;  
     end
     else if(d1_to_reg) begin
       axis_mdata_reg <= axis_sdata_d1;
       axis_mkeep_reg <= axis_skeep_d1;
       axis_mid_reg   <= axis_sid_d1;
-      axis_muser_reg <= axis_suser_d1;
+      axis_musr_reg <= axis_susr_d1;
       axis_mlast_reg <= axis_slast_d1;  
     end
   end
@@ -227,7 +228,7 @@ module axis_nto1 #(
       skid_data_reg <= axis_sdata_d1;
       skid_keep_reg <= axis_skeep_d1;
       skid_id_reg   <= axis_sid_d1;
-      skid_user_reg <= axis_suser_d1;
+      skid_usr_reg <= axis_susr_d1;
       skid_last_reg <= axis_slast_d1;  
     end
   end
@@ -267,7 +268,7 @@ module axis_nto1 #(
   assign axis_mdata = axis_mdata_reg;
   assign axis_mkeep = axis_mkeep_reg;
   assign axis_mid = axis_mid_reg;
-  assign axis_muser = axis_muser_reg;
+  assign axis_musr = axis_musr_reg;
   assign axis_mvalid = axis_mvalid_reg;
   assign axis_mlast = axis_mlast_reg;
 
@@ -293,7 +294,7 @@ module axis_nto1 #(
       .din(arbiter_din),
 
       // --- 授予输出 / 应答 ---
-      .dout_onehot(),
+      .dout_onehot(arbiter_onehot),
       .index (arbiter_out),
       .valid(arbiter_valid),
       .ack  (arbiter_ack)

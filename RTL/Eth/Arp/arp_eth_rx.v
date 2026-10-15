@@ -41,6 +41,7 @@ module arp_eth_rx#(
   input  wire          [      AXIS_WIDTH/8-1: 0]       arp_axis_skeep  ,
   input  wire                                          arp_axis_svalid ,
   input  wire                                          arp_axis_slast  ,
+  input  wire                                          arp_axis_susr   ,
   output wire                                          arp_axis_sready ,
 
   output wire                                          stat_error       // 帧解析失败，不是标准的ARP ETH帧
@@ -77,7 +78,7 @@ always @(posedge clk) begin
   else begin
     stat_error_reg <= 1'd0;
     if (s_handshake) begin
-      if (arp_axis_slast && (arp_axis_skeep & 64'h0000_03FF_FFFF_FFFF) == 64'h0000_03FF_FFFF_FFFF) begin
+      if (arp_axis_slast && arp_axis_susr == 1'b0 && (arp_axis_skeep & 64'h0000_03FF_FFFF_FFFF) == 64'h0000_03FF_FFFF_FFFF) begin
         arp_frame_valid_reg <= 1'b1;
         {arp_tpa_reg,arp_tha_reg,arp_spa_reg,arp_sha_reg,arp_oper_reg,arp_plen_reg,arp_hlen_reg,arp_ptype_reg,arp_htype_reg,eth_type_reg,eth_src_mac_reg,eth_dest_mac_reg} <= arp_axis_sdata[335:0];
       end

@@ -34,7 +34,7 @@ module axis_fifo_sync #(
   parameter  PROG_EMPTY_THRESH= FIFO_DEPTH/4,          // 可编程空阈值 (剩余 <= 该值拉高 prog_empty)
   parameter  PROG_FULL_THRESH= FIFO_DEPTH/2,          // 可编程满阈值 (剩余 >= 该值拉高 prog_full)
   parameter  REMAIN_COUNT_WIDTH= $clog2(FIFO_DEPTH) + 1, // 剩余深度计数输出位宽
-  parameter  BRAM_DO_REG= 2, // BRAM的输出流水线级数，推荐为2，可以提高时序
+  parameter  BRAM_DO_REG= 2 , // BRAM的输出流水线级数，推荐为2，可以提高时序
   parameter  DEADLOCK_RISK= 0 
 ) (
   input  wire                                          rst             ,
@@ -43,28 +43,28 @@ module axis_fifo_sync #(
     // ============================================================================
     // AXI-Stream 从机接口 (上游写)
     // ============================================================================
-  input  wire          [        AXIS_WIDTH-1: 0]       axis_sdata      ,// 数据
-  input  wire          [      AXIS_WIDTH/8-1: 0]       axis_skeep      ,// 字节有效标志
+  input  wire          [        AXIS_WIDTH-1:0]        axis_sdata      ,// 数据
+  input  wire          [      AXIS_WIDTH/8-1:0]        axis_skeep      ,// 字节有效标志
   input  wire                                          axis_svalid     ,// 数据有效
   input  wire                                          axis_slast      ,// 包结束标志
   output wire                                          axis_sready     ,// 反压: 还能写入
-  input  wire          [   AXIS_USER_WIDTH-1: 0]       axis_suser      ,// 用户自定义信息
-  input  wire          [      AXIS_WIDTH/8-1: 0]       axis_sstrb      ,// 字节选通
-  input  wire          [     AXIS_ID_WIDTH-1: 0]       axis_sid        ,// 流标识
-  input  wire          [   AXIS_DEST_WIDTH-1: 0]       axis_sdest      ,// 路由信息
+  input  wire          [   AXIS_USER_WIDTH-1:0]        axis_susr       ,// 用户自定义信息
+  input  wire          [      AXIS_WIDTH/8-1:0]        axis_sstrb      ,// 字节选通
+  input  wire          [     AXIS_ID_WIDTH-1:0]        axis_sid        ,// 流标识
+  input  wire          [   AXIS_DEST_WIDTH-1:0]        axis_sdest      ,// 路由信息
 
     // ============================================================================
     // AXI-Stream 主机接口 (下游读)
     // ============================================================================
-  output wire          [        AXIS_WIDTH-1: 0]       axis_mdata      ,// 数据
-  output wire          [      AXIS_WIDTH/8-1: 0]       axis_mkeep      ,// 字节有效标志
+  output wire          [        AXIS_WIDTH-1:0]        axis_mdata      ,// 数据
+  output wire          [      AXIS_WIDTH/8-1:0]        axis_mkeep      ,// 字节有效标志
   output wire                                          axis_mvalid     ,// 有数据可读
   output wire                                          axis_mlast      ,// 包结束标志
   input  wire                                          axis_mready     ,// 下游能接收
-  output wire          [   AXIS_USER_WIDTH-1: 0]       axis_muser      ,// 用户自定义信息
-  output wire          [      AXIS_WIDTH/8-1: 0]       axis_mstrb      ,// 字节选通
-  output wire          [     AXIS_ID_WIDTH-1: 0]       axis_mid        ,// 流标识
-  output wire          [   AXIS_DEST_WIDTH-1: 0]       axis_mdest      ,// 路由信息
+  output wire          [   AXIS_USER_WIDTH-1:0]        axis_musr       ,// 用户自定义信息
+  output wire          [      AXIS_WIDTH/8-1:0]        axis_mstrb      ,// 字节选通
+  output wire          [     AXIS_ID_WIDTH-1:0]        axis_mid        ,// 流标识
+  output wire          [   AXIS_DEST_WIDTH-1:0]        axis_mdest      ,// 路由信息
 
     // ============================================================================
     // 状态端口
@@ -75,7 +75,7 @@ module axis_fifo_sync #(
   output wire                                          empty           ,// FIFO 空
   output wire                                          full            ,// FIFO 满
 
-  output wire          [REMAIN_COUNT_WIDTH-1: 0]       remain_count     // 当前剩余深度 (已写入未读走的字数)
+  output wire          [REMAIN_COUNT_WIDTH-1:0]        remain_count     // 当前剩余深度 (已写入未读走的字数)
 );
   initial begin
     if (REMAIN_COUNT_WIDTH != $clog2(FIFO_DEPTH) + 1) begin
@@ -119,7 +119,7 @@ module axis_fifo_sync #(
   localparam STRB_MEMORY_TYPE= FIFO_MEMORY_TYPE == "auto" ? STRB_AUTO_TYPE : FIFO_MEMORY_TYPE;
   localparam LAST_MEMORY_TYPE= FIFO_MEMORY_TYPE == "auto" ? LAST_AUTO_TYPE : FIFO_MEMORY_TYPE;
 
-  localparam ALL_DISTRIBUTED = FIFO_MEMORY_TYPE == "auto" &&
+  localparam ALL_DISTRIBUTED= FIFO_MEMORY_TYPE == "auto" &&
                                DATA_MEMORY_TYPE == "distributed" &&
                                KEEP_MEMORY_TYPE == "distributed" &&
                                LAST_MEMORY_TYPE == "distributed" &&
@@ -131,24 +131,24 @@ module axis_fifo_sync #(
   // ----------------------------------------------------------------------------
   // RAM 存储 (ram_style 由 FIFO_MEMORY_TYPE 决定)
   // ----------------------------------------------------------------------------
-(* ram_style = DATA_MEMORY_TYPE *)   reg                  [        AXIS_WIDTH-1: 0]       ram_data[0:FIFO_DEPTH-1]  ;
-(* ram_style = KEEP_MEMORY_TYPE *)   reg                  [      AXIS_WIDTH/8-1: 0]       ram_keep[0:FIFO_DEPTH-1]  ;
-(* ram_style = LAST_MEMORY_TYPE *)   reg                                                  ram_last[0:FIFO_DEPTH-1]  ;
-(* ram_style = USER_MEMORY_TYPE *)   reg                  [   AXIS_USER_WIDTH-1: 0]       ram_user[0:FIFO_DEPTH-1]  ;
-(* ram_style = STRB_MEMORY_TYPE *)   reg                  [      AXIS_WIDTH/8-1: 0]       ram_strb[0:FIFO_DEPTH-1]  ;
-(* ram_style = ID_MEMORY_TYPE *)   reg                  [     AXIS_ID_WIDTH-1: 0]       ram_id[0:FIFO_DEPTH-1]  ;
-(* ram_style = DEST_MEMORY_TYPE *)   reg                  [   AXIS_DEST_WIDTH-1: 0]       ram_dest[0:FIFO_DEPTH-1]  ;
+(* ram_style = DATA_MEMORY_TYPE *)   reg                  [        AXIS_WIDTH-1:0]        ram_data[0:FIFO_DEPTH-1];
+(* ram_style = KEEP_MEMORY_TYPE *)   reg                  [      AXIS_WIDTH/8-1:0]        ram_keep[0:FIFO_DEPTH-1];
+(* ram_style = LAST_MEMORY_TYPE *)   reg                                                  ram_last[0:FIFO_DEPTH-1];
+(* ram_style = USER_MEMORY_TYPE *)   reg                  [   AXIS_USER_WIDTH-1:0]        ram_usr[0:FIFO_DEPTH-1];
+(* ram_style = STRB_MEMORY_TYPE *)   reg                  [      AXIS_WIDTH/8-1:0]        ram_strb[0:FIFO_DEPTH-1];
+(* ram_style = ID_MEMORY_TYPE *)   reg                  [     AXIS_ID_WIDTH-1:0]        ram_id[0:FIFO_DEPTH-1];
+(* ram_style = DEST_MEMORY_TYPE *)   reg                  [   AXIS_DEST_WIDTH-1:0]        ram_dest[0:FIFO_DEPTH-1];
 
   // ------------------------------------------
   // RAM 仿真及上电初始化 (综合工具支持)
   // ------------------------------------------
-  integer                                              i                  ;
+  integer                                              i                ;
   initial begin
     for (i = 0; i < FIFO_DEPTH; i = i + 1) begin
       ram_data[i] = {AXIS_WIDTH{1'b0}};
       ram_keep[i] = {AXIS_WIDTH/8{1'b0}};
       ram_last[i] = 1'b0;
-      ram_user[i]  = {AXIS_USER_WIDTH{1'b0}};
+      ram_usr[i]  = {AXIS_USER_WIDTH{1'b0}};
       ram_strb[i] = 'd0;
       ram_id  [i] = 'd0;
       ram_dest[i] = 'd0;
@@ -158,14 +158,14 @@ module axis_fifo_sync #(
   // ----------------------------------------------------------------------------
   // 指针与计数 (多 1 位用于满检测的回绕判断)
   // ----------------------------------------------------------------------------
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_ptr             ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       wr_packet_cnt      ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_ptr             ;
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_packet_cnt      ;
-  wire                 [  FIFO_DEPTH_WIDTH-1: 0]       wr_addr          =wr_ptr[FIFO_DEPTH_WIDTH-1:0];
-  wire                 [  FIFO_DEPTH_WIDTH-1: 0]       rd_addr          =rd_ptr[FIFO_DEPTH_WIDTH-1:0];
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_ptr           ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_packet_cnt    ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_ptr           ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_packet_cnt    ;
+  wire                 [  FIFO_DEPTH_WIDTH-1:0]        wr_addr           = wr_ptr[FIFO_DEPTH_WIDTH-1:0]                                                                       ;
+  wire                 [  FIFO_DEPTH_WIDTH-1:0]        rd_addr           = rd_ptr[FIFO_DEPTH_WIDTH-1:0]                                                                       ;
 
-  wire                                                 deadlock_risk      ;
+  wire                                                 deadlock_risk    ;
   // ----------------------------------------------------------------------------
   // 状态信号
   // ----------------------------------------------------------------------------
@@ -175,13 +175,13 @@ module axis_fifo_sync #(
   assign  prog_full        = (remain_count >= PROG_FULL_THRESH);
   /* verilator lint_on WIDTH */
 
-  wire                                                 internal_empty   =(wr_ptr == rd_ptr);
+  wire                                                 internal_empty    = (wr_ptr == rd_ptr)                                                                                 ;
   assign  deadlock_risk    = (remain_count >= (FIFO_DEPTH - 4));
   assign full = (wr_ptr[FIFO_DEPTH_WIDTH] != rd_ptr[FIFO_DEPTH_WIDTH]) &&
                 wr_ptr[FIFO_DEPTH_WIDTH-1:0] == rd_ptr[FIFO_DEPTH_WIDTH-1:0];
-  wire                                                 s_handshake      =axis_svalid && axis_sready;
-  wire                                                 m_handshake      =axis_mvalid && axis_mready;
-  wire                                                 packet_empty     =wr_packet_cnt == rd_packet_cnt;
+  wire                                                 s_handshake       = axis_svalid && axis_sready                                                                         ;
+  wire                                                 m_handshake       = axis_mvalid && axis_mready                                                                         ;
+  wire                                                 packet_empty      = wr_packet_cnt == rd_packet_cnt                                                                     ;
   // wire packet_full = (wr_packet_cnt[FIFO_DEPTH_WIDTH] != rd_packet_cnt[FIFO_DEPTH_WIDTH]) &&
   //                    wr_packet_cnt[FIFO_DEPTH_WIDTH-1:0] == rd_packet_cnt[FIFO_DEPTH_WIDTH-1:0];
   assign  axis_sready      = !full            ;// 满时拉低反压, 上游 hold 等待
@@ -194,7 +194,7 @@ module axis_fifo_sync #(
       ram_data[wr_addr] <= axis_sdata;
       ram_keep[wr_addr] <= axis_skeep;
       ram_last[wr_addr] <= axis_slast;
-      ram_user[wr_addr] <= axis_suser;
+      ram_usr[wr_addr] <= axis_susr;
       ram_strb[wr_addr] <= axis_sstrb;
       ram_id[wr_addr]   <= axis_sid;
       ram_dest[wr_addr] <= axis_sdest;
@@ -225,7 +225,7 @@ module axis_fifo_sync #(
   assign  axis_mdata       = ram_data[rd_addr];
   assign  axis_mkeep       = ram_keep[rd_addr];
   assign  axis_mlast       = ram_last[rd_addr];
-  assign  axis_muser       = ram_user[rd_addr];
+  assign  axis_musr        = ram_usr[rd_addr] ;
   assign  axis_mstrb       = ram_strb[rd_addr];
   assign  axis_mid         = ram_id[rd_addr]  ;
   assign  axis_mdest       = ram_dest[rd_addr];
@@ -245,26 +245,26 @@ module axis_fifo_sync #(
       end
     end else begin : gen_block_ram
       // block RAM 为同步读, 需输出寄存器打一拍 (FWFT 形式)
-  reg                  [        AXIS_WIDTH-1: 0]       mdata_reg          ;
-  reg                  [      AXIS_WIDTH/8-1: 0]       mkeep_reg          ;
-  reg                                                  mlast_reg          ;
-  reg                  [   AXIS_USER_WIDTH-1: 0]       muser_reg          ;
-  reg                  [      AXIS_WIDTH/8-1: 0]       mstrb_reg          ;
-  reg                  [     AXIS_ID_WIDTH-1: 0]       mid_reg            ;
-  reg                  [   AXIS_DEST_WIDTH-1: 0]       mdest_reg          ;
-  reg                                                  mvalid_reg         ;
+  reg                  [        AXIS_WIDTH-1:0]        mdata_reg        ;
+  reg                  [      AXIS_WIDTH/8-1:0]        mkeep_reg        ;
+  reg                                                  mlast_reg        ;
+  reg                  [   AXIS_USER_WIDTH-1:0]        musr_reg         ;
+  reg                  [      AXIS_WIDTH/8-1:0]        mstrb_reg        ;
+  reg                  [     AXIS_ID_WIDTH-1:0]        mid_reg          ;
+  reg                  [   AXIS_DEST_WIDTH-1:0]        mdest_reg        ;
+  reg                                                  mvalid_reg       ;
 
-  reg                  [    FIFO_DEPTH_WIDTH: 0]       rd_packet_cnt_plus1  ;
-  wire                                                 is_holding_last    ;
-  wire                 [    FIFO_DEPTH_WIDTH: 0]       cmp_rd_pkt_cnt     ;
-  wire                                                 allow_read         ;
-  wire                                                 ram_read_en        ;
+  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_packet_cnt_plus1;
+  wire                                                 is_holding_last  ;
+  wire                 [    FIFO_DEPTH_WIDTH:0]        cmp_rd_pkt_cnt   ;
+  wire                                                 allow_read       ;
+  wire                                                 ram_read_en      ;
 
 
   assign  axis_mdata       = mdata_reg        ;
   assign  axis_mkeep       = mkeep_reg        ;
   assign  axis_mlast       = mlast_reg        ;
-  assign  axis_muser       = muser_reg        ;
+  assign  axis_musr        = musr_reg         ;
   assign  axis_mstrb       = mstrb_reg        ;
   assign  axis_mid         = mid_reg          ;
   assign  axis_mdest       = mdest_reg        ;
@@ -305,7 +305,7 @@ module axis_fifo_sync #(
             mdata_reg <= ram_data[rd_addr];
             mkeep_reg <= ram_keep[rd_addr];
             mlast_reg <= ram_last[rd_addr];
-            muser_reg <= ram_user[rd_addr];
+            musr_reg <= ram_usr[rd_addr];
             mstrb_reg <= ram_strb[rd_addr];
             mid_reg <= ram_id[rd_addr];
             mdest_reg <= ram_dest[rd_addr];
@@ -313,17 +313,17 @@ module axis_fifo_sync #(
         end
       end
       else if (BRAM_DO_REG == 2) begin : gen_do_reg
-  reg                  [        AXIS_WIDTH-1: 0]       mdata_direct       ;
-  reg                  [      AXIS_WIDTH/8-1: 0]       mkeep_direct       ;
-  reg                                                  mlast_direct       ;
-  reg                  [   AXIS_USER_WIDTH-1: 0]       muser_direct       ;
-  reg                  [      AXIS_WIDTH/8-1: 0]       mstrb_direct       ;
-  reg                  [     AXIS_ID_WIDTH-1: 0]       mid_direct         ;
-  reg                  [   AXIS_DEST_WIDTH-1: 0]       mdest_direct       ;
-  reg                                                  mvalid_direct      ;
+  reg                  [        AXIS_WIDTH-1:0]        mdata_direct     ;
+  reg                  [      AXIS_WIDTH/8-1:0]        mkeep_direct     ;
+  reg                                                  mlast_direct     ;
+  reg                  [   AXIS_USER_WIDTH-1:0]        musr_direct      ;
+  reg                  [      AXIS_WIDTH/8-1:0]        mstrb_direct     ;
+  reg                  [     AXIS_ID_WIDTH-1:0]        mid_direct       ;
+  reg                  [   AXIS_DEST_WIDTH-1:0]        mdest_direct     ;
+  reg                                                  mvalid_direct    ;
 
-  wire                                                 mready_direct    =!mvalid_reg || axis_mready;
-  wire                                                 direct_handshake =mvalid_direct && mready_direct;
+  wire                                                 mready_direct     = !mvalid_reg || axis_mready                                                                         ;
+  wire                                                 direct_handshake  = mvalid_direct && mready_direct                                                                     ;
 
   assign  empty            = internal_empty && !mvalid_direct && !mvalid_reg;// RAM 空且输出寄存器无数据才空
   assign  is_holding_last  = mvalid_direct && mlast_direct;
@@ -336,7 +336,7 @@ module axis_fifo_sync #(
             mdata_reg  <= mdata_direct;
             mkeep_reg  <= mkeep_direct;
             mlast_reg  <= mlast_direct;
-            muser_reg  <= muser_direct;
+            musr_reg  <= musr_direct;
             mstrb_reg  <= mstrb_direct;
             mid_reg    <= mid_direct;
             mdest_reg  <= mdest_direct;
@@ -375,7 +375,7 @@ module axis_fifo_sync #(
             mdata_direct <= ram_data[rd_addr];
             mkeep_direct <= ram_keep[rd_addr];
             mlast_direct <= ram_last[rd_addr];
-            muser_direct <= ram_user[rd_addr];
+            musr_direct <= ram_usr[rd_addr];
             mstrb_direct <= ram_strb[rd_addr];
             mid_direct <= ram_id[rd_addr];
             mdest_direct <= ram_dest[rd_addr];

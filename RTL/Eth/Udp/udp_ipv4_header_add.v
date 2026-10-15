@@ -14,61 +14,68 @@
 // 
 // ============================================================================
 
-module udp_ipv4_header_add(
+module udp_ipv4_header_add#(
+  parameter  AXIS_USER_WIDTH= 4 
+)(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
 
-  input  wire          [                 511: 0]       udp_axis_sdata  ,
-  input  wire          [                  63: 0]       udp_axis_skeep  ,
+  input  wire          [                 511:0]        udp_axis_sdata  ,
+  input  wire          [                  63:0]        udp_axis_skeep  ,
   input  wire                                          udp_axis_slast  ,
   input  wire                                          udp_axis_svalid ,
+  input  wire          [   AXIS_USER_WIDTH-1:0]        udp_axis_susr   ,
   output wire                                          udp_axis_sready ,
 
-  input  wire          [                  15: 0]       cfg_total_len       ,
-  input  wire          [                   7: 0]       cfg_ttl             ,
-  input  wire          [                  15: 0]       cfg_head_checksum   ,
-  input  wire          [                  31: 0]       cfg_src_ip          ,
-  input  wire          [                  31: 0]       cfg_dest_ip         ,
+  input  wire          [                  15:0]        cfg_total_len   ,
+  input  wire          [                   7:0]        cfg_ttl         ,
+  input  wire          [                  15:0]        cfg_head_checksum,
+  input  wire          [                  31:0]        cfg_src_ip      ,
+  input  wire          [                  31:0]        cfg_dest_ip     ,
 
-  output wire          [                 511: 0]       ipv4_axis_mdata ,
-  output wire          [                  63: 0]       ipv4_axis_mkeep ,
+  output wire          [                 511:0]        ipv4_axis_mdata ,
+  output wire          [                  63:0]        ipv4_axis_mkeep ,
   output wire                                          ipv4_axis_mlast ,
   output wire                                          ipv4_axis_mvalid,
+  output wire          [   AXIS_USER_WIDTH-1:0]        ipv4_axis_musr  ,
   input  wire                                          ipv4_axis_mready 
 );
 
   localparam IPV4_HDR_BITS= 160;
 
-  reg                  [                 511: 0]       udp_axis_sdata_s1  ;
-  reg                  [                  63: 0]       udp_axis_skeep_s1  ;
-  reg                                                  udp_axis_slast_s1  ;
-  reg                                                  udp_axis_svalid_s1  ;
+  reg                  [                 511:0]        udp_axis_sdata_s1;
+  reg                  [                  63:0]        udp_axis_skeep_s1;
+  reg                                                  udp_axis_slast_s1;
+  reg                                                  udp_axis_svalid_s1;
+  reg                  [   AXIS_USER_WIDTH-1:0]        udp_axis_susr_s1 ;
 
-  reg                  [                  15: 0]       total_len_s1       ;
-  reg                  [                   7: 0]       ttl_s1             ;
-  reg                  [                  15: 0]       head_checksum_s1   ;
-  reg                  [                  31: 0]       src_ip_s1          ;
-  reg                  [                  31: 0]       dest_ip_s1         ;
+  reg                  [                  15:0]        total_len_s1     ;
+  reg                  [                   7:0]        ttl_s1           ;
+  reg                  [                  15:0]        head_checksum_s1 ;
+  reg                  [                  31:0]        src_ip_s1        ;
+  reg                  [                  31:0]        dest_ip_s1       ;
 
-  reg                                                  is_first_beat      ;
+  reg                                                  is_first_beat    ;
 
-  reg                  [     IPV4_HDR_BITS-1: 0]       data_remain_reg    ;
-  reg                  [   IPV4_HDR_BITS/8-1: 0]       keep_remain_reg    ;
+  reg                  [     IPV4_HDR_BITS-1:0]        data_remain_reg  ;
+  reg                  [   IPV4_HDR_BITS/8-1:0]        keep_remain_reg  ;
+  reg                  [   AXIS_USER_WIDTH-1:0]        udp_axis_susr_remain_reg;
 
-  reg                  [                 511: 0]       ipv4_axis_mdata_reg  ;
-  reg                  [                  63: 0]       ipv4_axis_mkeep_reg  ;
-  reg                                                  ipv4_axis_mlast_reg  ;
-  reg                                                  ipv4_axis_mvalid_reg  ;
+  reg                  [                 511:0]        ipv4_axis_mdata_reg;
+  reg                  [                  63:0]        ipv4_axis_mkeep_reg;
+  reg                                                  ipv4_axis_mlast_reg;
+  reg                                                  ipv4_axis_mvalid_reg;
+  reg                  [   AXIS_USER_WIDTH-1:0]        ipv4_axis_musr_reg;
 
   reg                                                  is_insert_beat_s1,is_insert_beat_s2;// 末拍高 20 字节含有效数据 ⇒ 还需补发一个插入拍
 
     
-  wire                                                 out_reg_free     =!ipv4_axis_mvalid_reg || ipv4_axis_mready;
-  wire                                                 insert_en        =is_insert_beat_s2 && out_reg_free;
-  wire                                                 udp_axis_sready_s1=out_reg_free && !is_insert_beat_s2;
-  wire                                                 m_handshake      =ipv4_axis_mvalid&& ipv4_axis_mready;
-  wire                                                 s_handshake      =udp_axis_sready&& udp_axis_svalid;
-  wire                                                 s1_handshake     =udp_axis_sready_s1&& udp_axis_svalid_s1;
+  wire                                                 out_reg_free      = !ipv4_axis_mvalid_reg || ipv4_axis_mready;
+  wire                                                 insert_en         = is_insert_beat_s2 && out_reg_free        ;
+  wire                                                 udp_axis_sready_s1 = out_reg_free && !is_insert_beat_s2       ;
+  wire                                                 m_handshake       = ipv4_axis_mvalid&& ipv4_axis_mready      ;
+  wire                                                 s_handshake       = udp_axis_sready&& udp_axis_svalid        ;
+  wire                                                 s1_handshake      = udp_axis_sready_s1&& udp_axis_svalid_s1  ;
   assign  udp_axis_sready  = (!udp_axis_svalid_s1 || udp_axis_sready_s1) && !is_insert_beat_s1;
 
   always @(posedge clk) begin
@@ -76,6 +83,7 @@ module udp_ipv4_header_add(
       udp_axis_sdata_s1 <= udp_axis_sdata;
       udp_axis_skeep_s1 <= udp_axis_skeep;
       udp_axis_slast_s1 <= udp_axis_slast;
+      udp_axis_susr_s1 <= udp_axis_susr;
       total_len_s1     <= cfg_total_len ;
       ttl_s1           <= cfg_ttl       ;
       head_checksum_s1 <= cfg_head_checksum;
@@ -146,6 +154,13 @@ module udp_ipv4_header_add(
     end
   end
 
+  // udp_axis_susr_remain_reg (帧内保持值; insert 拍沿用)
+  always @(posedge clk) begin
+    if (s1_handshake) begin
+      udp_axis_susr_remain_reg <= udp_axis_susr_s1;
+    end
+  end
+
   // ipv4_axis_mdata_reg
   always @(posedge clk) begin
     if (insert_en) begin
@@ -156,6 +171,16 @@ module udp_ipv4_header_add(
     end
     else if (s1_handshake) begin
       ipv4_axis_mdata_reg <= {udp_axis_sdata_s1[511-IPV4_HDR_BITS:0],data_remain_reg};
+    end
+  end
+
+  // ipv4_axis_musr_reg
+  always @(posedge clk) begin
+    if (insert_en) begin
+      ipv4_axis_musr_reg <= udp_axis_susr_remain_reg;
+    end
+    else if (s1_handshake) begin
+      ipv4_axis_musr_reg <= udp_axis_susr_s1;
     end
   end
 
@@ -209,5 +234,7 @@ module udp_ipv4_header_add(
   assign  ipv4_axis_mkeep  = ipv4_axis_mkeep_reg;
   assign  ipv4_axis_mlast  = ipv4_axis_mlast_reg;
   assign  ipv4_axis_mvalid = ipv4_axis_mvalid_reg;
+  assign  ipv4_axis_musr   = ipv4_axis_musr_reg;
 
 endmodule
+`resetall

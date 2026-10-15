@@ -7,8 +7,8 @@
 // File Name   : eth_100g_tester.v
 // Module Name : eth_100g_tester
 // Author      : LiXintao
-// Date        : 2026-09-13
-// Version     : v1.0
+// Date        : 2026-10-12
+// Version     : v3.0
 // ----------------------------------------------------------------------------
 // Description : 100G 以太网极限测速与误码校验模块 (发包机 + 校验机)
 //               发包机构建含 Ethernet II + IPv4 头的标准包极限打流;
@@ -18,7 +18,8 @@ module eth_100g_tester #(
   parameter  AXIS_WIDTH= 512,
   parameter  AXIS_USER_WIDTH= 1 ,
   parameter  PKT_LEN_BEATS= 16,   // 16 * 64 = 1024 字节/包
-  parameter  ONE_SEC_CYCLES= 32'd250_000_000
+  parameter  ONE_SEC_CYCLES= 32'd250_000_000,
+  parameter  [AXIS_USER_WIDTH-1:0] AXIS_USER_VAL= 'd0 // TX usr; 过 by_val 仲裁须非 0(0=永不选中); 直连 CMAC 时非 0=错帧注入, 该场景保持 0
 ) (
     // --- TX 域 (发包机) ---
   input  wire                                          clk             ,
@@ -27,7 +28,7 @@ module eth_100g_tester #(
   output wire          [      AXIS_WIDTH/8-1: 0]       axis_mkeep      ,
   output reg                                           axis_mvalid     ,
   output reg                                           axis_mlast      ,
-  output wire          [   AXIS_USER_WIDTH-1: 0]       axis_muser      ,
+  output wire          [   AXIS_USER_WIDTH-1: 0]       axis_musr       ,
   input  wire                                          axis_mready     ,
 
     // --- RX 域 (校验机) ---
@@ -35,7 +36,7 @@ module eth_100g_tester #(
   input  wire          [      AXIS_WIDTH/8-1: 0]       axis_skeep      ,
   input  wire                                          axis_svalid     ,
   input  wire                                          axis_slast      ,
-  input  wire          [   AXIS_USER_WIDTH-1: 0]       axis_suser      ,
+  input  wire          [   AXIS_USER_WIDTH-1: 0]       axis_susr       ,
   output wire                                          axis_sready     ,
 
     // --- 控制与状态 ---
@@ -81,7 +82,7 @@ module eth_100g_tester #(
   // 1. TX 发包机逻辑 (TX Domain)
   // ============================================================================
   assign  axis_mkeep       = {(AXIS_WIDTH / 8) {1'b1}};
-  assign  axis_muser       = {AXIS_USER_WIDTH{1'b0}};
+  assign  axis_musr        = AXIS_USER_VAL;
   assign  axis_mdata       = w_axis_mdata     ;// 组合逻辑直连数据线，确保时序严格对齐
 
   // 组合逻辑：根据当前发包节拍，动态组装包头和 Payload

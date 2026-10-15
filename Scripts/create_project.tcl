@@ -116,8 +116,31 @@ set xdc_files [glob -nocomplain -directory $XDC_DIR -type f *.xdc]
 if {[llength $xdc_files] > 0} {
     add_files -norecurse -fileset constrs_1 $xdc_files
     puts "  XDC : [llength $xdc_files] 个约束文件（来自 $XDC_DIR）"
+    # 引脚约束与顶层一一对应：仅启用与当前顶层同名的 XDC，其余 *_test_top.xdc 置为禁用（避免引脚约束冲突）
+    foreach f $xdc_files {
+        set _base [file tail $f]
+        if {[string equal $_base "${TOP}.xdc"]} {
+            puts "        - $_base（启用：与顶层 $TOP 匹配）"
+        } elseif {[string match "*_test_top.xdc" $_base]} {
+            set_property IS_ENABLED false [get_files $f]
+            puts "        - $_base（已禁用：与顶层 $TOP 不匹配）"
+        } else {
+            puts "        - $_base"
+        }
+    }
 } else {
     puts "  WARNING: 未找到 XDC，将无引脚/时钟约束"
+}
+
+# ---------- 加入模块级约束（XDC/*.tcl：文件名 = 作用模块名，如 axis_fifo_async.tcl）----------
+set tcl_cstr_files [glob -nocomplain -directory $XDC_DIR -type f *.tcl]
+foreach f $tcl_cstr_files {
+    add_files -norecurse -fileset constrs_1 $f
+    set _base [file rootname [file tail $f]]
+    set_property SCOPED_TO_REF    $_base                                [get_files $f]
+    set_property PROCESSING_ORDER LATE                                  [get_files $f]
+    set_property USED_IN          {synthesis implementation simulation} [get_files $f]
+    puts "  CSTR: [file tail $f]（SCOPED_TO_REF=$_base，USED_IN=synthesis/implementation/simulation，PROCESSING_ORDER=LATE）"
 }
 
 # ---------- 加入 IP（复用已提交的 .xci：<源码目录>/IP/*/*.xci）----------
@@ -131,7 +154,7 @@ if {[file isdirectory $IP_DIR]} {
     }
 }
 if {[llength $ip_files] > 0} {
-    import_ip -fileset sources_1 $ip_files
+    import_ip $ip_files
     puts "  IP  : [llength $ip_files] 个 .xci（来自 $IP_DIR）"
     foreach f $ip_files { puts "        - [file tail $f]" }
 } else {

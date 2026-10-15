@@ -6,7 +6,15 @@
 
 把 CMAC 的裸以太网帧按协议类型整理成一条条独立的流式通道，并自动完成地址解析、报文封装与发送调度 —— 上层只需要对接标准的 AXI-Stream 接口。
 
-![HDL](https://img.shields.io/badge/HDL-Verilog--2001-blue) ![Vivado](https://img.shields.io/badge/Vivado-2025.2-orange) ![Device](https://img.shields.io/badge/Device-xcvu37p--fsvh2892--2L--e-yellow) ![Clk](https://img.shields.io/badge/User%20Clock-400MHz%20timing%20clean-brightgreen) ![License](https://img.shields.io/badge/License-Apache--2.0-green)
+![HDL](https://img.shields.io/badge/HDL-Verilog--2001-blue)
+
+![Vivado](https://img.shields.io/badge/Vivado-2025.2-orange)
+
+![Device](https://img.shields.io/badge/Device-xcvu37p--fsvh2892--2L--e-yellow)
+
+![Clk](https://img.shields.io/badge/User%20Clock-400MHz%20timing%20clean-brightgreen)
+
+![License](https://img.shields.io/badge/License-Apache--2.0-green)
 
 ![architecture](Docs/architecture.svg)
 
@@ -74,7 +82,7 @@
 
 ### 创建工程
 
-**目录约定**：源码放在一个目录里（下称“源码目录”），Vivado 工程创建在它的**上一层**：
+**目录约定**：源码放在一个目录里（下称“源码目录”，本项目约定命名为 `Centenarian.user`），Vivado 工程创建在它的**上一层**：
 
 ```text
 <工作区>/                      ← 外层：工程建在这里（xpr / runs / cache / gen …）
@@ -85,13 +93,13 @@
     └── TB/README.md                    ← 仿真 TB 索引（被测模块 / 覆盖点 / 运行方式）
 ```
 
-源码目录叫什么都行（`usr`、`Centenarian.user`…）：脚本按自身位置推导内外层，不需要改代码。
-
-三行建好工程并开始综合：
+执行以下命令，即可建好工程并开始综合：
 
 ```bash
-git clone https://github.com/<你的用户名>/Centenarian.git usr   # 克隆为“源码目录”
-vivado -mode batch -source usr/Scripts/create_project.tcl -tclargs -top subsys_test_top -jobs 8 -synth
+mkdir Centenarian
+cd Centenarian
+git clone https://github.com/Magnus-42/Centenarian.git Centenarian.user   # 克隆为“源码目录”
+vivado -mode batch -source Centenarian.user/Scripts/create_project.tcl -tclargs -top subsys_test_top -jobs 8 -synth
 ```
 
 脚本会：在**外层**创建工程（器件 `xcvu37p-fsvh2892-2L-e`，工程名默认取外层目录名）→ 加入源码目录下的全部 RTL 与 XDC → 导入已提交的 IP 配置（`IP/*/*.xci`）→ 生成 IP 输出产物 → 设顶层 → 启动 `synth_1`。
@@ -258,10 +266,10 @@ GNU 通用公共许可证 v3.0。详情请参阅 [LICENSE](LICENSE)。
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=magnus-42%2Fcentenarian&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=magnus-42/centenarian&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=magnus-42/centenarian&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=magnus-42/centenarian&type=date&legend=top-left" />
- </picture>
+<a href="https://www.star-history.com/?repos=magnus-42%2Fcentenarian\&type=date\&legend=top-left">  
+  <picture>  
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=magnus-42/centenarian\&type=date\&theme=dark\&legend=top-left" />  
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=magnus-42/centenarian\&type=date\&theme=light\&legend=top-left" />  
+    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=magnus-42/centenarian\&type=date\&theme=light\&legend=top-left" />  
+  </picture>  
 </a>

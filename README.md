@@ -4,19 +4,9 @@
 
 **面向 Xilinx UltraScale+ 的可扩展 100G 以太网协议子系统 IP**
 
-把 CMAC 的裸以太网帧按协议类型整理成一条条独立的流式通道，并自动完成地址解析、
+把 CMAC 的裸以太网帧按协议类型整理成一条条独立的流式通道，并自动完成地址解析、报文封装与发送调度 —— 上层只需要对接标准的 AXI-Stream 接口。
 
-报文封装与发送调度 —— 上层只需要对接标准的 AXI-Stream 接口。
-
-![HDL](https://img.shields.io/badge/HDL-Verilog--2001-blue)
-
-![Vivado](https://img.shields.io/badge/Vivado-2025.2-orange)
-
-![Device](https://img.shields.io/badge/Device-xcvu37p--fsvh2892--2L--e-yellow)
-
-![Clk](https://img.shields.io/badge/User%20Clock-400MHz%20timing%20clean-brightgreen)
-
-![License](https://img.shields.io/badge/License-Apache--2.0-green)
+![HDL](https://img.shields.io/badge/HDL-Verilog--2001-blue) ![Vivado](https://img.shields.io/badge/Vivado-2025.2-orange) ![Device](https://img.shields.io/badge/Device-xcvu37p--fsvh2892--2L--e-yellow) ![Clk](https://img.shields.io/badge/User%20Clock-400MHz%20timing%20clean-brightgreen) ![License](https://img.shields.io/badge/License-Apache--2.0-green)
 
 ![architecture](Docs/architecture.svg)
 
@@ -39,6 +29,7 @@
   - [FAQ](#faq)
   - [许可证](#许可证)
   - [贡献](#贡献)
+  - [Star History](#star-history)
 
 ---
 
@@ -147,8 +138,7 @@ VU37P 上完整实现（Vivado 2025.2，顶层 `subsys_test_top`，含全部打�
 ```
 
 1024 字节帧 ⇒ 系数 `1048 / 1024 = 1.0234`，即 **100G 线速对应总线侧 97.7 Gbps**  
-（上述 `+24` 是 MAC 层帧的口径；IPv4 / IPv6 帧还要多 14 字节以太网首部 ⇒ `+38`，  
-UDP 载荷还要再加 20 字节 IPv4 首部 ⇒ `+58`，逐层次的口径与实测折算见 [04 · 验证与测试](Docs/04-verification.md)）。以上数据来自 VU37P 上的完整实现（顶层 `subsys_test_top`）；可用[快速开始](#快速开始)的脚本建好工程后自行综合与实现。
+（上述 `+24` 是 MAC 层帧的口径；IPv4 / IPv6 帧还要多 14 字节以太网首部 ⇒ `+38`，UDP 载荷还要再加 20 字节 IPv4 首部 ⇒ `+58`，逐层次的口径与实测折算见 [04 · 验证与测试](Docs/04-verification.md)）。以上数据来自 VU37P 上的完整实现（顶层 `subsys_test_top`）；可用[快速开始](#快速开始)的脚本建好工程后自行综合与实现。
 
 ---
 
@@ -233,7 +223,7 @@ A：配置字段是小端序，且总线最右端字节 = 线上第一个字节�
 
 **Q2：某一类协议完全用不到，可以关掉吗？**
 
-A：可以，把该口的这类通道数配成 `0` 即可：该端口不再启用这类通道，不接收也不参与发送仲裁，不需要改代码或加条件编译。见 [02](Docs/02-configuration.md)。
+A：可以，把该口的这类通道数配成 `0` 即可：该端口不再启用这类通道，不接收也不参与发送仲裁，不需要改代码或加条件编译。见 [02 · 参数与配置](Docs/02-configuration.md)。
 
 **Q3：能支持 IPv6 邻居发现吗？**
 
@@ -265,3 +255,13 @@ GNU 通用公共许可证 v3.0。详情请参阅 [LICENSE](LICENSE)。
 - Bug 请附：器件 / Vivado 版本、顶层、参数配置、复现步骤与关键日志；
 - 功能建议请先开 Issue 讨论接口与参数命名，再动手实现；
 - 提交前请跑一次实现流程，确认用户域无时序违例。
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=magnus-42%2Fcentenarian&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=magnus-42/centenarian&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=magnus-42/centenarian&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=magnus-42/centenarian&type=date&legend=top-left" />
+ </picture>
+</a>

@@ -6,15 +6,7 @@
 
 把 CMAC 的裸以太网帧按协议类型整理成一条条独立的流式通道，并自动完成地址解析、报文封装与发送调度 —— 上层只需要对接标准的 AXI-Stream 接口。
 
-![HDL](https://img.shields.io/badge/HDL-Verilog--2001-blue)
-
-![Vivado](https://img.shields.io/badge/Vivado-2025.2-orange)
-
-![Device](https://img.shields.io/badge/Device-xcvu37p--fsvh2892--2L--e-yellow)
-
-![Clk](https://img.shields.io/badge/User%20Clock-400MHz%20timing%20clean-brightgreen)
-
-![License](https://img.shields.io/badge/License-Apache--2.0-green)
+![HDL](https://img.shields.io/badge/HDL-Verilog--2001-blue) ![Vivado](https://img.shields.io/badge/Vivado-2025.2-orange) ![Device](https://img.shields.io/badge/Device-xcvu37p--fsvh2892--2L--e-yellow) ![Clk](https://img.shields.io/badge/User%20Clock-400MHz%20timing%20clean-brightgreen) ![License](https://img.shields.io/badge/License-GPL--3.0-green)
 
 ![architecture](Docs/architecture.svg)
 
@@ -266,10 +258,10 @@ GNU 通用公共许可证 v3.0。详情请参阅 [LICENSE](LICENSE)。
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=magnus-42%2Fcentenarian\&type=date\&legend=top-left">  
-  <picture>  
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=magnus-42/centenarian\&type=date\&theme=dark\&legend=top-left" />  
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=magnus-42/centenarian\&type=date\&theme=light\&legend=top-left" />  
-    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=magnus-42/centenarian\&type=date\&theme=light\&legend=top-left" />  
-  </picture>  
+<a href="https://www.star-history.com/?repos=magnus-42%2Fcentenarian&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=magnus-42/centenarian&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=magnus-42/centenarian&type=date&theme=light&legend=top-left" />
+    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=magnus-42/centenarian&type=date&theme=light&legend=top-left" />
+  </picture>
 </a>

@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 762" width="1260" height="762" role="img">
+<title>各层 AXIS usr 字段的含义</title>
+<desc>接收方向 usr 位段定义：MAC 层 1 位错误标志；IPv4 / IPv6 层 97 位 = 源 MAC + 目的 MAC + 错误标志；UDP 层 193 位 = 目的 IP、源 IP、TTL、IP 总长、协议号 + IPv4 层 97 位原样带入。发送方向 usr 为优先级标记。</desc>
+
+<rect x="0" y="0" width="1260" height="762" fill="#FFFFFF"/>
+
+<text x="26" y="38" font-family="Helvetica,Arial,sans-serif" font-size="21" font-weight="600" fill="#111111">各层 AXIS usr 字段的含义</text>
+<text x="26" y="62" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#5F5E5A">接收方向：usr 元数据随协议逐层解析而扩充；每通道独享一份，位段记作 [MSB:LSB]</text>
+
+<!-- ================= ① MAC 层 ================= -->
+<rect x="14" y="84" width="1232" height="166" rx="12" fill="#FAFAF8" stroke="#D3D1C7" stroke-width="1"/>
+<circle cx="46" cy="113" r="5" fill="#854F0B"/>
+<text x="60" y="118" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#111111">MAC 层</text>
+<text x="1220" y="117" text-anchor="end" font-family="Consolas,Menlo,monospace" font-size="11.5" fill="#444441">mac_axis_musr  ·  每通道 1 位</text>
+
+<rect x="40" y="142" width="320" height="64" rx="8" fill="#FCEBEB" stroke="#A32D2D" stroke-width="1.2"/>
+<text x="200" y="164" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#A32D2D">[0]</text>
+<text x="200" y="184" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#791F1F">错误标志</text>
+<text x="200" y="200" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">1 位</text>
+
+<text x="40" y="230" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#5F5E5A">1 = 指示接收到的数据包错误，0 = 指示接收到的数据包有效 ｜ 来源：CMAC rx_axis_tuser，随帧逐级透传</text>
+
+<!-- ================= ② IPv4 / IPv6 层 ================= -->
+<rect x="14" y="266" width="1232" height="186" rx="12" fill="#FAFAF8" stroke="#D3D1C7" stroke-width="1"/>
+<circle cx="46" cy="295" r="5" fill="#185FA5"/>
+<text x="60" y="300" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#111111">IPv4 / IPv6 层</text>
+<text x="1220" y="299" text-anchor="end" font-family="Consolas,Menlo,monospace" font-size="11.5" fill="#444441">ipv4_axis_musr / ipv6_axis_musr  ·  每通道 97 位</text>
+
+<path d="M40 333 H996 M40 333 V338 M996 333 V338" fill="none" stroke="#B4B2A9" stroke-width="1"/>
+<text x="518" y="327" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10.5" fill="#5F5E5A">从以太网首部解析 · [96:1]</text>
+<path d="M1004 333 H1200 M1004 333 V338 M1200 333 V338" fill="none" stroke="#B4B2A9" stroke-width="1"/>
+<text x="1102" y="327" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10.5" fill="#5F5E5A">MAC 层透传 · [0]</text>
+
+<rect x="40" y="344" width="480" height="64" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.2"/>
+<text x="280" y="366" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#534AB7">[96:49]</text>
+<text x="280" y="386" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#3C3489">源 MAC</text>
+<text x="280" y="402" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">48 位</text>
+
+<rect x="520" y="344" width="480" height="64" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.2"/>
+<text x="760" y="366" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#534AB7">[48:1]</text>
+<text x="760" y="386" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#3C3489">目的 MAC</text>
+<text x="760" y="402" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">48 位</text>
+
+<rect x="1000" y="344" width="200" height="64" rx="8" fill="#FCEBEB" stroke="#A32D2D" stroke-width="1.2"/>
+<text x="1100" y="366" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#A32D2D">[0]</text>
+<text x="1100" y="386" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#791F1F">错误标志</text>
+<text x="1100" y="402" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">1 位</text>
+
+<text x="40" y="432" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#5F5E5A">源 / 目的 MAC 从以太网首部（14 字节）解析得到；错误标志由 MAC 层原样透传</text>
+
+<!-- ================= ③ UDP 层 ================= -->
+<rect x="14" y="468" width="1232" height="186" rx="12" fill="#FAFAF8" stroke="#D3D1C7" stroke-width="1"/>
+<circle cx="46" cy="497" r="5" fill="#0F6E56"/>
+<text x="60" y="502" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#111111">UDP 层</text>
+<text x="1220" y="501" text-anchor="end" font-family="Consolas,Menlo,monospace" font-size="11.5" fill="#444441">udp_axis_musr  ·  每通道 193 位</text>
+
+<path d="M40 535 H664 M40 535 V540 M664 535 V540" fill="none" stroke="#B4B2A9" stroke-width="1"/>
+<text x="352" y="529" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10.5" fill="#5F5E5A">从 IPv4 首部解析 · [192:97]</text>
+<path d="M672 535 H1194 M672 535 V540 M1194 535 V540" fill="none" stroke="#B4B2A9" stroke-width="1"/>
+<text x="933" y="529" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10.5" fill="#5F5E5A">IPv4 层 usr 原样带入 · [96:0]</text>
+
+<rect x="40" y="546" width="190" height="64" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
+<text x="135" y="568" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#185FA5">[192:161]</text>
+<text x="135" y="588" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#0C447C">目的 IP</text>
+<text x="135" y="604" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">32 位</text>
+
+<rect x="230" y="546" width="190" height="64" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
+<text x="325" y="568" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#185FA5">[160:129]</text>
+<text x="325" y="588" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#0C447C">源 IP</text>
+<text x="325" y="604" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">32 位</text>
+
+<rect x="420" y="546" width="74" height="64" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.2"/>
+<text x="457" y="568" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#0F6E56">[128:121]</text>
+<text x="457" y="588" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#085041">TTL</text>
+<text x="457" y="604" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">8 位</text>
+
+<rect x="494" y="546" width="100" height="64" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.2"/>
+<text x="544" y="568" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#0F6E56">[120:105]</text>
+<text x="544" y="588" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#085041">IP 总长</text>
+<text x="544" y="604" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">16 位</text>
+
+<rect x="594" y="546" width="74" height="64" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.2"/>
+<text x="631" y="568" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#0F6E56">[104:97]</text>
+<text x="631" y="588" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#085041">协议号</text>
+<text x="631" y="604" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">8 位</text>
+
+<rect x="668" y="546" width="218" height="64" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.2"/>
+<text x="777" y="568" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#534AB7">[96:49]</text>
+<text x="777" y="588" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#3C3489">源 MAC</text>
+<text x="777" y="604" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">48 位</text>
+
+<rect x="886" y="546" width="218" height="64" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.2"/>
+<text x="995" y="568" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#534AB7">[48:1]</text>
+<text x="995" y="588" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#3C3489">目的 MAC</text>
+<text x="995" y="604" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">48 位</text>
+
+<rect x="1104" y="546" width="90" height="64" rx="8" fill="#FCEBEB" stroke="#A32D2D" stroke-width="1.2"/>
+<text x="1149" y="568" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#A32D2D">[0]</text>
+<text x="1149" y="588" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#791F1F">错误标志</text>
+<text x="1149" y="604" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">1 位</text>
+
+<text x="40" y="634" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#5F5E5A">目的 / 源 IP、TTL、IP 总长、协议号从 IPv4 首部（20 字节）解析得到；低 97 位为 IPv4 层 usr 原样带入（源 / 目的 MAC + 错误标志）</text>
+
+<!-- ================= 图例与发送方向说明 ================= -->
+<rect x="14" y="670" width="1232" height="72" rx="10" fill="#F1EFE8" stroke="#D3D1C7" stroke-width="1"/>
+<text x="40" y="696" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#5F5E5A">字段配色：</text>
+<rect x="118" y="687" width="16" height="12" rx="3" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+<text x="142" y="696" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#444441">MAC 地址</text>
+<rect x="224" y="687" width="16" height="12" rx="3" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+<text x="248" y="696" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#444441">IP 地址</text>
+<rect x="312" y="687" width="16" height="12" rx="3" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+<text x="336" y="696" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#444441">其它报头字段</text>
+<rect x="448" y="687" width="16" height="12" rx="3" fill="#FCEBEB" stroke="#A32D2D" stroke-width="1"/>
+<text x="472" y="696" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#444441">错误标志</text>
+<text x="40" y="722" font-family="Helvetica,Arial,sans-serif" font-size="11.5" fill="#2C2C2A">发送方向（TX）：各层 usr 为「发送优先级」标记 ｜ PRIORITY_WIDTH 位（默认 4），值越大越优先、同值轮流发送，全 0 = 该路不参与调度</text>
+
+</svg>

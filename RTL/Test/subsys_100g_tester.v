@@ -14,15 +14,16 @@
 // NOTE        :
 //   1. 挂在任意"单路 AXIS 通道"上：MAC other / IPv4 icmp/ospf/other 各一路；
 //      UDP 通道的多路输出由顶层静态选一路接入（每路一个实例）。
-//   2. 包结构 = 第 0 拍 [HDR_BYTES 置于低 160 位, 余位填 0]，后续拍为递增拍号；
+//   2. 包结构 = 第 0 拍 [HDR_BYTES 置于低 320 位, 余位填 0]，后续拍为递增拍号；
 //      校验端用同一公式恢复期望值（HDR_BYTES 低字节 = 线上第一字节）。
+//      HDR_BYTES 上限 40 字节 = IPv6 固定头；IPv4(20B)/以太(14B) 实例传短值自动高位补 0。
 //   3. 接收端恒不反压（测极限带宽）；rx_lock 做帧头对齐（跳过残缺帧）。
 // ============================================================================
 module subsys_100g_tester #(
   parameter  AXIS_WIDTH     = 512,
   parameter  PKT_LEN_BEATS  = 16,                       // 每包包长(拍)，64B 对齐
   parameter  ONE_SEC_CYCLES = 32'd400_000_000,          // 1 秒的时钟周期数
-  parameter  [   159: 0]       HDR_BYTES   = 160'd0     // 第 0 拍包头(低字节=线上第一字节, 高位填0)
+  parameter  [   319: 0]       HDR_BYTES   = 320'd0    // 第 0 拍包头(低字节=线上第一字节, 最长 40B=IPv6 固定头)
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
@@ -43,7 +44,7 @@ module subsys_100g_tester #(
   output wire                                          axis_sready
 );
 
-  localparam [AXIS_WIDTH-1:0] HDR_BEAT = {{(AXIS_WIDTH-160){1'b0}}, HDR_BYTES};
+  localparam [AXIS_WIDTH-1:0] HDR_BEAT = {{(AXIS_WIDTH-320){1'b0}}, HDR_BYTES};
 
   // ----------------------------------------------------------------------------
   // TX 发包机

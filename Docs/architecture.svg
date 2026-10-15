@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 940" width="1260" height="940">
+<defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect x="0" y="0" width="1260" height="940" fill="#FFFFFF"/>
+<text x="26" y="38" font-family="Helvetica,Arial,sans-serif" font-size="21" font-weight="600" fill="#111111" text-anchor="start">Centenarian · eth_subsys_top 结构框架</text>
+<text x="26" y="62" font-family="Helvetica,Arial,sans-serif" font-size="11" font-weight="400" fill="#5F5E5A" text-anchor="start">单口展开（generate gen_port[0 .. ETH_PORT_NUM-1]，各口参数独立）｜内部统一 AXI-Stream 512bit/拍｜用户逻辑域 clk = 400MHz</text>
+<rect x="14" y="80" width="1036" height="380" rx="12" fill="#FAFAF8" stroke="#D3D1C7" stroke-width="1"/>
+<rect x="14" y="480" width="1036" height="410" rx="12" fill="#FAFAF8" stroke="#D3D1C7" stroke-width="1"/>
+<text x="30" y="104" font-family="Helvetica,Arial,sans-serif" font-size="14" font-weight="600" fill="#185FA5" text-anchor="start">发 送 方 向   TX</text>
+<text x="30" y="504" font-family="Helvetica,Arial,sans-serif" font-size="14" font-weight="600" fill="#0F6E56" text-anchor="start">接 收 方 向   RX</text>
+<rect x="1090" y="170" width="140" height="700" rx="7" fill="#FAEEDA" stroke="#854F0B" stroke-width="1.2"/>
+<text x="1160.0" y="520.0" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#412402" text-anchor="middle" dominant-baseline="central"></text>
+<text x="1160" y="500" font-family="Helvetica,Arial,sans-serif" font-size="17" font-weight="600" fill="#412402" text-anchor="middle">CMAC</text>
+<text x="1160" y="524" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#412402" text-anchor="middle">100G · 4×25G lane</text>
+<text x="1160" y="566" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#854F0B" text-anchor="middle">gt_txp / gt_txn</text>
+<text x="1160" y="600" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#854F0B" text-anchor="middle">gt_rxp / gt_rxn</text>
+<text x="1160" y="636" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#854F0B" text-anchor="middle">光模块 · 外部光缆</text>
+<rect x="20" y="116" width="170" height="48" rx="7" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
+<text x="105.0" y="136" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53" text-anchor="middle">udp_axis_s*</text>
+<text x="105.0" y="151" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#042C53" text-anchor="middle">多路/口</text>
+<rect x="20" y="201" width="170" height="48" rx="7" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
+<text x="105.0" y="221" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53" text-anchor="middle">ipv4_axis_s*</text>
+<text x="105.0" y="236" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#042C53" text-anchor="middle">多路/口</text>
+<rect x="20" y="281" width="170" height="48" rx="7" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
+<text x="105.0" y="301" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53" text-anchor="middle">ipv6_axis_s*</text>
+<text x="105.0" y="316" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#042C53" text-anchor="middle">多路/口</text>
+<rect x="20" y="358" width="170" height="48" rx="7" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
+<text x="105.0" y="378" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53" text-anchor="middle">mac_axis_s*</text>
+<text x="105.0" y="393" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#042C53" text-anchor="middle">多路/口</text>
+<rect x="240" y="116" width="170" height="48" rx="7" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.2"/>
+<text x="325.0" y="136" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#26215C" text-anchor="middle">udp_tx_mux</text>
+<text x="325.0" y="151" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#26215C" text-anchor="middle">按 usr 优先级仲裁</text>
+<rect x="240" y="201" width="170" height="48" rx="7" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.2"/>
+<text x="325.0" y="221" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#26215C" text-anchor="middle">ipv4_tx_mux</text>
+<text x="325.0" y="236" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#26215C" text-anchor="middle">按 usr 优先级仲裁</text>
+<rect x="240" y="281" width="170" height="48" rx="7" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.2"/>
+<text x="325.0" y="301" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#26215C" text-anchor="middle">ipv6_tx_mux</text>
+<text x="325.0" y="316" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#26215C" text-anchor="middle">按 usr 优先级仲裁</text>
+<rect x="240" y="358" width="170" height="48" rx="7" fill="#FBEAF0" stroke="#993556" stroke-width="1.2"/>
+<text x="325.0" y="378" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#4B1528" text-anchor="middle">arp_engine_top</text>
+<text x="325.0" y="393" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#4B1528" text-anchor="middle">发起 ARP 请求</text>
+<rect x="460" y="116" width="170" height="48" rx="7" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<text x="545.0" y="136" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#2C2C2A" text-anchor="middle">udp_ipv4_tx</text>
+<text x="545.0" y="151" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2C2C2A" text-anchor="middle">加 IPv4 头</text>
+<rect x="460" y="201" width="170" height="48" rx="7" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<text x="545.0" y="221" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#2C2C2A" text-anchor="middle">ipv4_eth_tx</text>
+<text x="545.0" y="236" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2C2C2A" text-anchor="middle">封装 + 插 MAC 头</text>
+<rect x="460" y="281" width="170" height="48" rx="7" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<text x="545.0" y="301" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#2C2C2A" text-anchor="middle">ipv6_eth_tx</text>
+<text x="545.0" y="316" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2C2C2A" text-anchor="middle">封装 + 查表</text>
+<rect x="680" y="200" width="160" height="180" rx="7" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.2"/>
+<text x="760.0" y="286" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#26215C" text-anchor="middle">eth_tx_mux</text>
+<text x="760.0" y="301" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#26215C" text-anchor="middle">出口仲裁</text>
+<rect x="880" y="200" width="160" height="40" rx="7" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<text x="960.0" y="216" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#2C2C2A" text-anchor="middle">eth_frame_pad60</text>
+<text x="960.0" y="231" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2C2C2A" text-anchor="middle">最小帧补齐</text>
+<rect x="880" y="270" width="160" height="40" rx="7" fill="#F1EFE8" stroke="#888780" stroke-width="1.2"/>
+<text x="960.0" y="286" font-family="Helvetica,Arial,sans-serif" font-size="11" font-weight="600" fill="#5F5E5A" text-anchor="middle">axis_slr_crossing</text>
+<text x="960.0" y="301" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A" text-anchor="middle">400M → usrclk</text>
+<rect x="880" y="340" width="160" height="40" rx="7" fill="#FAEEDA" stroke="#854F0B" stroke-width="1.2"/>
+<text x="960.0" y="356" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="600" fill="#412402" text-anchor="middle">cmac_a_if / cmac_b_if</text>
+<text x="960.0" y="371" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#412402" text-anchor="middle">（PORT_SEL 选择）</text>
+<polyline points="190,140 238,140" fill="none" stroke="#185FA5" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="190,225 238,225" fill="none" stroke="#185FA5" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="190,305 238,305" fill="none" stroke="#185FA5" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="410,140 458,140" fill="none" stroke="#534AB7" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="410,225 458,225" fill="none" stroke="#534AB7" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="410,305 458,305" fill="none" stroke="#534AB7" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="545,164 545,182 325,182 325,199" fill="none" stroke="#888780" stroke-width="1.4" marker-end="url(#a)"/>
+<text x="552" y="180" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A" text-anchor="start">UDP 内部档</text>
+<polyline points="630,225 678,225" fill="none" stroke="#888780" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="630,305 678,305" fill="none" stroke="#888780" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="190,382 212,382 212,416 740,416 740,382" fill="none" stroke="#185FA5" stroke-width="1.4" marker-end="url(#a)"/>
+<text x="224" y="426" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#5F5E5A" text-anchor="start">mac_axis_s* 直通（带 usr 优先级）</text>
+<polyline points="410,382 432,382 432,436 780,436 780,382" fill="none" stroke="#993556" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="840,220 878,220" fill="none" stroke="#534AB7" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="960,240 960,268" fill="none" stroke="#888780" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="960,310 960,338" fill="none" stroke="#888780" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="1040,360 1088,360" fill="none" stroke="#854F0B" stroke-width="1.4" marker-end="url(#a)"/>
+<rect x="880" y="530" width="160" height="40" rx="7" fill="#FAEEDA" stroke="#854F0B" stroke-width="1.2"/>
+<text x="960.0" y="546" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="600" fill="#412402" text-anchor="middle">cmac_a_if / cmac_b_if</text>
+<text x="960.0" y="561" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#412402" text-anchor="middle">（PORT_SEL 选择）</text>
+<rect x="880" y="600" width="160" height="40" rx="7" fill="#F1EFE8" stroke="#888780" stroke-width="1.2"/>
+<text x="960.0" y="616" font-family="Helvetica,Arial,sans-serif" font-size="11" font-weight="600" fill="#5F5E5A" text-anchor="middle">axis_slr_crossing</text>
+<text x="960.0" y="631" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A" text-anchor="middle">usrclk → 400M</text>
+<rect x="880" y="670" width="160" height="40" rx="7" fill="#F1EFE8" stroke="#888780" stroke-width="1.2"/>
+<text x="960.0" y="686" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#5F5E5A" text-anchor="middle">axis_skid_buffer</text>
+<text x="960.0" y="701" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A" text-anchor="middle">背压吸收</text>
+<rect x="680" y="520" width="160" height="340" rx="7" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.2"/>
+<text x="760.0" y="686" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#04342C" text-anchor="middle">eth_type_demux</text>
+<text x="760.0" y="701" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#04342C" text-anchor="middle">按 EtherType 分流</text>
+<rect x="460" y="533" width="170" height="44" rx="7" fill="#FBEAF0" stroke="#993556" stroke-width="1.2"/>
+<text x="545.0" y="551" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#4B1528" text-anchor="middle">arp_engine_top</text>
+<text x="545.0" y="566" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#4B1528" text-anchor="middle">应答 / 更新表</text>
+<rect x="20" y="571" width="170" height="48" rx="7" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
+<text x="105.0" y="591" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53" text-anchor="middle">mac_axis_m*</text>
+<text x="105.0" y="606" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#042C53" text-anchor="middle">多路/口</text>
+<rect x="460" y="631" width="170" height="48" rx="7" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<text x="545.0" y="651" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#2C2C2A" text-anchor="middle">ipv4_eth_rx</text>
+<text x="545.0" y="666" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2C2C2A" text-anchor="middle">剥以太头</text>
+<rect x="240" y="631" width="170" height="48" rx="7" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.2"/>
+<text x="325.0" y="651" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#04342C" text-anchor="middle">ipv4_type_demux</text>
+<text x="325.0" y="666" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#04342C" text-anchor="middle">按 Protocol 分流</text>
+<rect x="20" y="631" width="170" height="48" rx="7" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
+<text x="105.0" y="651" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53" text-anchor="middle">ipv4_axis_m*</text>
+<text x="105.0" y="666" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#042C53" text-anchor="middle">多路/口</text>
+<rect x="460" y="711" width="170" height="48" rx="7" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<text x="545.0" y="731" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#2C2C2A" text-anchor="middle">udp_ipv4_rx</text>
+<text x="545.0" y="746" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2C2C2A" text-anchor="middle">剥 IP 头</text>
+<rect x="240" y="711" width="170" height="48" rx="7" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.2"/>
+<text x="325.0" y="731" font-family="Helvetica,Arial,sans-serif" font-size="11" font-weight="600" fill="#04342C" text-anchor="middle">udp_type_demux</text>
+<text x="325.0" y="746" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#04342C" text-anchor="middle">按 dst_port 分流</text>
+<rect x="20" y="711" width="170" height="48" rx="7" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
+<text x="105.0" y="731" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53" text-anchor="middle">udp_axis_m*</text>
+<text x="105.0" y="746" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#042C53" text-anchor="middle">多路/口</text>
+<rect x="460" y="791" width="170" height="48" rx="7" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<text x="545.0" y="811" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#2C2C2A" text-anchor="middle">ipv6_eth_rx</text>
+<text x="545.0" y="826" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#2C2C2A" text-anchor="middle">剥以太头</text>
+<rect x="240" y="791" width="170" height="48" rx="7" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.2"/>
+<text x="325.0" y="811" font-family="Helvetica,Arial,sans-serif" font-size="11" font-weight="600" fill="#04342C" text-anchor="middle">ipv6_type_demux</text>
+<text x="325.0" y="826" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#04342C" text-anchor="middle">按 Next Header 分流</text>
+<rect x="20" y="791" width="170" height="48" rx="7" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
+<text x="105.0" y="811" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53" text-anchor="middle">ipv6_axis_m*</text>
+<text x="105.0" y="826" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#042C53" text-anchor="middle">多路/口</text>
+<polyline points="1086,550 1042,550" fill="none" stroke="#854F0B" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="960,570 960,598" fill="none" stroke="#854F0B" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="960,640 960,668" fill="none" stroke="#888780" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="880,690 842,690" fill="none" stroke="#888780" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="680,555 632,555" fill="none" stroke="#993556" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="680,595 192,595" fill="none" stroke="#0F6E56" stroke-width="1.4" marker-end="url(#a)"/>
+<text x="430" y="588" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A" text-anchor="start">自定义类型档 / 兜底档 → 直通边界</text>
+<polyline points="680,655 632,655" fill="none" stroke="#0F6E56" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="680,815 632,815" fill="none" stroke="#0F6E56" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="460,655 412,655" fill="none" stroke="#0F6E56" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="240,655 192,655" fill="none" stroke="#0F6E56" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="325,679 325,692 545,692 545,709" fill="none" stroke="#0F6E56" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<text x="332" y="688" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A" text-anchor="start">UDP 档</text>
+<polyline points="460,735 412,735" fill="none" stroke="#0F6E56" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="240,735 192,735" fill="none" stroke="#0F6E56" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="460,815 412,815" fill="none" stroke="#0F6E56" stroke-width="1.4" marker-end="url(#a)"/>
+<polyline points="240,815 192,815" fill="none" stroke="#0F6E56" stroke-width="1.4" marker-end="url(#a)"/>
+<text x="600" y="878" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#5F5E5A" text-anchor="start">各层 demux 的多余档由 generate 循环自动排水（图仅展开单口）</text>
+<text x="26" y="916" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#2C2C2A" text-anchor="start">图例</text>
+<rect x="76" y="906" width="14" height="12" rx="2" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+<text x="95" y="916" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#042C53" text-anchor="start">用户边界通道</text>
+<rect x="181" y="906" width="14" height="12" rx="2" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+<text x="200" y="916" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#26215C" text-anchor="start">按 usr 优先级仲裁</text>
+<rect x="314" y="906" width="14" height="12" rx="2" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+<text x="333" y="916" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#04342C" text-anchor="start">分流 demux</text>
+<rect x="412" y="906" width="14" height="12" rx="2" fill="#FFFFFF" stroke="#888780" stroke-width="1"/>
+<text x="431" y="916" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#2C2C2A" text-anchor="start">封装 / 解析 / 补齐</text>
+<rect x="550" y="906" width="14" height="12" rx="2" fill="#F1EFE8" stroke="#888780" stroke-width="1"/>
+<text x="569" y="916" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#5F5E5A" text-anchor="start">跨域 / 缓冲</text>
+<rect x="651" y="906" width="14" height="12" rx="2" fill="#FBEAF0" stroke="#993556" stroke-width="1"/>
+<text x="670" y="916" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#4B1528" text-anchor="start">ARP 引擎</text>
+<rect x="738" y="906" width="14" height="12" rx="2" fill="#FAEEDA" stroke="#854F0B" stroke-width="1"/>
+<text x="757" y="916" font-family="Helvetica,Arial,sans-serif" font-size="10" font-weight="400" fill="#412402" text-anchor="start">CMAC / 接口</text>
+</svg>

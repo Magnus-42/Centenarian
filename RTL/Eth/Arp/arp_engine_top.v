@@ -650,7 +650,7 @@ fifo_sync#(
     // 假设一直QUERY，则剩下的拍数都是作为突发，可缓冲手动ARP和ARP_ACK两种类型
     .FIFO_DEPTH       (32               ),
     .DATA_WIDTH       (224              ),
-    .FIFO_MEMORY_TYPE ("auto"           ),
+    .FIFO_MEMORY_TYPE ("distributed"    ),
     .BRAM_DO_REG      (2                ) 
 )
  u_arp_pending_fifo_sync(

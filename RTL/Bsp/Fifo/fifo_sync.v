@@ -138,6 +138,15 @@ module fifo_sync #(
       else if (BRAM_DO_REG == 2) begin
         reg [DATA_WIDTH-1:0] dout_direct_reg;
         reg [DATA_WIDTH-1:0] dout_reg;
+        reg rd_valid_d1;
+        always @(posedge clk) begin
+          if (rst) begin
+            rd_valid_d1 <= 'd0;
+          end else begin
+            rd_valid_d1 <= rd_en && !fifo_empty;
+          end
+        end
+
         // ========================================================================
         // 块 RAM 注册输出
         // ========================================================================
@@ -150,7 +159,7 @@ module fifo_sync #(
         always @(posedge clk) begin
           if (rst) begin
             dout_reg <= 'd0;
-          end else if (rd_en && !fifo_empty) begin
+          end else if (rd_valid_d1) begin
             dout_reg <= dout_direct_reg;
           end
         end

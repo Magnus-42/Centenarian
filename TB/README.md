@@ -24,6 +24,7 @@ TB/
 │   ├── Axis/tb_axis_nto1.v
 │   ├── Fifo/tb_axis_fifo_async.v
 │   ├── Fifo/tb_axis_fifo_sync.v
+│   ├── Fifo/tb_fifo_sync.v
 │   └── Skid/tb_axis_skid_buffer.v
 ├── Eth/
 │   ├── Arp/                           ARP 引擎
@@ -83,6 +84,7 @@ Windows 下把 `xvlog` / `xelab` / `xsim` 换成 Vivado 安装目录下的`<Viva
 | `Bsp/Axis/tb_axis_nto1.v`        | `axis_nto1`        | 单路收发、两路严格优先仲裁、输出随机反压、长跑稳定性；逐拍数据与 `tlast` 记分板比对                                           |
 | `Bsp/Fifo/tb_axis_fifo_async.v`  | `axis_fifo_async`  | 包模式基础功能；写 100 MHz / 读 38 MHz 的指针回绕与满 / 空压力；随机包长与间隔 + 异步复位压力；超长包（`PACKET_FIFO` 的已知限制）行为演示 |
 | `Bsp/Fifo/tb_axis_fifo_sync.v`   | `axis_fifo_sync`   | 分布式 / 块 RAM 两种存储配置下的包模式、背靠背、反压与排空                                                        |
+| `Bsp/Fifo/tb_fifo_sync.v`        | `fifo_sync`        | 稀疏单脉冲读（含读走最后一条）/ 空读后写入防污染 / 连续读至空的顺序完整性（块 RAM + `BRAM_DO_REG=2`）                         |
 | `Bsp/Skid/tb_axis_skid_buffer.v` | `axis_skid_buffer` | 下游反压时的保持与恢复、全吞吐、AXI-Stream 协议稳定性                                                         |
 
 ### 以太网 MAC 层（Eth/Mac）

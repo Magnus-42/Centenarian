@@ -2,7 +2,7 @@
 
 # Centenarian
 
-**面向 Xilinx UltraScale+ 的可扩展 100G 以太网协议子系统 IP**
+**面向 Xilinx UltraScale+ 的可扩展 100G 以太网协议栈**
 
 把 CMAC 的裸以太网帧按协议类型整理成一条条独立的流式通道，并自动完成地址解析、报文封装与发送调度 —— 上层只需要对接标准的 AXI-Stream 接口。
 

@@ -17,11 +17,11 @@
 // -----------------------------------------------------------------------------
 module tb_axis_skid_buffer;
 
-  localparam DATA_W = 64;
-  localparam USER_W = 4;
-  localparam ID_W   = 2;
-  localparam DEST_W = 3;
-  localparam KEEP_W = DATA_W / 8;
+  localparam DATA_WIDTH = 64;
+  localparam USER_WIDTH = 4;
+  localparam ID_WIDTH   = 2;
+  localparam DEST_WIDTH = 3;
+  localparam KEEP_WIDTH = DATA_WIDTH / 8;
   localparam NMAX   = 1024;
 
   reg clk = 1'b0;
@@ -31,12 +31,12 @@ module tb_axis_skid_buffer;
   integer err = 0;
 
   // ---------------- 单字节 tag -> 全部字段派生(每个字段都能用于抓错线) ----------------
-  function [DATA_W-1:0] f_data; input [7:0] t; f_data = {DATA_W/8{t}}  ; endfunction
-  function [KEEP_W-1:0] f_keep; input [7:0] t; f_keep = {KEEP_W{t[0]}} ; endfunction
-  function [KEEP_W-1:0] f_strb; input [7:0] t; f_strb = {KEEP_W{t[4]}} ; endfunction
-  function [USER_W-1:0] f_user; input [7:0] t; f_user = {USER_W{t[1]}} ; endfunction
-  function [   ID_W-1:0] f_id ; input [7:0] t; f_id   = {   ID_W{t[2]}}; endfunction
-  function [ DEST_W-1:0] f_dst; input [7:0] t; f_dst  = { DEST_W{t[3]}}; endfunction
+  function [DATA_WIDTH-1:0] f_data; input [7:0] t; f_data = {DATA_WIDTH/8{t}}  ; endfunction
+  function [KEEP_WIDTH-1:0] f_keep; input [7:0] t; f_keep = {KEEP_WIDTH{t[0]}} ; endfunction
+  function [KEEP_WIDTH-1:0] f_strb; input [7:0] t; f_strb = {KEEP_WIDTH{t[4]}} ; endfunction
+  function [USER_WIDTH-1:0] f_user; input [7:0] t; f_user = {USER_WIDTH{t[1]}} ; endfunction
+  function [   ID_WIDTH-1:0] f_id ; input [7:0] t; f_id   = {   ID_WIDTH{t[2]}}; endfunction
+  function [ DEST_WIDTH-1:0] f_dst; input [7:0] t; f_dst  = { DEST_WIDTH{t[3]}}; endfunction
   function               f_lst; input [7:0] t; f_lst  = t[5]           ; endfunction
 
   // ---------------- 发送队列(tag 序列) ----------------
@@ -45,30 +45,30 @@ module tb_axis_skid_buffer;
 
   // ---------------- DUT 端口信号 ----------------
   reg               s_valid = 1'b0;
-  reg  [DATA_W-1:0] s_data  = 0;
-  reg  [KEEP_W-1:0] s_keep  = 0;
-  reg  [KEEP_W-1:0] s_strb  = 0;
-  reg  [USER_W-1:0] s_user  = 0;
-  reg  [   ID_W-1:0] s_id   = 0;
-  reg  [ DEST_W-1:0] s_dest = 0;
+  reg  [DATA_WIDTH-1:0] s_data  = 0;
+  reg  [KEEP_WIDTH-1:0] s_keep  = 0;
+  reg  [KEEP_WIDTH-1:0] s_strb  = 0;
+  reg  [USER_WIDTH-1:0] s_user  = 0;
+  reg  [   ID_WIDTH-1:0] s_id   = 0;
+  reg  [ DEST_WIDTH-1:0] s_dest = 0;
   reg               s_last  = 1'b0;
   wire              s_ready;
 
   reg               m_ready = 1'b1;                 // 单驱动, 由模式寄存器产生
-  wire [DATA_W-1:0] m_data ;
-  wire [KEEP_W-1:0] m_keep ;
-  wire [KEEP_W-1:0] m_strb ;
-  wire [USER_W-1:0] m_user ;
-  wire [   ID_W-1:0] m_id  ;
-  wire [ DEST_W-1:0] m_dest;
+  wire [DATA_WIDTH-1:0] m_data ;
+  wire [KEEP_WIDTH-1:0] m_keep ;
+  wire [KEEP_WIDTH-1:0] m_strb ;
+  wire [USER_WIDTH-1:0] m_user ;
+  wire [   ID_WIDTH-1:0] m_id  ;
+  wire [ DEST_WIDTH-1:0] m_dest;
   wire              m_last ;
   wire              m_valid;
 
   axis_skid_buffer #(
-    .AXIS_DATA_WIDTH (DATA_W ),
-    .AXIS_USER_WIDTH (USER_W ),
-    .AXIS_ID_WIDTH   (ID_W   ),
-    .AXIS_DEST_WIDTH (DEST_W )
+    .AXIS_DATA_WIDTH (DATA_WIDTH ),
+    .AXIS_USER_WIDTH (USER_WIDTH ),
+    .AXIS_ID_WIDTH   (ID_WIDTH   ),
+    .AXIS_DEST_WIDTH (DEST_WIDTH )
   ) u_dut (
     .clk       (clk     ), .rst      (rst     ),
     .axis_sdata(s_data  ), .axis_skeep(s_keep ), .axis_susr(s_user ),
@@ -252,7 +252,7 @@ module tb_axis_skid_buffer;
   // 看门狗
   initial begin
     #200000;
-    $display("FATAL: timeout");
+    $display("[%0t] [FAIL] FATAL: timeout", $time);
     $finish;
   end
 

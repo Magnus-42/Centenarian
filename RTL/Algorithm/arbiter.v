@@ -23,7 +23,7 @@ module arbiter #(
     parameter ARB_BLOCK_BY_ACK = 1,  // 0 依靠Request 1依靠ACK
     parameter WIDTH = 8,  // 输入位宽
     parameter LOW_FIRST = 1,  // 1: 从低位找第一个 1; 0: 从高位找
-    parameter IDX_W = (WIDTH <= 1) ? 1 : $clog2(WIDTH)  // 索引输出位宽
+    localparam IDX_WIDTH = (WIDTH <= 1) ? 1 : $clog2(WIDTH)  // 索引输出位宽
 ) (
     input wire rst,
     input wire clk,
@@ -33,7 +33,7 @@ module arbiter #(
 
     // --- 授予输出 / 应答 ---
     output wire [WIDTH-1:0] dout_onehot,
-    output wire [IDX_W-1:0] index,
+    output wire [IDX_WIDTH-1:0] index,
     output wire             valid, // 输入全为0，有效位全为0
     input  wire             ack // 仅在ARB_SOUT_REG = 1握手才有效
 );
@@ -41,17 +41,17 @@ module arbiter #(
   // ----------------------------------------------------------------------------
   // 复位 / 状态寄存器
   // ----------------------------------------------------------------------------
-  reg [IDX_W-1:0] index_reg;
+  reg [IDX_WIDTH-1:0] index_reg;
   reg [WIDTH-1:0] dout_onehot_reg;
   reg             valid_reg;
 
   // ----------------------------------------------------------------------------
   // 优先级编码结果 (来自两个 priority_encoder 例化)
   // ----------------------------------------------------------------------------
-  wire [IDX_W-1:0] p_index;
+  wire [IDX_WIDTH-1:0] p_index;
   wire [WIDTH-1:0] p_dout_onehot;
   wire             p_valid;
-  wire [IDX_W-1:0] p_mask_index;
+  wire [IDX_WIDTH-1:0] p_mask_index;
   wire [WIDTH-1:0] p_mask_dout_onehot;
   wire             p_mask_valid;
 
@@ -68,7 +68,7 @@ module arbiter #(
   reg can_update;
 
   wire             handshake  = valid_reg && ack;
-  wire [IDX_W-1:0] next_index  = (ARB_TYPE == 'd0) ? (p_mask_valid ? p_mask_index : p_index) : p_index;
+  wire [IDX_WIDTH-1:0] next_index  = (ARB_TYPE == 'd0) ? (p_mask_valid ? p_mask_index : p_index) : p_index;
   wire [WIDTH-1:0] next_dout_onehot = (ARB_TYPE == 'd0) ? (p_mask_valid ? p_mask_dout_onehot : p_dout_onehot) : p_dout_onehot;
   wire             next_valid = (ARB_TYPE == 'd0) ? (p_mask_valid ? 1'b1 : p_valid) : p_valid;
 
@@ -127,8 +127,7 @@ module arbiter #(
   // ============================================================================
   priority_encoder #(
       .WIDTH    (WIDTH),
-      .LOW_FIRST(LOW_FIRST),
-      .IDX_W    (IDX_W)
+      .LOW_FIRST(LOW_FIRST)
   ) u_priority_encoder_inst (
       .din  (din),
       .index (p_index),
@@ -138,8 +137,7 @@ module arbiter #(
 
   priority_encoder #(
       .WIDTH    (WIDTH),
-      .LOW_FIRST(LOW_FIRST),
-      .IDX_W    (IDX_W)
+      .LOW_FIRST(LOW_FIRST)
   ) u_priority_encoder_mask (
       .din  (din_mask),
       .index (p_mask_index),

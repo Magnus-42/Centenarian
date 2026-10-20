@@ -66,17 +66,25 @@ if {[string length "通道"] != 2} {
 # ---- 连接参数（按环境修改）----
 if {![info exists ::HW_URL ]} { set ::HW_URL  "localhost:3121" }
 
-# ---- 帧与判定参数（与 RTL/Top/subsys_test_top.v 的本地参数保持一致）----
+# ---- 帧与判定参数（与 RTL/Test/Top/subsys_test_top.v 的本地参数保持一致）----
 if {![info exists ::FRAME_BYTES   ]} { set ::FRAME_BYTES    1024 }
 # 满载总线吞吐参考值（B/s，1024B 帧实测值），用于"背景流量 vs 真残留"的比例判据
 if {![info exists ::BW_FULL_REF   ]} { set ::BW_FULL_REF   12213921472 } ;# PKT_LEN_BEATS(16) × 64B
-# 线速换算的"额外长度"（字节）：按打流机所在层次
-#   MAC 层  +24（前导码/SFD 8 + FCS 4 + IFG 12）
-#   IPv4/IPv6  +38（= 24 + 14 以太网首部，打流机发的是完整 IP 包）
-#   UDP        +58（= 38 + 20 IPv4 首部，打流机发的是 UDP 载荷）
+# 线速换算的"额外长度"（字节）：按打流机所在层次，L = 打流机每包计数的字节数
+#   MAC 层    +24（前导码/SFD 8 + FCS 4 + IFG 12）
+#   IPv4/IPv6 +38（= 24 + 14 以太网首部，打流机发的是完整 IP 包）
+#   UDP       +66（= 24 + 14 以太网首部 + 20 IPv4 首部 + 8 UDP 首部；
 if {![info exists ::CHAN_OVH]} {
-  set ::CHAN_OVH {udp 58 fb_udp 58 ipv4_06 38 icmp 38 ospf 38 ip6icmp 38 ip6ospf 38 \
+  set ::CHAN_OVH {udp 66 fb_udp 66 ipv4_06 38 icmp 38 ospf 38 ip6icmp 38 ip6ospf 38 \
                   fb_ipv4 38 fb_ipv6 38 mac_88b5 24 mac_88cc 24 fb_mac 24}
+} else {
+  set _ovh_def {udp 66 fb_udp 66}
+  foreach {_k _v} $_ovh_def {
+    if {[dict exists $::CHAN_OVH $_k] && [dict get $::CHAN_OVH $_k] != $_v} {
+      puts "\[hw\] 警告: ::CHAN_OVH 的 $_k = [dict get $::CHAN_OVH $_k]（脚本默认 $_v），\n\[hw\]       很可能是同一会话残留的旧值；如非有意，请先执行 unset -nocomplain ::CHAN_OVH 再重新 source"
+    }
+  }
+  unset _ovh_def _k _v
 }
 if {![info exists ::LINE_TH_GBPS  ]} { set ::LINE_TH_GBPS   99.0 } ;# 线速判定门限 (Gbps)
 if {![info exists ::STARVE_RATIO  ]} { set ::STARVE_RATIO   0.05 } ;# 低优先级「饿死」判据(占线速比)
@@ -87,7 +95,7 @@ if {![info exists ::STRICT_EXTRA  ]} { set ::STRICT_EXTRA    0 }
 if {![info exists ::BASE_LEAK_RATIO]} { set ::BASE_LEAK_RATIO 0.005 }
 if {![info exists ::DEFAULT_SETTLE]} { set ::DEFAULT_SETTLE 3.0  } ;# 使能后等待秒数(计数每秒锁存)
 
-# ---- VIO 位 → 使能名（与 RTL/Top/subsys_test_top.v 的 probe_out 注释一致）----
+# ---- VIO 位 → 使能名（与 RTL/Test/Top/subsys_test_top.v 的 probe_out 注释一致）----
 set ::EN_NAMES {
   en_a_udp      en_a_icmp     en_a_ospf     en_a_ipv4_06  en_a_mac_88b5
   en_b_udp      en_b_icmp     en_b_ospf     en_b_ipv4_06  en_b_mac_88b5
@@ -118,7 +126,7 @@ set ::CNT_KEYS {
 # ---- 通道分组 ----
 set ::DUAL_CHANS {udp icmp ospf ipv4_06 mac_88b5 ip6icmp ip6ospf} ;# A/B 两侧都有的
 set ::FB_CHANS   {fb_mac fb_ipv4 fb_ipv6 fb_udp}                   ;# 未匹配兜底探测
-# 场景 3 的通道优先级（自高向低）：取自 RTL/Top/subsys_test_top.v 的 PRIO_* 常量
+# 场景 3 的通道优先级（自高向低）：取自 RTL/Test/Top/subsys_test_top.v 的 PRIO_* 常量
 #   OSPF 13 > ICMPv4 12(A)/11(B) > UDP 8(A)/9(B) > MAC-88B5 6(A)/5(B) > 兜底探测 2
 set ::PRIO_ORDER {ospf icmp udp mac_88b5 fb_ipv4}
 

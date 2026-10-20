@@ -34,7 +34,8 @@ module tb_fifo_sync;
   fifo_sync #(
     .FIFO_DEPTH       (DEPTH ),
     .DATA_WIDTH       (DW    ),
-    .FIFO_MEMORY_TYPE ("auto"),
+    .FIFO_MEMORY_TYPE ("block"),   // 必须显式 block：本 TB 校验的是 BRAM_DO_REG=2 的读延迟契约，
+                                   // 写 "auto" 时若位宽/深度变化会静默切到 distributed（忽略 DO_REG）
     .BRAM_DO_REG      (2     )
   ) dut (
     .rst          (rst         ),
@@ -187,7 +188,7 @@ module tb_fifo_sync;
 
   initial begin
     #200_000;
-    $display("[%0t] FATAL: timeout", $time);
+    $display("[%0t] [FAIL] FATAL: timeout", $time);
     $finish;
   end
 

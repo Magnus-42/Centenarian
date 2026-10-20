@@ -84,61 +84,61 @@ set_property IOSTANDARD LVCMOS18 [get_ports qsfp_led_port_b]
 # 由 Centenarian.user/TCL/gen_subsys_pblocks.py 生成
 # 加网口: 改脚本里 ETH_PORT_NUM + PORT_SLR_CFG, 重新运行本脚本即可
 #
-# DUT 层次 : u_dut/gen_port[i].u_eth_top/...
+# DUT 层次 : u_dut/gen_port[i].u_eth_port_top/...
 # SLR 归属 : CMAC_A=SLR0, CMAC_B=SLR2, 400M 用户域=SLR1
 # RX : CMAC(SLR_cmac) -> u_slr_x_rx -> u_fifo_rx(SLR_user) -> 400M 下游
 # TX : 400M 上游 -> u_fifo_tx(SLR_user) -> u_slr_x_tx -> CMAC(SLR_cmac)
 #
 # ==============================================================================
 
-# ---- 网口 0 (a) : u_dut/gen_port[0].u_eth_top ----
+# ---- 网口 0 (a) : u_dut/gen_port[0].u_eth_port_top ----
 create_pblock pb_rxa_src
-add_cells_to_pblock [get_pblocks pb_rxa_src] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_top*u_slr_x_rx*slr_source*}]
+add_cells_to_pblock [get_pblocks pb_rxa_src] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_port_top*u_slr_x_rx*slr_source*}]
 resize_pblock [get_pblocks pb_rxa_src] -add {SLR0:SLR0}
 
 create_pblock pb_rxa_dst
-add_cells_to_pblock [get_pblocks pb_rxa_dst] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_top*u_slr_x_rx*slr_dest*}]
+add_cells_to_pblock [get_pblocks pb_rxa_dst] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_port_top*u_slr_x_rx*slr_dest*}]
 resize_pblock [get_pblocks pb_rxa_dst] -add {SLR1:SLR1}
 
 create_pblock pb_txa_src
-add_cells_to_pblock [get_pblocks pb_txa_src] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_top*u_slr_x_tx*slr_source*}]
+add_cells_to_pblock [get_pblocks pb_txa_src] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_port_top*u_slr_x_tx*slr_source*}]
 resize_pblock [get_pblocks pb_txa_src] -add {SLR1:SLR1}
 
 create_pblock pb_txa_dst
-add_cells_to_pblock [get_pblocks pb_txa_dst] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_top*u_slr_x_tx*slr_dest*}]
+add_cells_to_pblock [get_pblocks pb_txa_dst] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_port_top*u_slr_x_tx*slr_dest*}]
 resize_pblock [get_pblocks pb_txa_dst] -add {SLR0:SLR0}
 
 create_pblock pb_fifo_rx_a
-add_cells_to_pblock [get_pblocks pb_fifo_rx_a] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_top*u_fifo_rx*}]
+add_cells_to_pblock [get_pblocks pb_fifo_rx_a] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_port_top*u_fifo_rx*}]
 resize_pblock [get_pblocks pb_fifo_rx_a] -add {SLR1:SLR1}
 
 create_pblock pb_fifo_tx_a
-add_cells_to_pblock [get_pblocks pb_fifo_tx_a] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_top*u_fifo_tx*}]
+add_cells_to_pblock [get_pblocks pb_fifo_tx_a] [get_cells -hierarchical -filter {NAME =~ *gen_port?0?.u_eth_port_top*u_fifo_tx*}]
 resize_pblock [get_pblocks pb_fifo_tx_a] -add {SLR1:SLR1}
 
-# ---- 网口 1 (b) : u_dut/gen_port[1].u_eth_top ----
+# ---- 网口 1 (b) : u_dut/gen_port[1].u_eth_port_top ----
 create_pblock pb_rxb_src
-add_cells_to_pblock [get_pblocks pb_rxb_src] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_top*u_slr_x_rx*slr_source*}]
+add_cells_to_pblock [get_pblocks pb_rxb_src] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_port_top*u_slr_x_rx*slr_source*}]
 resize_pblock [get_pblocks pb_rxb_src] -add {SLR2:SLR2}
 
 create_pblock pb_rxb_dst
-add_cells_to_pblock [get_pblocks pb_rxb_dst] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_top*u_slr_x_rx*slr_dest*}]
+add_cells_to_pblock [get_pblocks pb_rxb_dst] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_port_top*u_slr_x_rx*slr_dest*}]
 resize_pblock [get_pblocks pb_rxb_dst] -add {SLR1:SLR1}
 
 create_pblock pb_txb_src
-add_cells_to_pblock [get_pblocks pb_txb_src] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_top*u_slr_x_tx*slr_source*}]
+add_cells_to_pblock [get_pblocks pb_txb_src] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_port_top*u_slr_x_tx*slr_source*}]
 resize_pblock [get_pblocks pb_txb_src] -add {SLR1:SLR1}
 
 create_pblock pb_txb_dst
-add_cells_to_pblock [get_pblocks pb_txb_dst] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_top*u_slr_x_tx*slr_dest*}]
+add_cells_to_pblock [get_pblocks pb_txb_dst] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_port_top*u_slr_x_tx*slr_dest*}]
 resize_pblock [get_pblocks pb_txb_dst] -add {SLR2:SLR2}
 
 create_pblock pb_fifo_rx_b
-add_cells_to_pblock [get_pblocks pb_fifo_rx_b] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_top*u_fifo_rx*}]
+add_cells_to_pblock [get_pblocks pb_fifo_rx_b] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_port_top*u_fifo_rx*}]
 resize_pblock [get_pblocks pb_fifo_rx_b] -add {SLR1:SLR1}
 
 create_pblock pb_fifo_tx_b
-add_cells_to_pblock [get_pblocks pb_fifo_tx_b] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_top*u_fifo_tx*}]
+add_cells_to_pblock [get_pblocks pb_fifo_tx_b] [get_cells -hierarchical -filter {NAME =~ *gen_port?1?.u_eth_port_top*u_fifo_tx*}]
 resize_pblock [get_pblocks pb_fifo_tx_b] -add {SLR1:SLR1}
 
 # ===================== PB_END =====================

@@ -27,6 +27,7 @@ module tb_axis_fifo_async;
   integer total_err = 0;
   integer b_err     = 0;
   integer w_err     = 0;
+  integer orch_k    = 0;
 
   reg start_basic = 0;
   reg start_wrap  = 0;
@@ -89,8 +90,7 @@ module tb_axis_fifo_async;
     .FIFO_MEMORY_TYPE ("block"),        // 测试关键: BRAM类型
     .BRAM_DO_REG      (2),              // 测试关键: 2级输出流水线
     .PROG_EMPTY_THRESH(B_FIFO_DEPTH/4),
-    .PROG_FULL_THRESH (B_FIFO_DEPTH/2),
-    .REMAIN_COUNT_WIDTH(B_REMAIN_COUNT_WIDTH)
+    .PROG_FULL_THRESH (B_FIFO_DEPTH/2)
   ) u_dut_basic (
     .srst                  (b_srst),
     .sclk                  (b_sclk),
@@ -121,6 +121,18 @@ module tb_axis_fifo_async;
     .rd_almost_remain_count(b_rd_almost_remain_count)
   );
 
+  // ----------------------------------------------------------------------------
+  // basic phase 在线记分板：逐拍比对 data / last（旧版只等 mvalid&&mlast，不比对内容
+  // -> 数据被写错也会 PASS，这里补上）
+  // ----------------------------------------------------------------------------
+  localparam B_QN = 128;
+  reg [7:0] b_exp_data [0:B_QN-1];
+  reg       b_exp_last [0:B_QN-1];
+  integer   b_exp_wr = 0;
+  integer   b_exp_rd = 0;
+  integer   b_got    = 0;
+  integer   b_drain_k;
+
   task b_send_packet;
     input integer length;
     input [7:0]   start_val;
@@ -137,11 +149,41 @@ module tb_axis_fifo_async;
         while (!(b_axis_svalid && b_axis_sready)) begin
           @(posedge b_sclk);
         end
+        // 握手成功 -> 记入期望队列（与 Case 2 手工写入的拍保持同一顺序）
+        b_exp_data[b_exp_wr] = start_val + i[7:0];
+        b_exp_last[b_exp_wr] = (i == length - 1) ? 1'b1 : 1'b0;
+        b_exp_wr = b_exp_wr + 1;
       end
       b_axis_svalid <= 1'b0;
       b_axis_slast  <= 1'b0;
     end
   endtask
+
+  // ----------------------------------------------------------------------------
+  // basic phase 在线记分板（放这里，紧跟驱动任务）
+  // ----------------------------------------------------------------------------
+  always @(posedge b_mclk) begin
+    if (!b_srst && b_axis_mvalid === 1'b1 && b_axis_mready === 1'b1) begin
+      b_got = b_got + 1;
+      if (b_exp_rd >= b_exp_wr) begin
+        $display("[%0t] [FAIL] basic: 无期望拍(多读/半包泄漏) beat#%0d data=%02h",
+                 $time, b_got, b_axis_mdata[7:0]);
+        b_err = b_err + 1;
+      end else begin
+        if (b_axis_mdata[7:0] !== b_exp_data[b_exp_rd]) begin
+          $display("[%0t] [FAIL] basic: data 不符 beat#%0d exp=%02h got=%02h",
+                   $time, b_got, b_exp_data[b_exp_rd], b_axis_mdata[7:0]);
+          b_err = b_err + 1;
+        end
+        if (b_axis_mlast !== b_exp_last[b_exp_rd]) begin
+          $display("[%0t] [FAIL] basic: last 不符 beat#%0d exp=%b got=%b",
+                   $time, b_got, b_exp_last[b_exp_rd], b_axis_mlast);
+          b_err = b_err + 1;
+        end
+        b_exp_rd = b_exp_rd + 1;
+      end
+    end
+  end
 
   initial begin
     b_srst         = 1'b1;
@@ -190,6 +232,10 @@ module tb_axis_fifo_async;
     while (!(b_axis_svalid && b_axis_sready)) begin
       @(posedge b_sclk);
     end
+    // 这拍是"永不完成的半包"，但它确实进了 FIFO，等下一个完整包到来时会先被读出
+    b_exp_data[b_exp_wr] = 8'hEF;          // 32'hDEADBEEF 的低字节
+    b_exp_last[b_exp_wr] = 1'b0;
+    b_exp_wr = b_exp_wr + 1;
     b_axis_svalid <= 1'b0;
 
     b_axis_mready = 1'b1;
@@ -235,7 +281,23 @@ module tb_axis_fifo_async;
 
     wait (b_almost_empty == 1'b1);
     repeat (10) @(posedge b_mclk);
+
+    // 排空期望队列（mready 仍为 1），再做收尾结算
+    b_drain_k = 0;
+    while (b_exp_rd !== b_exp_wr && b_drain_k < 500) begin
+      @(posedge b_mclk);
+      b_drain_k = b_drain_k + 1;
+    end
     b_axis_mready = 1'b0;
+
+    if (b_exp_rd !== b_exp_wr) begin
+      $display("[%0t] [FAIL] basic: 期望队列未排空 rd=%0d wr=%0d", $time, b_exp_rd, b_exp_wr);
+      b_err = b_err + 1;
+    end
+    if (b_got !== b_exp_wr) begin
+      $display("[%0t] [FAIL] basic: 收拍数 %0d != 发拍数 %0d", $time, b_got, b_exp_wr);
+      b_err = b_err + 1;
+    end
 
     $display("[%0t] --- Simulation Finished (basic) ---", $time);
     if (b_err == 0) $display("[%0t] [PHASE basic] PASS", $time);
@@ -301,8 +363,7 @@ module tb_axis_fifo_async;
     .FIFO_MEMORY_TYPE (W_MEMTYPE),
     .BRAM_DO_REG      (W_DOREG),
     .PROG_EMPTY_THRESH(W_FIFO_DEPTH / 4),
-    .PROG_FULL_THRESH (W_FIFO_DEPTH / 2),
-    .REMAIN_COUNT_WIDTH(W_RCW)
+    .PROG_FULL_THRESH (W_FIFO_DEPTH / 2)
   ) u_dut_wrap (
     .srst                  (w_srst),
     .sclk                  (w_sclk),
@@ -641,8 +702,7 @@ module tb_axis_fifo_async;
     .FIFO_MEMORY_TYPE ("block"),
     .BRAM_DO_REG      (2),
     .PROG_EMPTY_THRESH(R_FIFO_DEPTH/4),
-    .PROG_FULL_THRESH (R_FIFO_DEPTH/2),
-    .REMAIN_COUNT_WIDTH(R_REMAIN_COUNT_WIDTH)
+    .PROG_FULL_THRESH (R_FIFO_DEPTH/2)
   ) u_dut_rand (
     .srst                  (r_srst),
     .sclk                  (r_sclk),
@@ -982,15 +1042,30 @@ module tb_axis_fifo_async;
     #100;
 
     start_basic = 1;
-    wait (done_basic === 1'b1);
-    $display("[ORCH] basic phase finished, b_err=%0d", b_err);
+    orch_k = 0;
+    while (done_basic !== 1'b1 && orch_k < 400000) begin @(posedge b_mclk); orch_k = orch_k + 1; end
+    if (done_basic !== 1'b1) begin
+      $display("[%0t] [FAIL] phase basic 超时：%0d clk 未结束", $time, orch_k);
+      b_err = b_err + 1;
+    end
+    $display("[ORCH] basic phase finished, b_err=%0d (wait %0d clk)", b_err, orch_k);
 
     start_wrap = 1;
-    wait (done_wrap === 1'b1);
-    $display("[ORCH] wraparound phase finished, w_err=%0d", w_err);
+    orch_k = 0;
+    while (done_wrap !== 1'b1 && orch_k < 400000) begin @(posedge b_mclk); orch_k = orch_k + 1; end
+    if (done_wrap !== 1'b1) begin
+      $display("[%0t] [FAIL] phase wraparound 超时：%0d clk 未结束", $time, orch_k);
+      w_err = w_err + 1;
+    end
+    $display("[ORCH] wraparound phase finished, w_err=%0d (wait %0d clk)", w_err, orch_k);
 
     start_rand = 1;
-    wait (done_rand === 1'b1);
+    orch_k = 0;
+    while (done_rand !== 1'b1 && orch_k < 400000) begin @(posedge b_mclk); orch_k = orch_k + 1; end
+    if (done_rand !== 1'b1) begin
+      $display("[%0t] [FAIL] phase random 超时：%0d clk 未结束", $time, orch_k);
+      r_err_score = r_err_score + 1;
+    end
     $display("[ORCH] random phase finished, err_score=%0d err_proto=%0d", r_err_score, r_err_proto);
 
     total_err = b_err + w_err + r_err_score + r_err_proto;
@@ -1010,10 +1085,11 @@ module tb_axis_fifo_async;
     $finish;
   end
 
-  // 全局看门狗
+  // 全局看门狗：超时即判失败（不能只打一行 TIMEOUT，否则 grep FAIL 会误判通过）
   initial begin
     #20_000_000;
-    $display("*** GLOBAL TIMEOUT ***");
+    $display("[%0t] [FAIL] GLOBAL TIMEOUT：仿真未在 20ms 内结束", $time);
+    $display("*** 1 CHECK(S) FAILED ***");
     $finish;
   end
 

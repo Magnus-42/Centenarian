@@ -17,10 +17,10 @@
 module priority_encoder #(
     parameter WIDTH = 8,  // 输入位宽
     parameter LOW_FIRST = 1,  // 1: 从低位找第一个 1; 0: 从高位找
-    parameter IDX_W = (WIDTH <= 1) ? 1 : $clog2(WIDTH)  // 索引输出位宽
+    localparam IDX_WIDTH = (WIDTH <= 1) ? 1 : $clog2(WIDTH)  // 索引输出位宽
 ) (
     input  wire [WIDTH-1:0] din,
-    output wire [IDX_W-1:0] index,
+    output wire [IDX_WIDTH-1:0] index,
     output wire [WIDTH-1:0] dout_onehot,
     output wire             valid
 );
@@ -44,7 +44,7 @@ module priority_encoder #(
   // 树形压缩中间量: 每级一个有效向量 + 一个索引向量
   // ----------------------------------------------------------------------------
   reg  [      P2-1:0] valid_tree                    [0:LEVELS];
-  reg  [P2*IDX_W-1:0] idx_tree                      [0:LEVELS];
+  reg  [P2*IDX_WIDTH-1:0] idx_tree                      [0:LEVELS];
 
   integer l, j;
 
@@ -61,7 +61,7 @@ module priority_encoder #(
     for (j = 0; j < P2; j = j + 1) begin
       valid_tree[0][j]            = din_pad[j];
       /* verilator lint_off WIDTH */
-      idx_tree[0][j*IDX_W+:IDX_W] = j;
+      idx_tree[0][j*IDX_WIDTH+:IDX_WIDTH] = j;
       /* verilator lint_on WIDTH */
     end
 
@@ -70,20 +70,20 @@ module priority_encoder #(
       for (j = 0; j < (P2 >> (l + 1)); j = j + 1) begin
         valid_tree[l+1][j] = valid_tree[l][2*j] | valid_tree[l][2*j+1];
         if (LOW_FIRST)
-          idx_tree[l+1][j*IDX_W +: IDX_W] = valid_tree[l][2*j]
-                                          ? idx_tree[l][(2*j)*IDX_W +: IDX_W]
-                                          : idx_tree[l][(2*j + 1)*IDX_W +: IDX_W];
+          idx_tree[l+1][j*IDX_WIDTH +: IDX_WIDTH] = valid_tree[l][2*j]
+                                          ? idx_tree[l][(2*j)*IDX_WIDTH +: IDX_WIDTH]
+                                          : idx_tree[l][(2*j + 1)*IDX_WIDTH +: IDX_WIDTH];
         else
-          idx_tree[l+1][j*IDX_W +: IDX_W] = valid_tree[l][2*j + 1]
-                                          ? idx_tree[l][(2*j + 1)*IDX_W +: IDX_W]
-                                          : idx_tree[l][(2*j)*IDX_W +: IDX_W];
+          idx_tree[l+1][j*IDX_WIDTH +: IDX_WIDTH] = valid_tree[l][2*j + 1]
+                                          ? idx_tree[l][(2*j + 1)*IDX_WIDTH +: IDX_WIDTH]
+                                          : idx_tree[l][(2*j)*IDX_WIDTH +: IDX_WIDTH];
       end
     end
   end
 
   // 根节点即结果
   assign valid = valid_tree[LEVELS][0];
-  assign index  = idx_tree[LEVELS][IDX_W-1:0];
+  assign index  = idx_tree[LEVELS][IDX_WIDTH-1:0];
  
  
   // ============================================================================

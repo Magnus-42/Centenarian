@@ -9,8 +9,12 @@
 // Date        : 2026-09-18
 // ----------------------------------------------------------------------------
 // Description : axis_fifo_sync 自测平台 (包模式, PACKET_FIFO=1)
-//   参数 BLK 切换配置:  BLK=0 -> distributed
+// 参数 BLK 切换配置:  BLK=0 -> distributed
 //                      BLK=1 -> block + BRAM_DO_REG=2   (ipv4_tx 实际用法)
+//                      BLK=2 -> auto  + BRAM_DO_REG=2
+//   ⚠ 本文件末尾的 tb_axis_fifo_sync 会同时实例化上面三种配置各一份（u_case_*），
+//     一次运行即覆盖全部分支；tb_axis_fifo_sync_case 是被复用的测试体。
+//     单独跑某一种配置：xelab work.tb_axis_fifo_sync_case -generic_top "BLK=1"
 //
 //   结构:
 //     - 发送队列: 背靠背驱动, 每拍最多 1 拍(不会被 shell/工具吃掉参数)
@@ -27,9 +31,11 @@
 //     T6 流中复位: 无 spurious beat, 复位后功能正常
 // ============================================================================
 
-module tb_axis_fifo_sync;
-
-  parameter  BLK    = 0;                       // 0=distributed, 1=block+DO_REG2, 2=auto+DO_REG2
+module tb_axis_fifo_sync_case #(
+  parameter BLK        = 0,     // 0=distributed, 1=block+DO_REG2, 2=auto+DO_REG2
+  parameter AUTOFINISH = 0      // 1=独立运行(测试体直接收尾); 0=由外层 wrapper 汇总
+);
+  reg done = 1'b0;
   localparam MEM    = (BLK == 2) ? "auto" : ((BLK == 1) ? "block" : "distributed");
   localparam DO_REG = (BLK == 0) ? 1 : 2;
 
@@ -352,15 +358,56 @@ module tb_axis_fifo_sync;
     $display("================================================================");
     $display(" beats out=%0d  err=%0d  checker_err=%0d", got_cnt, err, cerr);
     $display(" empty=%b full=%b remain_count=%0d", empty, full, remain_count);
-    if (err == 0 && cerr == 0) $display(" *** ALL TESTS PASSED ***");
-    else                       $display(" *** %0d CHECK(S) FAILED ***", err + cerr);
+    if (err == 0 && cerr == 0) $display(" [CFG %0s] PASS", MEM);
+    else                       $display(" [CFG %0s] FAIL (%0d)", MEM, err + cerr);
     $display("================================================================");
-    $finish;
+    done = 1'b1;
+    if (AUTOFINISH) $finish;
   end
 
   initial begin
     #500_000;
-    $display("[%0t] FATAL: timeout", $time);
+    $display("[%0t] [FAIL] FATAL: timeout (CFG %0s)", $time, MEM);
+    if (AUTOFINISH) $finish;
+    else begin
+      err  = err + 1000;      // 超时按失败计
+      done = 1'b1;
+    end
+  end
+
+endmodule
+
+// ============================================================================
+// 外层汇总：三种存储配置各跑一遍（同一个测试体，三份独立实例）
+//   旧版只有一个 DUT + parameter BLK=0，block/DO_REG=2 分支（ipv4_tx 实际用法）
+//   从不在默认回归里执行；故障注入已证明该分支的 bug 只能被 BLK=1/2 抓到。
+// ============================================================================
+module tb_axis_fifo_sync;
+
+  integer e_dist, e_block, e_auto;
+  integer total;
+
+  tb_axis_fifo_sync_case #(.BLK(0), .AUTOFINISH(0)) u_case_dist  ();
+  tb_axis_fifo_sync_case #(.BLK(1), .AUTOFINISH(0)) u_case_block ();
+  tb_axis_fifo_sync_case #(.BLK(2), .AUTOFINISH(0)) u_case_auto  ();
+
+  initial begin
+    wait (u_case_dist.done && u_case_block.done && u_case_auto.done);
+
+    e_dist  = u_case_dist.err  + u_case_dist.cerr;
+    e_block = u_case_block.err + u_case_block.cerr;
+    e_auto  = u_case_auto.err  + u_case_auto.cerr;
+    total   = e_dist + e_block + e_auto;
+
+    $display("");
+    $display("================================================================");
+    $display(" tb_axis_fifo_sync : 三种存储配置汇总");
+    $display("   - BLK=0 distributed          : %s (err=%0d)", (e_dist  == 0) ? "PASS" : "FAIL", e_dist );
+    $display("   - BLK=1 block  +DO_REG=2     : %s (err=%0d)", (e_block == 0) ? "PASS" : "FAIL", e_block);
+    $display("   - BLK=2 auto   +DO_REG=2     : %s (err=%0d)", (e_auto  == 0) ? "PASS" : "FAIL", e_auto );
+    $display("================================================================");
+    if (total == 0) $display(" *** ALL TESTS PASSED ***");
+    else            $display(" *** %0d CHECK(S) FAILED ***", total);
     $finish;
   end
 

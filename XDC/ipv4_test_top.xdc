@@ -81,71 +81,71 @@ set_property PACKAGE_PIN D20 [get_ports qsfp_led_port_b]
 set_property IOSTANDARD LVCMOS18 [get_ports qsfp_led_port_b]
 
 # ------------------------------------------------------------------------------
-# RX-A : CMAC_A(SLR0) -> u_eth_top_a/u_slr_x_rx -> FIFO_RX_A(SLR1)   跨界方向 SLR0 -> SLR1
+# RX-A : CMAC_A(SLR0) -> u_eth_port_top_a/u_slr_x_rx -> FIFO_RX_A(SLR1)   跨界方向 SLR0 -> SLR1
 # ------------------------------------------------------------------------------
 create_pblock pb_rxa_src
 add_cells_to_pblock [get_pblocks pb_rxa_src] \
-  [get_cells -hierarchical -filter "NAME =~ *u_eth_top_a*u_slr_x_rx*slr_source*"]
+  [get_cells -hierarchical -filter "NAME =~ *u_eth_port_top_a*u_slr_x_rx*slr_source*"]
 resize_pblock [get_pblocks pb_rxa_src] -add {SLR0}
 
 create_pblock pb_rxa_dst
 add_cells_to_pblock [get_pblocks pb_rxa_dst] \
-  [get_cells -hierarchical -filter "NAME =~ *u_eth_top_a*u_slr_x_rx*slr_dest*"]
+  [get_cells -hierarchical -filter "NAME =~ *u_eth_port_top_a*u_slr_x_rx*slr_dest*"]
 resize_pblock [get_pblocks pb_rxa_dst] -add {SLR1}
 
 # ------------------------------------------------------------------------------
-# RX-B : CMAC_B(SLR2/SLR1) -> u_eth_top_b/u_slr_x_rx -> FIFO_RX_B(SLR1)   跨界方向 SLR1 -> SLR2
+# RX-B : CMAC_B(SLR2/SLR1) -> u_eth_port_top_b/u_slr_x_rx -> FIFO_RX_B(SLR1)   跨界方向 SLR1 -> SLR2
 # ------------------------------------------------------------------------------
 create_pblock pb_rxb_src
 add_cells_to_pblock [get_pblocks pb_rxb_src] \
-  [get_cells -hierarchical -filter "NAME =~ *u_eth_top_b*u_slr_x_rx*slr_source*"]
+  [get_cells -hierarchical -filter "NAME =~ *u_eth_port_top_b*u_slr_x_rx*slr_source*"]
 resize_pblock [get_pblocks pb_rxb_src] -add {SLR2}
 
 create_pblock pb_rxb_dst
 add_cells_to_pblock [get_pblocks pb_rxb_dst] \
-  [get_cells -hierarchical -filter "NAME =~ *u_eth_top_b*u_slr_x_rx*slr_dest*"]
+  [get_cells -hierarchical -filter "NAME =~ *u_eth_port_top_b*u_slr_x_rx*slr_dest*"]
 resize_pblock [get_pblocks pb_rxb_dst] -add {SLR1}
 
 # ------------------------------------------------------------------------------
-# TX-A : FIFO_TX_A(SLR1) -> u_eth_top_a/u_slr_x_tx -> CMAC_A(SLR0)   跨界方向 SLR1 -> SLR0
+# TX-A : FIFO_TX_A(SLR1) -> u_eth_port_top_a/u_slr_x_tx -> CMAC_A(SLR0)   跨界方向 SLR1 -> SLR0
 # ------------------------------------------------------------------------------
 create_pblock pb_txa_src
 add_cells_to_pblock [get_pblocks pb_txa_src] \
-  [get_cells -hierarchical -filter "NAME =~ *u_eth_top_a*u_slr_x_tx*slr_source*"]
+  [get_cells -hierarchical -filter "NAME =~ *u_eth_port_top_a*u_slr_x_tx*slr_source*"]
 resize_pblock [get_pblocks pb_txa_src] -add {SLR1}
 
 create_pblock pb_txa_dst
 add_cells_to_pblock [get_pblocks pb_txa_dst] \
-  [get_cells -hierarchical -filter "NAME =~ *u_eth_top_a*u_slr_x_tx*slr_dest*"]
+  [get_cells -hierarchical -filter "NAME =~ *u_eth_port_top_a*u_slr_x_tx*slr_dest*"]
 resize_pblock [get_pblocks pb_txa_dst] -add {SLR0}
 
 # ------------------------------------------------------------------------------
-# TX-B : FIFO_TX_B(SLR1) -> u_eth_top_b/u_slr_x_tx -> CMAC_B(SLR2)   跨界方向 SLR1 -> SLR2
+# TX-B : FIFO_TX_B(SLR1) -> u_eth_port_top_b/u_slr_x_tx -> CMAC_B(SLR2)   跨界方向 SLR1 -> SLR2
 # ------------------------------------------------------------------------------
 create_pblock pb_txb_src
 add_cells_to_pblock [get_pblocks pb_txb_src] \
-  [get_cells -hierarchical -filter "NAME =~ *u_eth_top_b*u_slr_x_tx*slr_source*"]
+  [get_cells -hierarchical -filter "NAME =~ *u_eth_port_top_b*u_slr_x_tx*slr_source*"]
 resize_pblock [get_pblocks pb_txb_src] -add {SLR1}
 
 create_pblock pb_txb_dst
 add_cells_to_pblock [get_pblocks pb_txb_dst] \
-  [get_cells -hierarchical -filter "NAME =~ *u_eth_top_b*u_slr_x_tx*slr_dest*"]
+  [get_cells -hierarchical -filter "NAME =~ *u_eth_port_top_b*u_slr_x_tx*slr_dest*"]
 resize_pblock [get_pblocks pb_txb_dst] -add {SLR2}
 
 create_pblock pb_fifo_rx_b
-add_cells_to_pblock [get_pblocks pb_fifo_rx_b] [get_cells -hierarchical -filter {NAME =~ *u_eth_top_b*u_fifo_rx*}]
+add_cells_to_pblock [get_pblocks pb_fifo_rx_b] [get_cells -hierarchical -filter {NAME =~ *u_eth_port_top_b*u_fifo_rx*}]
 resize_pblock [get_pblocks pb_fifo_rx_b] -add {SLR1}
 
 create_pblock pb_fifo_rx_a
-add_cells_to_pblock [get_pblocks pb_fifo_rx_a] [get_cells -hierarchical -filter {NAME =~ *u_eth_top_a*u_fifo_rx*}]
+add_cells_to_pblock [get_pblocks pb_fifo_rx_a] [get_cells -hierarchical -filter {NAME =~ *u_eth_port_top_a*u_fifo_rx*}]
 resize_pblock [get_pblocks pb_fifo_rx_a] -add {SLR1}
 
 create_pblock pb_fifo_tx_a
-add_cells_to_pblock [get_pblocks pb_fifo_tx_a] [get_cells -hierarchical -filter {NAME =~ *u_eth_top_a*u_fifo_tx*}]
+add_cells_to_pblock [get_pblocks pb_fifo_tx_a] [get_cells -hierarchical -filter {NAME =~ *u_eth_port_top_a*u_fifo_tx*}]
 resize_pblock [get_pblocks pb_fifo_tx_a] -add {SLR1}
 
 create_pblock pb_fifo_tx_b
-add_cells_to_pblock [get_pblocks pb_fifo_tx_b] [get_cells -hierarchical -filter {NAME =~ *u_eth_top_b*u_fifo_tx*}]
+add_cells_to_pblock [get_pblocks pb_fifo_tx_b] [get_cells -hierarchical -filter {NAME =~ *u_eth_port_top_b*u_fifo_tx*}]
 resize_pblock [get_pblocks pb_fifo_tx_b] -add {SLR1}
 
 # ------------------------------------------------------------------------------

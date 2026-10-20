@@ -26,7 +26,7 @@ module axis_fifo_async #(
   parameter  FIFO_MEMORY_TYPE= "auto",  // 存储类型: distributed / block / auto
   parameter  PROG_EMPTY_THRESH= FIFO_DEPTH/4,          // 可编程空阈值 (剩余 <= 该值拉高 prog_empty)
   parameter  PROG_FULL_THRESH= FIFO_DEPTH/2,          // 可编程满阈值 (剩余 >= 该值拉高 prog_full)
-  parameter  REMAIN_COUNT_WIDTH= $clog2(FIFO_DEPTH) + 1,  // 剩余深度计数输出位宽
+  localparam  REMAIN_COUNT_WIDTH= $clog2(FIFO_DEPTH) + 1,  // 剩余深度计数输出位宽
   parameter  BRAM_DO_REG= 2 , // BRAM的输出流水线级数，推荐为2，可以提高时序
   parameter  DEADLOCK_RISK= 0 // 是否能被长包锁死，如果包很长，置0的情况下，会在还差4个包的时候，使能读取，防止死锁；否则严格按照包模式执行，可能锁死
 ) (

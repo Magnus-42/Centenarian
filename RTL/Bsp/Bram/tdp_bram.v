@@ -17,7 +17,7 @@ module tdp_bram #(
     // --- 存储参数 ---
     parameter DATA_WIDTH     = 36,
     parameter DEEP           = 1024,
-    parameter DEEP_WIDTH     = DEEP == 1 ? 1 : $clog2(DEEP),
+    localparam DEEP_WIDTH     = DEEP == 1 ? 1 : $clog2(DEEP),
 
     // --- 输出与初始化参数 ---
     parameter DOA_REG        = 1,

@@ -1,0 +1,174 @@
+================================================================================
+ Centenarian 上板验证结果 —— 全场景自动验证（hw_run scall）
+================================================================================
+ 日期时间   : 2026-10-20（本机时间）
+ 被测顶层   : subsys_test_top
+ 构建       : impl_1（含 ILA 调试核）46 768 CLB LUT / 144 550 CLB FF / 180.5 BRAM tile
+              WNS +0.038 ns / WHS +0.007 ns / WPWS +0.454 ns / 322 806 端点
+ 环境       : Vivado 2025.2 + xcvu37p（VU37P）；JTAG localhost:3121
+              两个 QSFP 口经交换机对接（A/B 互发互收）
+ 用户时钟   : 400 MHz（端口 clk_200m，由 clk_100_to_200m IP 产生）
+ 帧长       : 1024 字节（PKT_LEN_BEATS = 16 × 64 B）
+ 验证脚本   : Scripts/hw_ila_vio.tcl      执行命令 : hw_run scall（每步稳定 3 s）
+ 线速口径   : 总线字节吞吐 × (L + 额外长度) / L
+              额外长度：MAC +24 / IPv4·IPv6 +38 / UDP +66
+              （UDP 打流机只发载荷；8B UDP + 20B IPv4 首部由 DUT 按 usr 生成）
+ 判定参数   : ::LINE_TH_GBPS = 99.0        ::ERR_IGNORE_CHANS = {fb_mac}
+              ::STRICT_EXTRA = 0            ::BASE_LEAK_RATIO = 0.005
+              ::DEFAULT_SETTLE = 3.0
+--------------------------------------------------------------------------------
+ 总判定     : PASS
+              sc1 通道连通性 PASS / sc2 单通道线速 PASS / sc3 严格优先级 PASS
+              sc4 未匹配通道 PASS                              （用时 181 s）
+================================================================================
+
+
+【场景 1 · 通道连通性（逐位单开）】  结果：PASS 23 / WARN 0 / FAIL 0（共 23 路）
+
+ bit  使能            收端打流机      判定   pkt          bw (B/s)        换算线速 (Gbps)    err    len_err
+   0  en_a_udp        u_ta_udp       PASS  11468057  11743289920  100.001453225   0   0
+   1  en_a_icmp       u_ta_icmp      PASS  11770416  12052905856  100.001453274   0   0
+   2  en_a_ospf       u_ta_ospf      PASS  11770416  12052905664  100.001451681   0   0
+   3  en_a_ipv4_06    u_ta_ipv4_06   PASS  11770416  12052905536  100.001450619   0   0
+   4  en_a_mac_88b5   u_ta_mac_88b5  PASS  11927655  12213918336  100.001456376   0   0
+   5  en_b_udp        u_tb_udp       PASS  11468057  11743289984  100.001453770   0   0
+   6  en_b_icmp       u_tb_icmp      PASS  11770415  12052905664  100.001451681   0   0
+   7  en_b_ospf       u_tb_ospf      PASS  11770416  12052905664  100.001451681   0   0
+   8  en_b_ipv4_06    u_tb_ipv4_06   PASS  11770416  12052905792  100.001452743   0   0
+   9  en_b_mac_88b5   u_tb_mac_88b5  PASS  11927655  12213918144  100.001454804   0   0
+  10  en_a_ip6icmp    u_ta_ip6icmp   PASS  11770416  12052905920  100.001453805   0   0
+  11  en_a_ip6ospf    u_ta_ip6ospf   PASS  11770416  12052905856  100.001453274   0   0
+  12  en_b_ip6icmp    u_tb_ip6icmp   PASS  11770416  12052905600  100.001451150   0   0
+  13  en_b_ip6ospf    u_tb_ip6ospf   PASS  11770416  12052905920  100.001453805   0   0
+  14  en_a_fb_mac     u_ta_fb_mac    PASS  11927655  12213917952  100.001453232  88  44   ← 见备注①
+  15  en_a_fb_ipv4    u_ta_fb_ipv4   PASS  11770416  12052905856  100.001453274   0   0
+  16  en_a_fb_ipv6    u_ta_fb_ipv6   PASS  11770418  12052908352  100.001473983   0   0
+  17  en_a_fb_udp     u_ta_fb_udp    PASS  11468056  11743289856  100.001452680   0   0
+  18  en_b_mac_88cc   u_tb_mac_88cc  PASS  11927654  12213918208  100.001455328   0   0
+  19  en_b_fb_mac     u_tb_fb_mac    PASS  11927655  12213918080  100.001454280 108  54   ← 见备注①
+  20  en_b_fb_ipv4    u_tb_fb_ipv4   PASS  11770417  12052906112  100.001455398   0   0
+  21  en_b_fb_ipv6    u_tb_fb_ipv6   PASS  11770425  12052914816  100.001527614   0   0
+  22  en_b_fb_udp     u_tb_fb_udp    PASS  11468057  11743289728  100.001451590   0   0
+
+ 结论：23 路「使能 → 收端打流机」映射全部正确；包速率 11 468 056 ~ 11 927 655 pkt/s，
+      换算线速全部 100.0015 Gbps；UDP 四路每包计数 1024 B（RX 已剥 IP+UDP 首部），
+      除 fb_mac（MAC 未匹配档）外错误计数全部为 0。
+
+
+【场景 2 · 单通道线速（双向满载）】  结果：PASS 7 / FAIL 0（通道数 7）
+
+ 通道        额外长度  打流机         方向    pkt         bw (B/s)        换算线速 (Gbps)   err  len_err
+ udp          +66 B   u_ta_udp       A→B   11468057  11743290048  100.001454315    0    0
+                      u_tb_udp       B→A   11468056  11743289664  100.001451045    0    0
+ icmp         +38 B   u_ta_icmp      A→B   11770416  12052905600  100.001451150    0    0
+                      u_tb_icmp      B→A   11770415  12052905344  100.001449026    0    0
+ ospf         +38 B   u_ta_ospf      A→B   11770416  12052905088  100.001446902    0    0
+                      u_tb_ospf      B→A   11770416  12052905600  100.001451150    0    0
+ ipv4_06      +38 B   u_ta_ipv4_06   A→B   11770415  12052905728  100.001452212    0    0
+                      u_tb_ipv4_06   B→A   11770416  12052906176  100.001455929    0    0
+ mac_88b5     +24 B   u_ta_mac_88b5  A→B   11927662  12213926528  100.001523448    0    0
+                      u_tb_mac_88b5  B→A   11927663  12213926336  100.001521876    0    0
+ ip6icmp      +38 B   u_ta_ip6icmp   A→B   11770422  12052912320  100.001506905    0    0
+                      u_tb_ip6icmp   B→A   11770427  12052917120  100.001546730    0    0
+ ip6ospf      +38 B   u_ta_ip6ospf   A→B   11770416  12052905664  100.001451681    0    0
+                      u_tb_ip6ospf   B→A   11770416  12052905792  100.001452743    0    0
+
+ 结论：7 个通道双向同时满载，换算线速全部达到 100.0015 Gbps（门限 99.0 Gbps），错误计数全 0
+      —— 即各层次均跑满 100G 线速。UDP 通道线上帧 1090 B（1024 载荷 + 66），
+      对应 11 467 890 pkt/s，实测 11 468 057（+0.0015%，与其它通道同量级）。
+
+
+【场景 3 · 严格优先级（自高向低逐路关闭）】  结果：PASS 6 / FAIL 0（共 6 步）
+
+ 步骤 1（5 路全开，位图 0x1082F7）：当前最高优先级 = ospf
+    u_ta_ospf      ospf      100.001454867 Gbps  占满线速
+    u_tb_ospf      ospf      100.001461770 Gbps  占满线速
+    u_ta_icmp      icmp        0.000000000 Gbps  被饿死(≈0)
+    u_tb_icmp      icmp        0.000000000 Gbps  被饿死(≈0)
+    u_ta_udp       udp         0.000000000 Gbps  被饿死(≈0)
+    u_tb_udp       udp         0.000000000 Gbps  被饿死(≈0)
+    u_ta_mac_88b5  mac_88b5    0.000000000 Gbps  被饿死(≈0)
+    u_tb_mac_88b5  mac_88b5    0.000000000 Gbps  被饿死(≈0)
+    u_ta_fb_ipv4   fb_ipv4     0.000000000 Gbps  被饿死(≈0)
+    u_tb_fb_ipv4   fb_ipv4     0.000000000 Gbps  被饿死(≈0)
+ 步骤 2（关 ospf，位图 0x108273）：当前最高优先级 = icmp
+    u_ta_icmp      icmp      100.001449557 Gbps  占满线速
+    u_tb_icmp      icmp      100.001452743 Gbps  占满线速
+    其余被打开通道（udp / mac_88b5 / fb_ipv4）全部 0.000000000 Gbps 被饿死
+ 步骤 3（再关 icmp，位图 0x108231）：当前最高优先级 = udp
+    u_ta_udp       udp       100.001450500 Gbps  占满线速
+    u_tb_udp       udp       100.001448320 Gbps  占满线速
+    其余打开通道（mac_88b5 / fb_ipv4）全部 0.000000000 Gbps 被饿死
+ 步骤 4（再关 udp，位图 0x108210）：当前最高优先级 = mac_88b5
+    u_ta_mac_88b5  mac_88b5  100.001519256 Gbps  占满线速
+    u_tb_mac_88b5  mac_88b5  100.001519780 Gbps  占满线速
+    u_ta_fb_ipv4 / u_tb_fb_ipv4 0.000000000 Gbps 被饿死
+ 步骤 5（再关 mac_88b5，位图 0x108000）：当前最高优先级 = fb_ipv4
+    u_ta_fb_ipv4   fb_ipv4   100.001454336 Gbps  占满线速
+    u_tb_fb_ipv4   fb_ipv4   100.001449026 Gbps  占满线速
+ 步骤 6（全关，位图 0x000000）：全关基线 → PASS
+    提示：以下为背景流量（交换机零星帧），不计入基线 → u_ta_fb_mac=128
+
+ 结论：优先级顺序与顶层 RTL 的 PRIO_* 常量一致（OSPF 13 > ICMPv4 12/11 > UDP 8/9 >
+      MAC-88B5 6/5 > 兜底探测 2）；每一步都由当前最高优先级通道独占 100.0015 Gbps，
+      低优先级通道被完全饿死；全关后无残留（128 B/s 的交换机背景帧按约定忽略）。
+
+
+【场景 4 · 未匹配通道（四个兜底探测位逐侧单开）】  结果：PASS 8 / WARN 0 / FAIL 0
+
+ 使能           落档打流机      判定   pkt         bw (B/s)        换算线速 (Gbps)    err   len_err
+ en_a_fb_mac    u_ta_fb_mac    PASS  11927656  12213918272  100.001455852  180  90    ← 见备注①
+ en_b_fb_mac    u_tb_fb_mac    PASS  11927654  12213917952  100.001453232  182  91    ← 见备注①
+ en_a_fb_ipv4   u_ta_fb_ipv4   PASS  11770416  12052905728  100.001452212    0   0
+ en_b_fb_ipv4   u_tb_fb_ipv4   PASS  11770415  12052905728  100.001452212    0   0
+ en_a_fb_ipv6   u_ta_fb_ipv6   PASS  11770416  12052905728  100.001452212    0   0
+ en_b_fb_ipv6   u_tb_fb_ipv6   PASS  11770416  12052905792  100.001452743    0   0
+ en_a_fb_udp    u_ta_fb_udp    PASS  11468058  11743290816  100.001460855    0   0
+ en_b_fb_udp    u_tb_fb_udp    PASS  11468056  11743289728  100.001451590    0   0
+
+ 结论：规则表之外的四类报文（MAC 未知类型、IPv4 未匹配协议、IPv6 未匹配 NextHeader、
+      未匹配目的端口）全部落在对端对应的「未匹配」通道，并由对应打流机收到，速率达到
+      100.0015 Gbps；fb_ipv4 / fb_ipv6 / fb_udp 错误计数为 0。
+
+
+【汇总】
+
+  sc1   通道连通性          PASS
+  sc2   单通道线速          PASS
+  sc3   严格优先级          PASS
+  sc4   未匹配通道          PASS
+  总判定：PASS   用时 181 s
+
+
+【路径统计（scall，本次运行）】
+
+  cell.radix_dec                        672
+  cell.radix_hex                       4848
+  csv.export.force                       48
+  csvmatch.normalized                   970
+  ilareadable.precheck                    4
+  ilaupload.upload                       48
+  ilawait.timeout                        48
+  radix.DISPLAY_RADIX                  5520  ← 取值属性为 DISPLAY_RADIX（HEX）
+  vioident.netname                        1  ← 23 位
+
+
+【备注】
+
+ ① MAC 未匹配档（fb_mac）的内容/长度错误计数来自交换机其它帧：该档是 MAC 层的兜底通道，
+    交换机上其他设备的报文（ARP、STP 等）会自然落进该档，其帧长与打流机的 1024 字节模板
+    不一致，因此计数增长属正常现象，按约定不计入判定。本档线速仍为 100.0015 Gbps。
+ ② 场景 3 步骤 6 的 u_ta_fb_mac=128 B/s（约为全速的 1e-8）同属交换机背景流量，低于
+    ::BASE_LEAK_RATIO=0.005 的比例判据，不计为残留。
+ ③ 本次构建含 ILA 调试核（资源与时序见文件头），400 MHz 用户时钟域全部约束满足。
+ ④ UDP 口径变更：RX 侧新增 udp_header_strip，先剥 20B IPv4 首部再剥 8B UDP 首部，
+    用户口交付纯净载荷；打流机 UDP 通道改发纯载荷（HDR_BYTES=0），故线上帧由上一轮的
+    1082 B 变为 1090 B，包率 11 552 849 → 11 468 057 pkt/s，换算额外长度 +58 → +66。
+    换算线速仍为 100.0015 Gbps，err / len_err 全 0。
+ ⑤ 复现方式（Vivado GUI，bit 与 ltx 已下载）：
+        source ./Scripts/hw_ila_vio.tcl
+        hw_run scall
+   注意：::CHAN_OVH 在同一 Vivado 会话内只赋一次；若换过口径，需先
+        unset -nocomplain ::CHAN_OVH
+   再 source，否则沿用会话里的旧值（脚本会打印警告）。
+================================================================================

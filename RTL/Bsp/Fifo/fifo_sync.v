@@ -22,7 +22,7 @@ module fifo_sync #(
     parameter FIFO_MEMORY_TYPE = "distributed",  // 存储类型: distributed / block / auto
     parameter PROG_EMPTY_THRESH  = FIFO_DEPTH/4,          // 可编程空阈值 (剩余 <= 该值拉高 prog_empty)
     parameter PROG_FULL_THRESH   = FIFO_DEPTH/2,          // 可编程满阈值 (剩余 >= 该值拉高 prog_full)
-    parameter REMAIN_COUNT_WIDTH = $clog2(FIFO_DEPTH) + 1,  // 剩余深度计数输出位宽
+    localparam REMAIN_COUNT_WIDTH = $clog2(FIFO_DEPTH) + 1,  // 剩余深度计数输出位宽
     parameter BRAM_DO_REG= 2 // BRAM的输出流水线级数，推荐为2，可以提高时序
 ) (
     // ============================================================================

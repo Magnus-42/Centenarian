@@ -17,7 +17,9 @@
 | `ETH_PORT_NUM`               | 网口数                                                 |
 | `CFG_NUM_WIDTH`              | 计数项位宽 ⇒ 单口通道数上限 `2^N - 1`                           |
 | `PENDING_TIME_WIDTH`         | ARP 待发超时计数位宽                                        |
-| `PRIORITY_WIDTH`             | `usr` 优先级位宽                                         |
+| `ARBITER_VAL_WIDTH`          | `usr` 优先级位宽                                         |
+| `ARP_PRIORITY`               | ARP 应答帧的发送优先级，默认 `{ARBITER_VAL_WIDTH{1'b1}}`（最高）    |
+| `ICMPV4_PRIORITY`            | ICMPv4 echo 应答帧的发送优先级，默认 12                          |
 | `*_RX_TYPE_NUM_MAX` / `_ARR` | 每口接收用户通道数（不含内部通道与未匹配通道）                             |
 | `*_RX_TYPE_DICT_ARR`         | 每口接收分发规则：MAC 16bit/项、IPv4 与 IPv6 8bit/项、UDP 32bit/项 |
 | `*_TX_TYPE_NUM_ARR`          | 每口发送路数                                              |
@@ -61,10 +63,10 @@
 参考实现（参数部分；端口连接见 README「用法」节）：
 
 ```verilog
-eth_subsys_top #(
+net_stack_top #(
   .ETH_PORT_NUM        (1),
   .CFG_NUM_WIDTH       (8),
-  .PRIORITY_WIDTH      (4),
+  .ARBITER_VAL_WIDTH      (4),
   .MAC_RX_TYPE_NUM_ARR    ({ {8{1'b0}}|4'd1 }),
   .MAC_RX_TYPE_DICT_ARR   (16'hB588),
   .MAC_TX_TYPE_NUM_ARR    ({ {8{1'b0}}|4'd1 }),
@@ -82,7 +84,7 @@ eth_subsys_top #(
 
 ## 配置示例二：双网口自测配置（`subsys_test_top` 实配）
 
-需求：两口交叉对接自发自收，每口配齐各协议的用户通道与"未匹配"探测通道——这是验证环境 `RTL/Top/subsys_test_top.v` 的实际配置，可直接对照上板。
+需求：两口交叉对接自发自收，每口配齐各协议的用户通道与"未匹配"探测通道——这是验证环境 `RTL/Test/Top/subsys_test_top.v` 的实际配置，可直接对照上板。
 
 | 层          | 口 A                                      | 口 B                                      |
 | ---------- | ---------------------------------------- | ---------------------------------------- |
@@ -101,7 +103,7 @@ eth_subsys_top #(
 ```verilog
 localparam ETH_PORT_NUM     = 2;
 localparam CFG_NUM_WIDTH    = 8;
-localparam PRIORITY_WIDTH   = 4;
+localparam ARBITER_VAL_WIDTH   = 4;
 localparam PENDING_TIME_WIDTH = 57;
 
 localparam [CFG_NUM_WIDTH-1:0] MAC_RX_TYPE_NUM_MAX  = 2;
@@ -146,4 +148,4 @@ localparam [PENDING_TIME_WIDTH*ETH_PORT_NUM-1:0] CFG_PENDING_TIME_ARR
 >
 > 本机 IP / MAC、网关 / 子网与 IPv6 MAC 表的完整写法，以及逐口通道索引表（`IDX_*`），
 >
-> 见 `RTL/Top/subsys_test_top.v` 源文件。
+> 见 `RTL/Test/Top/subsys_test_top.v` 源文件。

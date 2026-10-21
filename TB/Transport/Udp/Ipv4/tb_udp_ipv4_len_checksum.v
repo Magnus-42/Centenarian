@@ -10,7 +10,7 @@
 // ----------------------------------------------------------------------------
 // Description : udp_ipv4_len_checksum 极限压力测试
 //
-// 判定 12 类：
+// 判定 11 类（buffer FIFO 已随 RTL 简化删除，原 [L] 项取消）：
 //   [A] 首拍侧带      : 每个输出包第 1 拍 (total_len,head_checksum) == 参考值
 //   [B] 包内侧带恒定  : 同一包内任意一拍必须 == 本包首拍值  (结构性检查)
 //   [C] 载荷/keep      : 逐字节 + keep 比对(含末拍部分 keep)
@@ -20,9 +20,8 @@
 //   [G] X 检查         : 任何输出拍(mvalid&&mready)上 data/keep/last/usr/侧带 不得含 X
 //   [H] 写侧守法       : sready=0 期间 sdata/skeep/slast 不得变化 (不撑爆 axis_fifo_sync 的前提)
 //   [I] 包FIFO 水位    : remain_count 不得超过 512 (未撑爆)
-//   [J] FIFO 配平      : 结束时 chelen/buffer FIFO 剩余深度必须为 0 (每包 1 写 1 读)
+//   [J] FIFO 配平      : 结束时 chelen FIFO 剩余深度必须为 0 (每包 1 写 1 读)
 //   [K] chelen FIFO 守法: 侧带 FIFO 满时不得再写(否则静默丢侧带 -> 后续包永久错位)
-//   [L] buffer FIFO 守法: 4 深 buffer 满命中次数 / 满时仍写次数 / 读指针低位峰值
 //
 // 流量分段：
 //   P1 随机 torture  : 200 包, 包长随机(1..32704B, 20% 巨帧 511 拍), 每包随机切反压图案, 随机包间空隙 0~12
@@ -144,25 +143,17 @@ module tb_udp_ipv4_len_checksum;
   end
 
   // ---------------- FIFO 水位 / 配平监测 ----------------
-  integer pkt_max_remain = 0, chl_max_remain = 0, buf_max_remain = 0;
+  integer pkt_max_remain = 0, chl_max_remain = 0;
   integer pkt_full_cnt = 0, pkt_wr_when_full = 0;
   integer chl_full_cnt = 0, chl_wr_drop = 0;     // 侧带 512 深 FIFO 满 / 满时仍写(=静默丢数据)
-  integer buf_full_cnt = 0, buf_wr_drop = 0;     // buffer FIFO 满 / 满时仍写(=静默丢侧带)
-  integer buf_rd_hi_max = 0;                     // buffer FIFO 非空时读指针低位最大取值(越界诊断)
   always @(posedge clk) if (!rst) begin
     if (u_dut.u_udp_fifo_sync.remain_count      > pkt_max_remain) pkt_max_remain = u_dut.u_udp_fifo_sync.remain_count;
     if (u_dut.u_chelen_fifo_sync.remain_count   > chl_max_remain) chl_max_remain = u_dut.u_chelen_fifo_sync.remain_count;
-    if (u_dut.u_buffer_fifo_sync.remain_count   > buf_max_remain) buf_max_remain = u_dut.u_buffer_fifo_sync.remain_count;
     if (u_dut.u_udp_fifo_sync.full === 1'b1) pkt_full_cnt = pkt_full_cnt + 1;
     if (u_dut.rea_handshake === 1'b1 && u_dut.u_udp_fifo_sync.full === 1'b1) pkt_wr_when_full = pkt_wr_when_full + 1;
     if (u_dut.u_chelen_fifo_sync.full === 1'b1) chl_full_cnt = chl_full_cnt + 1;
     if ((u_dut.fifo_axis_slast_reg && u_dut.rea_handshake) && u_dut.u_chelen_fifo_sync.full === 1'b1)
       chl_wr_drop = chl_wr_drop + 1;
-    if (u_dut.u_buffer_fifo_sync.full === 1'b1) buf_full_cnt = buf_full_cnt + 1;
-    if (u_dut.chelen_fifo_rd_en_s2 && u_dut.u_buffer_fifo_sync.full === 1'b1) buf_wr_drop = buf_wr_drop + 1;
-    if (u_dut.u_buffer_fifo_sync.remain_count != 0 &&
-        u_dut.u_buffer_fifo_sync.rd_ptr[1:0] > buf_rd_hi_max[1:0])
-      buf_rd_hi_max = u_dut.u_buffer_fifo_sync.rd_ptr[1:0];
   end
 
   // ---------------- 参考模型（独立从零重算） ----------------
@@ -519,22 +510,16 @@ module tb_udp_ipv4_len_checksum;
     $display(" [I] 包FIFO(512) 最高水位 = %0d 拍, full 命中 %0d 拍, full 时仍发写 %0d 次  %s",
              pkt_max_remain, pkt_full_cnt, pkt_wr_when_full,
              (pkt_max_remain <= 512) ? "(未撑爆 OK)" : "(撑爆!)");
-    $display("     侧带 chelen 512 深 FIFO 最高水位 = %0d 拍 (满命中 %0d 拍), buffer(4深) 最高水位 = %0d 拍",
-             chl_max_remain, chl_full_cnt, buf_max_remain);
+    $display("     侧带 chelen 512 深 FIFO 最高水位 = %0d 拍 (满命中 %0d 拍)", chl_max_remain, chl_full_cnt);
     $display(" [K] chelen FIFO 满时仍写(静默丢侧带) = %0d 次  %s", chl_wr_drop,
              (chl_wr_drop==0) ? "(无丢写 OK)" : "(侧带深度不足!)");
-    $display(" [L] buffer FIFO 满命中 = %0d 拍, 满时仍写(静默丢侧带) = %0d 次, 读指针低位峰值 = %0d  %s",
-             buf_full_cnt, buf_wr_drop, buf_rd_hi_max,
-             (buf_wr_drop==0) ? "(无丢写 OK)" : "(buffer 深度不足!)");
-    $display(" [J] 结束时 chelen FIFO 剩余 = %0d, buffer FIFO 剩余 = %0d  %s",
-             u_dut.u_chelen_fifo_sync.remain_count, u_dut.u_buffer_fifo_sync.remain_count,
-             (u_dut.u_chelen_fifo_sync.remain_count == 0 && u_dut.u_buffer_fifo_sync.remain_count == 0)
-             ? "(配平 OK)" : "(不配平!)");
-    if (errA+errB+errC+errD+errE+errF+errG == 0 && viol_cnt == 0 && pkt_max_remain <= 512 && chl_wr_drop == 0
-        && buf_wr_drop == 0)
+    $display(" [J] 结束时 chelen FIFO 剩余 = %0d  %s",
+             u_dut.u_chelen_fifo_sync.remain_count,
+             (u_dut.u_chelen_fifo_sync.remain_count == 0) ? "(配平 OK)" : "(不配平!)");
+    if (errA+errB+errC+errD+errE+errF+errG == 0 && viol_cnt == 0 && pkt_max_remain <= 512 && chl_wr_drop == 0)
       $display(" *** ALL TORTURE CHECKS PASSED ***");
     else
-      $display(" *** %0d CHECK(S) FAILED ***", errA+errB+errC+errD+errE+errF+errG+((viol_cnt>0)?1:0)+((chl_wr_drop>0)?1:0)+((buf_wr_drop>0)?1:0));
+      $display(" *** %0d CHECK(S) FAILED ***", errA+errB+errC+errD+errE+errF+errG+((viol_cnt>0)?1:0)+((chl_wr_drop>0)?1:0));
     $display("================================================================");
     $finish;
   end

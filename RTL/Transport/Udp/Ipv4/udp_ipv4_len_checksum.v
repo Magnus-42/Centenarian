@@ -181,7 +181,7 @@ module udp_ipv4_len_checksum#(
   reg                  [                  20:0]        stg5_reg_s3      ;
 
 
-  reg                                                  is_first_fifo_beat, is_first_fifo_beat_s1, is_first_fifo_beat_s2, is_first_fifo_beat_s3 ;
+  reg                                                  is_first_fifo_beat ;
   reg is_first_fifo_beat_skid;
 
   wire          [                 511:0]        fifo_axis_mdata ;
@@ -192,24 +192,6 @@ module udp_ipv4_len_checksum#(
   wire          [   AXIS_USER_WIDTH-1:0]        fifo_axis_musr  ;
   wire [15:0] fifo_total_len;
   wire [15:0] fifo_head_checksum;
-
-  reg          [                 511:0]        udp_axis_mdata_s1 ;
-  reg          [                  63:0]        udp_axis_mkeep_s1 ;
-  reg                                          udp_axis_mlast_s1 ;
-  reg                                          udp_axis_mvalid_s1;
-  reg          [   AXIS_USER_WIDTH-1:0]        udp_axis_musr_s1  ;
-
-  reg          [                 511:0]        udp_axis_mdata_s2 ;
-  reg          [                  63:0]        udp_axis_mkeep_s2 ;
-  reg                                          udp_axis_mlast_s2 ;
-  reg                                          udp_axis_mvalid_s2;
-  reg          [   AXIS_USER_WIDTH-1:0]        udp_axis_musr_s2  ;
-
-  reg          [                 511:0]        udp_axis_mdata_s3 ;
-  reg          [                  63:0]        udp_axis_mkeep_s3 ;
-  reg                                          udp_axis_mlast_s3 ;
-  reg                                          udp_axis_mvalid_s3;
-  reg          [   AXIS_USER_WIDTH-1:0]        udp_axis_musr_s3  ;
 
   reg          [                 511:0]        udp_axis_mdata_reg ;
   reg          [                  63:0]        udp_axis_mkeep_reg ;
@@ -228,29 +210,21 @@ module udp_ipv4_len_checksum#(
   reg [15:0] head_checksum_skid;
 
   wire m_ready = !udp_axis_mvalid_skid;
-  wire ms3_ready = !udp_axis_mvalid_reg || m_ready;
-  wire ms2_ready = !udp_axis_mvalid_s3 || ms3_ready;
-  wire ms1_ready = !udp_axis_mvalid_s2 || ms2_ready;
-  assign fifo_axis_mready = !udp_axis_mvalid_s1 || ms1_ready;
+  assign fifo_axis_mready = !udp_axis_mvalid_reg || m_ready;
 
   wire m_handshake = udp_axis_mready && udp_axis_mvalid       ;
   wire fifo_handshake = fifo_axis_mready && fifo_axis_mvalid;
-  wire ms1_handshake = udp_axis_mvalid_s1 && ms1_ready;
-  wire ms2_handshake = udp_axis_mvalid_s2 && ms2_ready;
-  wire ms3_handshake = udp_axis_mvalid_s3 && ms3_ready;
 
   wire mreg_can_take = !udp_axis_mvalid_reg || m_handshake;
   wire mskid_to_reg = udp_axis_mvalid_skid && mreg_can_take;
-  wire ms3_to_reg = ms3_handshake && mreg_can_take;
-  wire ms3_to_skid = ms3_handshake && !mreg_can_take;
+  wire fifo_to_reg = fifo_handshake && mreg_can_take;
+  wire fifo_to_skid = fifo_handshake && !mreg_can_take;
 
+  wire [31:0] chelen_fifo_din = {udp_len_reg[7:0],udp_len_reg[15:8],checksum_reg};
   wire chelen_fifo_rd_en = is_first_fifo_beat && fifo_handshake;
-  reg chelen_fifo_rd_en_s1, chelen_fifo_rd_en_s2;
+  wire chelen_fifo_wr_en = fifo_axis_slast_reg && rea_handshake;
   wire [31:0] chelen_fifo_dout;
-
-  wire buffre_fifo_rd_en = (ms3_to_reg||ms3_to_skid) && is_first_fifo_beat_s3;
-
-
+  
   // 根据keep获取有效长度
   function [6:0] keep64_to_byte;
   input                [                  63:0]        keep            ;
@@ -646,8 +620,7 @@ module udp_ipv4_len_checksum#(
   fifo_sync#(
     .FIFO_DEPTH       (512              ),// 按照最短帧计算，u_udp_fifo_sync能放下的最大的数
     .DATA_WIDTH       (32               ),
-    .FIFO_MEMORY_TYPE ("block"          ),
-    .BRAM_DO_REG      (2                ) 
+    .FIFO_MEMORY_TYPE ("distributed"    )
   )
   u_chelen_fifo_sync(
     // ============================================================================
@@ -658,8 +631,8 @@ module udp_ipv4_len_checksum#(
     // ============================================================================
     // FIFO 数据接口
     // ============================================================================
-    .din              ({udp_len_reg[7:0],udp_len_reg[15:8],checksum_reg}),// (input)
-    .wr_en            (fifo_axis_slast_reg && rea_handshake),// (input)
+    .din              (chelen_fifo_din),// (input)
+    .wr_en            (chelen_fifo_wr_en),// (input)
     .rd_en            (chelen_fifo_rd_en),// (input)
     .dout             (chelen_fifo_dout),// (output)
     .full             (                 ),// (output)
@@ -669,89 +642,8 @@ module udp_ipv4_len_checksum#(
     .remain_count     (                 ) // (output)
   );
 
-  fifo_sync#(
-    .FIFO_DEPTH       (4              ), // 按照流水线级数最大值设定，但需要为2的幂次
-    .DATA_WIDTH       (32               ),
-    .FIFO_MEMORY_TYPE ("distributed"           )
-  )
-  u_buffer_fifo_sync(
-    // ============================================================================
-    // 时钟与复位
-    // ============================================================================
-    .rst              (rst              ),// (input)
-    .clk              (clk              ),// (input)
-    // ============================================================================
-    // FIFO 数据接口
-    // ============================================================================
-    .din              (chelen_fifo_dout),// (input)
-    .wr_en            (chelen_fifo_rd_en_s2),// (input)
-    .rd_en            (buffre_fifo_rd_en),// (input)
-    .dout             ({fifo_total_len,fifo_head_checksum}),// (output)
-    .full             (                 ),// (output)
-    .empty            (                 ),// (output)
-    .prog_full        (                 ),// (output)
-    .prog_empty       (                 ),// (output)
-    .remain_count     (                 ) // (output)
-  );
-
-
-  always @(posedge clk) begin
-    if (rst) begin
-      udp_axis_mvalid_s1 <= 'd0;
-      udp_axis_mvalid_s2 <= 'd0;
-      is_first_fifo_beat_s1 <= 'd0;
-      is_first_fifo_beat_s2 <= 'd0;
-      is_first_fifo_beat_s3 <= 'd0;
-    end
-    else begin
-      if (fifo_handshake) begin
-        udp_axis_mvalid_s1 <= 1'b1;
-        is_first_fifo_beat_s1 <= is_first_fifo_beat;
-      end
-      else if (ms1_handshake) begin
-        udp_axis_mvalid_s1 <= 1'b0;
-      end
-
-      if (ms1_handshake) begin
-        udp_axis_mvalid_s2 <= 1'b1;
-        is_first_fifo_beat_s2 <= is_first_fifo_beat_s1;
-      end
-      else if (ms2_handshake) begin
-        udp_axis_mvalid_s2 <= 1'b0;
-      end
-
-      if (ms2_handshake) begin
-        udp_axis_mvalid_s3 <= 1'b1;
-        is_first_fifo_beat_s3 <= is_first_fifo_beat_s2;
-      end
-      else if (ms3_handshake) begin
-        udp_axis_mvalid_s3 <= 1'b0;
-      end
-    end
-  end
-
-  always @(posedge clk) begin
-    if (fifo_handshake) begin
-      udp_axis_mdata_s1 <= fifo_axis_mdata ;
-      udp_axis_mkeep_s1 <= fifo_axis_mkeep ;
-      udp_axis_mlast_s1 <= fifo_axis_mlast;
-      udp_axis_musr_s1 <= fifo_axis_musr;
-    end
-
-    if (ms1_handshake) begin
-      udp_axis_mdata_s2 <= udp_axis_mdata_s1;
-      udp_axis_mkeep_s2 <= udp_axis_mkeep_s1;
-      udp_axis_mlast_s2 <= udp_axis_mlast_s1;
-      udp_axis_musr_s2 <= udp_axis_musr_s1 ;
-    end
-
-    if (ms2_handshake) begin
-      udp_axis_mdata_s3 <= udp_axis_mdata_s2;
-      udp_axis_mkeep_s3 <= udp_axis_mkeep_s2;
-      udp_axis_mlast_s3 <= udp_axis_mlast_s2;
-      udp_axis_musr_s3 <= udp_axis_musr_s2 ;
-    end
-  end
+  assign fifo_head_checksum = chelen_fifo_dout[15:0];
+  assign fifo_total_len = chelen_fifo_dout[31:16];
 
   always @(posedge clk) begin
     if (rst) begin
@@ -759,14 +651,14 @@ module udp_ipv4_len_checksum#(
       udp_axis_mvalid_skid <= 'd0;
     end
     else begin
-      if (mskid_to_reg || ms3_to_reg) begin
+      if (mskid_to_reg || fifo_to_reg) begin
         udp_axis_mvalid_reg <= 1'b1;
       end
       else if (m_handshake) begin
         udp_axis_mvalid_reg <= 1'b0;
       end
 
-      if (ms3_to_skid) begin
+      if (fifo_to_skid) begin
         udp_axis_mvalid_skid <= 1'b1;
       end
       else if (mskid_to_reg) begin
@@ -786,27 +678,27 @@ module udp_ipv4_len_checksum#(
         head_checksum_reg <= head_checksum_skid;
       end
     end
-    else if (ms3_to_reg) begin
-      udp_axis_mdata_reg <= udp_axis_mdata_s3;
-      udp_axis_mkeep_reg <= udp_axis_mkeep_s3;
-      udp_axis_mlast_reg <= udp_axis_mlast_s3;
-      udp_axis_musr_reg  <= udp_axis_musr_s3;
-      if (is_first_fifo_beat_s3) begin  
+    else if (fifo_to_reg) begin
+      udp_axis_mdata_reg <= fifo_axis_mdata;
+      udp_axis_mkeep_reg <= fifo_axis_mkeep;
+      udp_axis_mlast_reg <= fifo_axis_mlast;
+      udp_axis_musr_reg  <= fifo_axis_musr;
+      if (is_first_fifo_beat) begin  
         total_len_reg <= fifo_total_len;
         head_checksum_reg <= fifo_head_checksum;
       end
     end
 
-    if (ms3_to_skid) begin
-      udp_axis_mdata_skid <= udp_axis_mdata_s3;
-      udp_axis_mkeep_skid <= udp_axis_mkeep_s3;
-      udp_axis_mlast_skid <= udp_axis_mlast_s3;
-      udp_axis_musr_skid <=  udp_axis_musr_s3;
-      if (is_first_fifo_beat_s3) begin
+    if (fifo_to_skid) begin
+      udp_axis_mdata_skid <= fifo_axis_mdata;
+      udp_axis_mkeep_skid <= fifo_axis_mkeep;
+      udp_axis_mlast_skid <= fifo_axis_mlast;
+      udp_axis_musr_skid <=  fifo_axis_musr;
+      if (is_first_fifo_beat) begin
         total_len_skid <= fifo_total_len;
         head_checksum_skid <= fifo_head_checksum;
       end
-      is_first_fifo_beat_skid <= is_first_fifo_beat_s3;
+      is_first_fifo_beat_skid <= is_first_fifo_beat;
     end
   end
 
@@ -819,18 +711,6 @@ module udp_ipv4_len_checksum#(
       if (fifo_handshake) begin
         is_first_fifo_beat <= fifo_axis_mlast;
       end
-    end
-  end
-
-  // chelen_fifo_rd_en_s1
-  always @(posedge clk) begin
-    if(rst) begin
-      chelen_fifo_rd_en_s1 <= 'd0;
-      chelen_fifo_rd_en_s2 <= 'd0;
-    end
-    else begin
-      chelen_fifo_rd_en_s1 <= chelen_fifo_rd_en;
-      chelen_fifo_rd_en_s2 <= chelen_fifo_rd_en_s1;
     end
   end
    

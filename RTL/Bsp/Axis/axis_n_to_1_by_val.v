@@ -55,8 +55,6 @@ module axis_n_to_1_by_val #(
   // 计算ID，截取单路（这一步可以去掉） s3 d1
   // 输出结果 reg skid
 
-  // 注: tid 覆写用 tid_idx (由 onehot 本地编码; 仅 UPDATE_TID=1 时使用, 否则被综合裁除)
-
   // 参数检查: 覆写 tid 时 id 位宽需能容纳端口号
   initial begin
     if (UPDATE_TID && AXIS_ID_WIDTH < IDX_WIDTH) begin
@@ -138,6 +136,7 @@ module axis_n_to_1_by_val #(
   genvar j;
   generate
     for (j = 0; j < NUM_PORTS; j = j + 1) begin : gen_arb_req
+    // 仲裁管道中的值，和被仲裁通道一拍最新的数据进行比对
     assign arbiter_req_val[j*ARBITER_VAL_WIDTH +: ARBITER_VAL_WIDTH] = 
              axis_svalid_mask[j] ? axis_susr_d0[j*AXIS_USER_WIDTH +: ARBITER_VAL_WIDTH] :
              s_handshake[j]      ? axis_susr   [j*AXIS_USER_WIDTH +: ARBITER_VAL_WIDTH] :

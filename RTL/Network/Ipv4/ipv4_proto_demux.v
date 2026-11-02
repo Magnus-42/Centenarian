@@ -17,11 +17,12 @@
 module ipv4_proto_demux#(
   parameter  TYPE_NUM= 3 ,
   localparam TYPE_NUM_EFF = (TYPE_NUM > 0) ? TYPE_NUM : 1,  // 字典占位项数(>=1；TYPE_NUM=0 时为 1 项占位，内容不被读取)
-  parameter  [TYPE_NUM_EFF*8-1:0]        TYPE_DICT= {8'h59,8'h01,8'h11},// ospf/icmp/udp
   parameter  AXIS_USER_WIDTH= 97 // usr 每通道位宽(来自 IPv4 层)
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
+
+  input  wire          [ TYPE_NUM_EFF*8-1:0]           type_dict       ,
 
   input  wire          [                 511:0]        ipv4_axis_sdata ,
   input  wire          [                  63:0]        ipv4_axis_skeep ,
@@ -117,7 +118,7 @@ module ipv4_proto_demux#(
         end
       end
       else begin:gen_range_type
-  wire                                                 is_match          = TYPE_DICT[type_index*8+:8]==ipv4_axis_sdata[72 +: 8]            ;
+  wire                                                 is_match          = type_dict[type_index*8+:8]==ipv4_axis_sdata[72 +: 8]            ;
         
   assign  type_hit[type_index]= is_match         ;
   assign  type_compare[type_index]= type_hit[type_index] && ~(|type_index == 0 ? 1'b0 : type_hit[type_index-1:0]);

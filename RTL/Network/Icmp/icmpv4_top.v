@@ -21,11 +21,12 @@
 module icmpv4_top#(
   parameter  AXIS_USER_WIDTH= 4 , // TX 侧仲裁值位宽(usr 宽度)
   parameter  AXIS_RX_USER_WIDTH= 97, // RX 侧 usr 每通道位宽(来自 IPv4 层)
-  parameter  TX_TYPE_NUM    = 1 , // 用户 ICMP 发送路数(>=1；0 由上层折算为 1 路占位)
-  parameter  ARBITER_VAL    = 12
+  parameter  TX_TYPE_NUM    = 1  // 用户 ICMP 发送路数(>=1；0 由上层折算为 1 路占位)
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
+
+  input  wire          [    AXIS_USER_WIDTH-1:0]       arbiter_val     ,
 
   input  wire          [                 511:0]        ipv4_icmp_axis_sdata,
   input  wire          [                  63:0]        ipv4_icmp_axis_skeep,
@@ -100,11 +101,11 @@ module icmpv4_top#(
   // --------------------------------------------------------------------------
   icmpv4_echo_reply#(
     .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ),
-    .AXIS_RX_USER_WIDTH(AXIS_RX_USER_WIDTH),
-    .ARBITER_VAL      (ARBITER_VAL         )
+    .AXIS_RX_USER_WIDTH(AXIS_RX_USER_WIDTH)
   ) u_icmpv4_echo_reply(
     .clk              (clk              ),// (input)
     .rst              (rst              ),// (input)
+    .arbiter_val      (arbiter_val      ),// (input)
     .ipv4_axis_sdata  (demux_echo_data  ),// (input)
     .ipv4_axis_skeep  (demux_echo_keep  ),// (input)
     .ipv4_axis_slast  (demux_echo_last  ),// (input)
@@ -138,14 +139,11 @@ module icmpv4_top#(
   wire                 [   AXIS_USER_WIDTH-1:0]        echo_tx_usr   ;
   wire                                                 echo_tx_ready ;
 
-  // 内部应答的仲裁值 = ARBITER_VAL（用户路用 usr 低 ARBITER_VAL_WIDTH 位）
-  localparam [AXIS_USER_WIDTH-1:0] TX_USR_ECHO = ARBITER_VAL;
-
   assign  tx_mux_sdata  = {icmp_axis_sdata , echo_tx_data };
   assign  tx_mux_skeep  = {icmp_axis_skeep , echo_tx_keep };
   assign  tx_mux_slast  = {icmp_axis_slast , echo_tx_last };
   assign  tx_mux_svalid = {icmp_axis_svalid, echo_tx_valid};
-  assign  tx_mux_susr   = {icmp_axis_susr  , TX_USR_ECHO};
+  assign  tx_mux_susr   = {icmp_axis_susr  , arbiter_val};
 
   assign  echo_tx_ready = tx_mux_sready[0];
   assign  icmp_axis_sready = tx_mux_sready[TX_TYPE_NUM:1];

@@ -22,7 +22,7 @@
 #   on   <名|位>...      打开指定使能，其余位保持不变，如 on en_a_udp en_b_udp
 #   off  <名|位>...      关闭指定使能
 #   read [filter]        立即触发一次 ILA 采集并打印探针值（filter 为名称子串）
-#   csv  <file> [f]      同 read，并把原始波形另存为 CSV
+#   csv  <file> [f]      同 read，并把原始波形另存为 CSV（多 ILA 核时按核名分文件）
 #   monitor <n> [f]      连续采集 n 次（间隔约 1 秒），只打印匹配探针
 #
 #   —— 场景化验证（自动完成「设使能 → 等待 → 采集 → 判定」，输出 PASS/FAIL）——
@@ -227,8 +227,11 @@ proc vio_cache_clear {} {
   set ::N_PROBE 0
   set ::CSV_READY 0
   unset -nocomplain ::ILA_DATA
+  array unset ::ILA_DATA_ARR
   unset -nocomplain ::CSV_ERR
   unset -nocomplain ::CSV_FILE
+  unset -nocomplain ::CSV_FILES
+  unset -nocomplain ::CSV_LOGGED
 }
 
 # 返回 位号 → 探针对象 的 dict。
@@ -484,8 +487,12 @@ proc ila_capture {ila} {
   catch { set_property CONTROL.CAPTURE_MODE ALWAYS $ila }
   catch { set_property CONTROL.TRIGGER_POSITION 0 $ila }
   if {[catch {run_hw_ila $ila} e]} { log "run_hw_ila 失败: $e"; return "" }
-  if {[catch {wait_on_hw_ila -timeout 10 $ila} e]} { log "wait_on_hw_ila 失败: $e"; return "" }
-  mark "ilawait.timeout"
+  if {[catch {wait_on_hw_ila -timeout 10 $ila} e]} {
+    mark "ilawait.timeout" $e
+    log "wait_on_hw_ila 失败: $e"
+    return ""
+  }
+  mark "ilawait.ok"
   # 新采集：清掉上一次的取值 / CSV 缓存
   set ::ILA_DATA ""
   set ::CSV_READY 0
@@ -497,11 +504,19 @@ proc ila_capture {ila} {
     return ""
   }
   set ::ILA_DATA $data
+  # 按核名登记采集数据：直接添加 ILA 核（ila_tester 逐打流机例化）的模式下，
+  # 每核一份 hw_ila_data、各带 5 个探针，取值必须逐核导出 CSV 再合并（见 ila_csv_cache）
+  set iname ""
+  catch {set iname [get_property NAME $ila]}
+  if {$iname eq ""} { set iname "ila_[array size ::ILA_DATA_ARR]" }
+  set ::ILA_DATA_ARR($iname) $data
   mark "ilaupload.upload"
   return $data
 }
 
 proc ila_snap {} {
+  # 每次全量采集先清空按核登记表，避免残留上一轮旧数据
+  array unset ::ILA_DATA_ARR
   set datas {}
   foreach ila $::ILAS {
     set d [ila_capture $ila]
@@ -519,7 +534,7 @@ proc snapi {} { ila_snap }
 #   ① 核心探针的 VALUE 属性（旧版流程）
 #   ② 采集数据对象（hw_ila_data）上的同名探针的 VALUE 属性
 #   ③ 核心探针的 DATA / VALUE_DATA 等属性
-#   ④ 以上都不行 → 由 ila_csv_cache 导出 CSV 兜底（见 probe_num 的退路）
+#   ④ 以上都不行 → 由 ila_csv_cache 逐核导出 CSV 并合并兜底（见 probe_num 的退路）
 # ---------------------------------------------------------------------------
 # 探针取值：先试核心探针的 VALUE 属性（个别版本可用），拿不到就走 CSV 退路（见 probe_raw）
 proc probe_value {p} {
@@ -528,9 +543,10 @@ proc probe_value {p} {
   return ""
 }
 
-# 采集数据导出为 CSV 的临时路径（每次运行用唯一名字，免去"文件已存在"）
-proc tmp_csv_path {} {
-  if {[info exists ::CSV_FILE] && $::CSV_FILE ne ""} { return $::CSV_FILE }
+# 采集数据导出为 CSV 的临时路径（每次运行用唯一名字，免去"文件已存在"）；
+# tag 非空时文件名追加核名后缀 —— 多 ILA 核模式下每个核各导一份
+proc tmp_csv_path {{tag {}}} {
+  if {$tag eq "" && [info exists ::CSV_FILE] && $::CSV_FILE ne ""} { return $::CSV_FILE }
   set d ""
   foreach e {TEMP TMP TMPDIR} {
     if {[info exists ::env($e)] && $::env($e) ne ""} { set d $::env($e); break }
@@ -541,8 +557,13 @@ proc tmp_csv_path {} {
     }
   }
   if {$d eq ""} { set d [pwd] }
-  set ::CSV_FILE [file join $d "hw_ila_snap_[pid]_[clock seconds].csv"]
-  return $::CSV_FILE
+  set nm "hw_ila_snap_[pid]_[clock seconds]"
+  if {$tag ne ""} {
+    append nm "_" [regsub -all {[^0-9A-Za-z]} $tag "_"]
+  }
+  set f [file join $d "$nm.csv"]
+  if {$tag eq ""} { set ::CSV_FILE $f }
+  return $f
 }
 
 # CSV 列名 / 探针名归一化：去掉位域、把非字母数字统一成下划线（兼容 / 与 _ 两种分隔）
@@ -569,34 +590,35 @@ proc cell_num {cell {radix ""}} {
 }
 
 proc csv_peek {{limit 300}} {
-  set f ""
-  if {[info exists ::CSV_FILE] && $::CSV_FILE ne ""} { set f $::CSV_FILE } else { set f [tmp_csv_path] }
-  if {![file exists $f]} { log "CSV 文件不存在: $f"; return }
-  set fh [open $f r]
-  set n 0
-  while {[gets $fh line] >= 0 && $n < 2} {
-    if {[string trim $line] eq ""} { continue }
-    puts "    [string range $line 0 $limit][expr {[string length $line] > $limit ? " ..." : ""}]"
-    incr n
+  if {![info exists ::CSV_FILES] || [llength $::CSV_FILES] == 0} {
+    if {[info exists ::CSV_FILE] && $::CSV_FILE ne "" && [file exists $::CSV_FILE]} {
+      set ::CSV_FILES [list $::CSV_FILE]
+    } else {
+      log "尚无 CSV 导出（先执行 hw_run read 或 hw_run iladiag 触发一次采集）"
+      return
+    }
   }
-  close $fh
-  log "CSV 文件: $f"
+  foreach f $::CSV_FILES {
+    if {![file exists $f]} { log "CSV 文件不存在: $f"; continue }
+    log "CSV 文件: $f"
+    set fh [open $f r]
+    set n 0
+    while {[gets $fh line] >= 0 && $n < 2} {
+      if {[string trim $line] eq ""} { continue }
+      puts "    [string range $line 0 $limit][expr {[string length $line] > $limit ? " ..." : ""}]"
+      incr n
+    }
+    close $fh
+  }
+  if {[llength $::CSV_FILES] > 1} {
+    log "共 [llength $::CSV_FILES] 份（每个 ILA 核一份），探针值已合并 [array size ::CSV_VALS] 项"
+  }
 }
 
-# 把本次采集导出 CSV 并解析成「探针名 → 值」；成功返回 1
-proc ila_csv_cache {} {
-  if {[info exists ::CSV_READY] && $::CSV_READY} { return 1 }
-  if {![info exists ::ILA_DATA] || $::ILA_DATA eq ""} { return 0 }
-  array unset ::CSV_VALS
-  set f [tmp_csv_path]
-  set okcsv [expr {![catch {write_hw_ila_data -force -csv_file $f $::ILA_DATA} e]}]
-  if {!$okcsv} {
-    mark "csv.export.fail"
-    if {![info exists ::CSV_ERR]} { set ::CSV_ERR $e; log "导出 CSV 失败（探针值退路不可用）: $e" }
-    return 0
-  }
-  mark "csv.export.force"
-  if {![info exists ::CSV_LOGGED]} { set ::CSV_LOGGED 1; log "探针取值走 CSV 导出: $f" }
+# 解析一份 ILA CSV：取「TRIGGER=1」那一行，把各列并进 ::CSV_VALS（键 = hdr_key）。
+# 返回本次新增的列数（0 = 没解析到数据行）
+proc csv_parse_file {f} {
+  set nadd 0
   set fh ""
   if {[catch {set fh [open $f r]} e]} { set ::CSV_ERR $e; return 0 }
   set hdr {}
@@ -612,6 +634,8 @@ proc ila_csv_cache {} {
       continue
     }
     set cells [split $line ","]
+    # 第二行是 "Radix - ..." 进制声明行，不是数据
+    if {[string match -nocase "Radix*" [string trim [lindex $cells 0]]]} { continue }
     if {$ti >= 0 && [llength $cells] > $ti} {
       set tv [string trim [lindex $cells $ti]]
       if {$tv ne "1" && $tv ne "true"} { continue }
@@ -624,10 +648,42 @@ proc ila_csv_cache {} {
       if {$radix ne ""} { mark "radix.DISPLAY_RADIX" $radix } else { mark "radix.none" }
       set num [cell_num $c $radix]
       array set ::CSV_VALS [list $hk [expr {$num eq "" ? [string trim $c] : $num}]]
+      incr nadd
     }
     break
   }
   close $fh
+  return $nadd
+}
+
+# 把本次采集导出 CSV 并解析成「探针名 → 值」；成功返回 1。
+# 直接添加 ILA 核（ila_tester 逐打流机例化）的模式下，每核一份 hw_ila_data、
+# 各带 5 个探针，必须逐核导出 CSV 再合并；旧 mark_debug 单核流程自然退化为 1 份。
+proc ila_csv_cache {} {
+  if {[info exists ::CSV_READY] && $::CSV_READY} { return 1 }
+  if {![info exists ::ILA_DATA_ARR] || [array size ::ILA_DATA_ARR] == 0} { return 0 }
+  array unset ::CSV_VALS
+  set ::CSV_FILES {}
+  set nfile 0
+  foreach iname [lsort [array names ::ILA_DATA_ARR]] {
+    set f [tmp_csv_path $iname]
+    if {[catch {write_hw_ila_data -force -csv_file $f $::ILA_DATA_ARR($iname)} e]} {
+      mark "csv.export.fail"
+      if {![info exists ::CSV_ERR]} { set ::CSV_ERR $e; log "导出 CSV 失败（$iname，该核探针值退路不可用）: $e" }
+      continue
+    }
+    mark "csv.export.force"
+    lappend ::CSV_FILES $f
+    incr nfile
+    if {[csv_parse_file $f] == 0} {
+      mark "csv.parse.empty"
+      if {![info exists ::CSV_ERR]} { set ::CSV_ERR "CSV 里没有 TRIGGER=1 的数据行: $f" }
+    }
+  }
+  if {$nfile > 0 && ![info exists ::CSV_LOGGED]} {
+    set ::CSV_LOGGED 1
+    log "探针取值走 CSV 导出: $nfile 份（每个 ILA 核一份），合并 [array size ::CSV_VALS] 项 -> [lindex $::CSV_FILES 0] 等"
+  }
   set ::CSV_READY 1
   return [expr {[array size ::CSV_VALS] > 0}]
 }
@@ -701,12 +757,12 @@ proc ila_diag {} {
       puts [format "    %-28s = %s" $prop $v]
     }
   }
-  set data [ila_capture [lindex $::ILAS 0]]
-  log "采集上传: [expr {$data eq "" ? "失败 / 无数据" : "成功"}]"
+  set datas [ila_snap]
+  log "采集上传: 成功 [llength $datas]/[llength $::ILAS] 个 ILA 核"
   if {[info exists ::ILA_UPLOAD_ERR]} { log "upload_hw_ila_data 报错: $::ILA_UPLOAD_ERR" }
-  if {$data ne ""} {
+  if {[llength $datas] > 0} {
     set dprops {}
-    catch {set dprops [list_property $data]}
+    catch {set dprops [list_property [lindex $datas 0]]}
     log "数据对象可用属性: [join $dprops {, }]"
   }
   ila_probe_index
@@ -736,11 +792,11 @@ proc ila_diag {} {
   }
   if {[info exists ::PV_STRAT] && $::PV_STRAT ne ""} { log "取值方式: $::PV_STRAT" } \
   elseif {[info exists ::CSV_READY] && $::CSV_READY} {
-    log "取值方式: CSV 导出（探针 VALUE 属性不可用）"
-    log "CSV 前两行（表头 + 触发点数据，供核对列名/数值格式）:"
+    log "取值方式: CSV 导出（探针 VALUE 属性不可用，每个 ILA 核一份再合并）"
+    log "CSV 前两行（表头 + 进制行，供核对列名/数值格式）:"
     catch { csv_peek 260 }
   }
-  return [expr {$data ne ""}]
+  return [expr {[llength $datas] > 0}]
 }
 
 proc ila_read {{filter {}} {csv {}}} {
@@ -760,8 +816,22 @@ proc ila_read {{filter {}} {csv {}}} {
     }
   }
   if {$csv ne ""} {
-    foreach d $datas { catch { write_hw_ila_data -csv_file $csv $d } }
-    log "波形已写出: $csv"
+    # 多 ILA 核模式下每核一份数据，同名覆盖会只留最后一个核 —— 按核名分文件写出
+    set base [file rootname $csv]
+    set ext  [file extension $csv]
+    if {$ext eq ""} { set ext ".csv" }
+    set ncore [array size ::ILA_DATA_ARR]
+    set nout 0
+    foreach iname [lsort [array names ::ILA_DATA_ARR]] {
+      set f $csv
+      if {$ncore > 1} { set f ${base}_${iname}${ext} }
+      if {![catch { write_hw_ila_data -force -csv_file $f $::ILA_DATA_ARR($iname) }]} { incr nout }
+    }
+    if {$ncore > 1} {
+      log "波形已写出: $nout 份（共 $ncore 个 ILA 核），文件名形如 ${base}_<ILA核名>${ext}"
+    } else {
+      log "波形已写出: $csv"
+    }
   }
 }
 

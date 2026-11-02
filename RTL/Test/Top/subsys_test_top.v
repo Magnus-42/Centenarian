@@ -1,6 +1,7 @@
 `resetall
 `default_nettype none
 `timescale 1ns / 1ps
+`include "../../Config/cfg_map.vh"
 
 // Language: Verilog 2001
 // ============================================================================
@@ -59,10 +60,12 @@ module subsys_test_top(
   // ============================================================================
   // 参数与配置
   // ============================================================================
-  localparam ETH_PORT_NUM= 2 ;                             // 与 DUT 一致
+  localparam ETH_PORT_NUM       = `CFG_NUM_PORT;               // 网口数
+  localparam CFG_NUM_WIDTH      = `CFG_COUNT_WIDTH;            // 档数/套数计数字段位宽
+  localparam PENDING_TIME_WIDTH = `CFG_MAX_PENDING_TIME_WIDTH; // ARP pending 超时位宽
+  localparam ARBITER_VAL_WIDTH  = `CFG_MAX_ARBITER_VAL_WIDTH;  // usr 仲裁值位宽
 
   localparam AXIS_WIDTH= 512;
-  localparam ARBITER_VAL_WIDTH= 4 ;                             // usr 位宽, 与 DUT 一致
   // usr 每通道/每路位宽（必须与 net_stack_top 内的同名常量保持一致）
   localparam MAC_RX_USR_WIDTH = 1;
   localparam IPV4_RX_USR_WIDTH= 48 + 48 + MAC_RX_USR_WIDTH;
@@ -74,52 +77,57 @@ module subsys_test_top(
   localparam CHK_PORT= 2 ;                             // UDP 校验第 2 路(区间[2,8])
 
 
-  // ---- 本机配置（线序值：低字节 = 线上第一字节）----
-  localparam [                  31:0]        CFG_A_IP= 32'h0901_A8C0;                // 192.168.1.9
-  localparam [                  31:0]        CFG_B_IP= 32'h0801_A8C0;                // 192.168.1.8
-  localparam [                  47:0]        CFG_A_MAC= 48'h010000311900;             // 00:19:31:00:00:01
-  localparam [                  47:0]        CFG_B_MAC= 48'h020000311900;             // 00:19:31:00:00:02
-  localparam [                  31:0]        CFG_GATEWAY= 32'h0101_A8C0;                // 192.168.1.1
-  localparam [                  31:0]        CFG_SUBNET= 32'h00FF_FFFF;                // 255.255.255.0
+  // ---- 本机配置（线序值：低字节 = 线上第一字节；口A = port0 / 口B = port1）----
+  localparam [                  31:0]        CFG_A_IP    = `CFG_DEF_IPV4_IP_P0;  
+  localparam [                  31:0]        CFG_B_IP    = `CFG_DEF_IPV4_IP_P1;  
+  localparam [                  47:0]        CFG_A_MAC   = `CFG_DEF_IPV4_MAC_P0; 
+  localparam [                  47:0]        CFG_B_MAC   = `CFG_DEF_IPV4_MAC_P1; 
+  localparam [                  31:0]        CFG_GATEWAY = `CFG_DEF_IPV4_GW_P0;  
+  localparam [                  31:0]        CFG_SUBNET  = `CFG_DEF_IPV4_MASK_P0;
 
-  // ---- 逐口配置(与 DUT 同名参数：槽位打包 + MAX 定宽) ----
-  localparam CFG_NUM_WIDTH= 8 ;
-  localparam PENDING_TIME_WIDTH= 57;
-  localparam [     CFG_NUM_WIDTH-1:0]        MAC_RX_TYPE_NUM_MAX= 2 ;        // A: 88B5/88CC           B: 88B5
-  localparam [     CFG_NUM_WIDTH-1:0]        MAC_TX_TYPE_NUM_MAX= 3 ;        // A: 88B5/88DD           B: 88B5/0x88CC/0x88DD
-  localparam [     CFG_NUM_WIDTH-1:0]        IPV4_RX_TYPE_NUM_MAX= 3 ;       // A: icmp/ospf/0x06      B：0x06/icmp/ospf
-  localparam [     CFG_NUM_WIDTH-1:0]        IPV4_TX_TYPE_NUM_MAX= 4 ;       // A: icmp/ospf/0x06/0x2F B：0x06/icmp/ospf/0x2F
-  localparam [     CFG_NUM_WIDTH-1:0]        IPV6_RX_TYPE_NUM_MAX= 3 ;       // A: udp/icmp/ospf       B: udp/ospf/icmp
-  localparam [     CFG_NUM_WIDTH-1:0]        IPV6_TX_TYPE_NUM_MAX= 3 ;       // A: udp/icmp/ospf       B: udp/ospf/icmp
-  localparam [     CFG_NUM_WIDTH-1:0]        UDP_RX_PORT_NUM_MAX= 3 ;        // A: [0,0] [1,1] [2,8]   B: [2,2] [4,8]
-  localparam [     CFG_NUM_WIDTH-1:0]        UDP_TX_PORT_NUM_MAX= 8 ;        // A: 2/1234              B: 2/1234
-  localparam [     CFG_NUM_WIDTH-1:0]        LOCAL_IPV4_MAC_NUM_MAX= 1 ;
-  localparam [     CFG_NUM_WIDTH-1:0]        LOCAL_DST_IPV6_MAC_NUM_MAX= 2 ;
-  localparam [     CFG_NUM_WIDTH-1:0]        LOCAL_SRC_IPV6_MAC_NUM_MAX= 2 ;
+  // ---- 各层档数/套数上限（MAX，来自 cfg_map）----
+  localparam [     CFG_NUM_WIDTH-1:0]        MAC_RX_TYPE_NUM_MAX= `CFG_MAX_MAC_RX_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        MAC_TX_TYPE_NUM_MAX= `CFG_MAX_MAC_TX_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        IPV4_RX_TYPE_NUM_MAX= `CFG_MAX_IPV4_RX_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        IPV4_TX_TYPE_NUM_MAX= `CFG_MAX_IPV4_TX_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        ICMP_TX_TYPE_NUM_MAX= `CFG_MAX_ICMP_TX_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        IPV6_RX_TYPE_NUM_MAX= `CFG_MAX_IPV6_RX_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        IPV6_TX_TYPE_NUM_MAX= `CFG_MAX_IPV6_TX_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        UDP_RX_PORT_NUM_MAX= `CFG_MAX_UDP_RX_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        UDP_TX_PORT_NUM_MAX= `CFG_MAX_UDP_TX_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        LOCAL_IPV4_MAC_NUM_MAX= `CFG_MAX_V4_SET_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        LOCAL_DST_IPV6_MAC_NUM_MAX= `CFG_MAX_V6_DST_SET_NUM;
+  localparam [     CFG_NUM_WIDTH-1:0]        LOCAL_SRC_IPV6_MAC_NUM_MAX= `CFG_MAX_V6_SRC_SET_NUM;
   localparam MAC_TX_N_MAX= (MAC_TX_TYPE_NUM_MAX > 0) ? MAC_TX_TYPE_NUM_MAX : 1;
   localparam IPV4_TX_N_MAX= (IPV4_TX_TYPE_NUM_MAX > 0) ? IPV4_TX_TYPE_NUM_MAX : 1;
   localparam IPV6_TX_TOT_MAX= (IPV6_TX_TYPE_NUM_MAX > 0) ? IPV6_TX_TYPE_NUM_MAX : 1;
   localparam UDP_TX_N_MAX= (UDP_TX_PORT_NUM_MAX > 0) ? UDP_TX_PORT_NUM_MAX : 1;
-  //                                                                              [ 口B 槽位 , 口A 槽位 ]
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]MAC_RX_TYPE_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd1  , {CFG_NUM_WIDTH{1'b0}} | 4'd2  };
-  localparam [(MAC_RX_TYPE_NUM_MAX*16)*ETH_PORT_NUM-1:0]MAC_RX_TYPE_DICT_ARR= { {16'h0000,16'hB588} , {16'hCC88,16'hB588} }; // B:ch0=88B5 ; A:ch0=88B5,ch1=88CC
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]MAC_TX_TYPE_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd3  , {CFG_NUM_WIDTH{1'b0}} | 4'd2  };
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]IPV4_RX_TYPE_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd3 , {CFG_NUM_WIDTH{1'b0}} | 4'd3  };
-  localparam [(IPV4_RX_TYPE_NUM_MAX*8)*ETH_PORT_NUM-1:0]IPV4_RX_TYPE_DICT_ARR= { {8'h59,8'h01,8'h06} , {8'h06,8'h59,8'h01} }; // B:ch0=06,ch1=01,ch2=59 ; A:ch0=01,ch1=59,ch2=06
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]IPV4_TX_TYPE_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd4 , {CFG_NUM_WIDTH{1'b0}} | 4'd4  };
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]IPV6_RX_TYPE_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd3 , {CFG_NUM_WIDTH{1'b0}} | 4'd3  };
-  localparam [(IPV6_RX_TYPE_NUM_MAX*8)*ETH_PORT_NUM-1:0]IPV6_RX_TYPE_DICT_ARR= { {8'h3A,8'h59,8'h11} , {8'h59,8'h3A,8'h11} }; // B:ch0=11,ch1=59,ch2=3A ; A:ch0=11,ch1=3A,ch2=59
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]IPV6_TX_TYPE_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd3 , {CFG_NUM_WIDTH{1'b0}} | 4'd3  };
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]UDP_RX_PORT_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd2  , {CFG_NUM_WIDTH{1'b0}} | 4'd3  };
-  localparam [(UDP_RX_PORT_NUM_MAX*32)*ETH_PORT_NUM-1:0]UDP_DST_PORT_RANGE_ARR= { {32'd0,32'h00080004,32'h00020002} , {32'h00080002,32'h00010001,32'h00000000} };
-  //     口B: ch0=[2,2] ch1=[4,8]        ; 口A: ch0=[0,0] ch1=[1,1] ch2=[2,8]
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]UDP_TX_PORT_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd4  , {CFG_NUM_WIDTH{1'b0}} | 4'd8  };
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]LOCAL_IPV4_MAC_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd1 , {CFG_NUM_WIDTH{1'b0}} | 4'd1 };
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]LOCAL_DST_IPV6_MAC_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd2 , {CFG_NUM_WIDTH{1'b0}} | 4'd2 };
-  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]LOCAL_SRC_IPV6_MAC_NUM_ARR= { {CFG_NUM_WIDTH{1'b0}} | 4'd2 , {CFG_NUM_WIDTH{1'b0}} | 4'd2 };
-  localparam [PENDING_TIME_WIDTH-1:0] CFG_PENDING_TIME_A= 57'd400_000_000; // 1.0s @400MHz
-  localparam [PENDING_TIME_WIDTH-1:0] CFG_PENDING_TIME_B= 57'd200_000_000; // 0.5s @400MHz
-  localparam [(PENDING_TIME_WIDTH)*ETH_PORT_NUM-1:0]CFG_PENDING_TIME_ARR= { CFG_PENDING_TIME_B, CFG_PENDING_TIME_A };
+  localparam [ARBITER_VAL_WIDTH*ETH_PORT_NUM-1:0] CFG_ARP_PRIO_ARR = `CFG_DEF_ARP_PRIO;
+  localparam [ARBITER_VAL_WIDTH*ETH_PORT_NUM-1:0] CFG_ICMP_PRIO_ARR= `CFG_DEF_ICMP_PRIO;
+  localparam [ARBITER_VAL_WIDTH-1:0] ARP_PRIORITY    = CFG_ARP_PRIO_ARR [ARBITER_VAL_WIDTH-1:0];
+  localparam [ARBITER_VAL_WIDTH-1:0] ICMPV4_PRIORITY = CFG_ICMP_PRIO_ARR[ARBITER_VAL_WIDTH-1:0];
+  // ---- 逐口实际档数/套数（口1 在高位、口0 在低位；来自 cfg_map）----
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]MAC_RX_TYPE_NUM_ARR       = `CFG_DEF_MAC_RX_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]MAC_TX_TYPE_NUM_ARR       = `CFG_DEF_MAC_TX_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]IPV4_RX_TYPE_NUM_ARR      = `CFG_DEF_IPV4_RX_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]IPV4_TX_TYPE_NUM_ARR      = `CFG_DEF_IPV4_TX_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]ICMP_TX_TYPE_NUM_ARR      = `CFG_DEF_ICMP_TX_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]IPV6_RX_TYPE_NUM_ARR      = `CFG_DEF_IPV6_RX_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]IPV6_TX_TYPE_NUM_ARR      = `CFG_DEF_IPV6_TX_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]UDP_RX_PORT_NUM_ARR       = `CFG_DEF_UDP_RX_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]UDP_TX_PORT_NUM_ARR       = `CFG_DEF_UDP_TX_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]LOCAL_IPV4_MAC_NUM_ARR    = `CFG_DEF_V4_SET_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]LOCAL_DST_IPV6_MAC_NUM_ARR= `CFG_DEF_V6_DST_NUM_ARR;
+  localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0]LOCAL_SRC_IPV6_MAC_NUM_ARR= `CFG_DEF_V6_SRC_NUM_ARR;
+
+  // ---- 分流表（仅用户项；内部 arp/ipv4/ipv6/udp/icmp 由 net_stack_top 内部拼接）----
+  localparam [(MAC_RX_TYPE_NUM_MAX*16)*ETH_PORT_NUM-1:0]MAC_RX_TYPE_DICT_ARR  = `CFG_DEF_MAC_RX_DICT_ARR;
+  localparam [(IPV4_RX_TYPE_NUM_MAX*8)*ETH_PORT_NUM-1:0]IPV4_RX_TYPE_DICT_ARR = `CFG_DEF_IPV4_RX_DICT_ARR;
+  localparam [(IPV6_RX_TYPE_NUM_MAX*8)*ETH_PORT_NUM-1:0]IPV6_RX_TYPE_DICT_ARR = `CFG_DEF_IPV6_RX_DICT_ARR;
+  localparam [(UDP_RX_PORT_NUM_MAX*32)*ETH_PORT_NUM-1:0]UDP_DST_PORT_RANGE_ARR= `CFG_DEF_UDP_PORT_RANGE_ARR;
+
+  // ---- 行为参数 ----
+  localparam [PENDING_TIME_WIDTH*ETH_PORT_NUM-1:0]CFG_PENDING_TIME_ARR= `CFG_DEF_PENDING;
 
   // ============================================================================
   // 每口 lane 索引表
@@ -179,8 +187,10 @@ module subsys_test_top(
 
   // ---- IPv6 配置（线序值：低字节 = 线上第一字节）----
   // 2001:db8::1 / 2001:db8::2（占位地址，测试机接入时可改）
-  localparam [                 127:0]        CFG_A_IPV6= {8'h01, {11{8'h00}}, 8'hb8, 8'h0d, 8'h01, 8'h20};
-  localparam [                 127:0]        CFG_B_IPV6= {8'h02, {11{8'h00}}, 8'hb8, 8'h0d, 8'h01, 8'h20};
+  localparam [128*LOCAL_SRC_IPV6_MAC_NUM_MAX-1:0] CFG_SRC_V6_P0 = `CFG_DEF_IPV6_SRC_P0;
+  localparam [128*LOCAL_SRC_IPV6_MAC_NUM_MAX-1:0] CFG_SRC_V6_P1 = `CFG_DEF_IPV6_SRC_P1;
+  localparam [                 127:0]        CFG_A_IPV6= CFG_SRC_V6_P0[127:0];   // 口A set0
+  localparam [                 127:0]        CFG_B_IPV6= CFG_SRC_V6_P1[127:0];   // 口B set0
 
   // ---- UDP cfg ----
   localparam [                  15:0]        IP_LEN_FULL= PKT_LEN_BEATS*64;                     // 其余通道 IP 总长(tester 直接发完整 IP 包)
@@ -248,8 +258,8 @@ module subsys_test_top(
   reg                                                  usr_rst          ;
   wire                                                 qsfp_gt_rst      ;
 
-  clk_100_to_200m u_clk_100_to_400m (
-    .clk_200m         (clk_400m         ),
+  clk_100_to_400m u_clk_100_to_400m (
+    .clk_400m         (clk_400m         ),
     .locked           (clk_locked       ),
     .clk_100m         (sys_clk          ) 
   );
@@ -334,23 +344,140 @@ module subsys_test_top(
   wire                 [IPV6_TX_TOT_MAX*ETH_PORT_NUM-1:0]ipv6_axis_slast  , ipv6_axis_svalid, ipv6_axis_sready;
   wire                 [ARBITER_VAL_WIDTH*IPV6_TX_TOT_MAX*ETH_PORT_NUM-1:0]ipv6_axis_susr   ;
   // ============================================================================
+  // 配置子系统互联
+  // ============================================================================
+  localparam CMD_PORT_SEL   = `CFG_CMD_PORT_SEL;         // 命令通道绑定口（与 net_stack_top 同源）
+  localparam CMD_USR_WIDTH  = 96;                        // cfg 内部请求四元组位宽
+  localparam CMD_TTL        = 8'd64;                     // 应答固定 TTL
+  localparam CMD_FIFO_DEPTH = 512;                       // 命令帧缓冲深度（拍）
+  localparam MAC_TX_TOT_MAX = MAC_TX_N_MAX + 3;
+  localparam TX_IDX_WIDTH   = (MAC_TX_TOT_MAX <= 1) ? 1 : $clog2(MAC_TX_TOT_MAX);
+
+  // ---- UDP 命令档（每口一套，仅 CMD_PORT_SEL 口有效）----
+  wire                 [512*ETH_PORT_NUM-1:0]              udp_cmd_axis_mdata  ;
+  wire                 [64*ETH_PORT_NUM-1:0]               udp_cmd_axis_mkeep  ;
+  wire                 [ETH_PORT_NUM-1:0]                  udp_cmd_axis_mlast  ;
+  wire                 [ETH_PORT_NUM-1:0]                  udp_cmd_axis_mvalid ;
+  wire                 [UDP_RX_USR_WIDTH*ETH_PORT_NUM-1:0] udp_cmd_axis_musr   ;
+  wire                 [ETH_PORT_NUM-1:0]                  udp_cmd_axis_mready ;
+  wire                 [512*ETH_PORT_NUM-1:0]              udp_cmd_axis_sdata  ;
+  wire                 [64*ETH_PORT_NUM-1:0]               udp_cmd_axis_skeep  ;
+  wire                 [ETH_PORT_NUM-1:0]                  udp_cmd_axis_slast  ;
+  wire                 [ETH_PORT_NUM-1:0]                  udp_cmd_axis_svalid ;
+  wire                 [UDP_TX_USR_WIDTH*ETH_PORT_NUM-1:0] udp_cmd_axis_susr   ;
+  wire                 [ETH_PORT_NUM-1:0]                  udp_cmd_axis_sready ;
+
+  // ---- cfg_cmd_top 输出：生效配置 ----
+  wire                 [48 *LOCAL_IPV4_MAC_NUM_MAX*ETH_PORT_NUM-1:0]    cfg_local_mac        ;
+  wire                 [32 *LOCAL_IPV4_MAC_NUM_MAX*ETH_PORT_NUM-1:0]    cfg_local_ip         ;
+  wire                 [32 *LOCAL_IPV4_MAC_NUM_MAX*ETH_PORT_NUM-1:0]    cfg_gateway_ip       ;
+  wire                 [32 *LOCAL_IPV4_MAC_NUM_MAX*ETH_PORT_NUM-1:0]    cfg_subnet_mask      ;
+  wire                 [128*LOCAL_SRC_IPV6_MAC_NUM_MAX*ETH_PORT_NUM-1:0]cfg_src_ipv6         ;
+  wire                 [48 *LOCAL_SRC_IPV6_MAC_NUM_MAX*ETH_PORT_NUM-1:0]cfg_src_mac          ;
+  wire                 [128*LOCAL_DST_IPV6_MAC_NUM_MAX*ETH_PORT_NUM-1:0]cfg_dst_ipv6         ;
+  wire                 [48 *LOCAL_DST_IPV6_MAC_NUM_MAX*ETH_PORT_NUM-1:0]cfg_dst_mac          ;
+  wire                 [16 *MAC_RX_TYPE_NUM_MAX*ETH_PORT_NUM-1:0]       cfg_eth_type         ;
+  wire                 [8  *IPV4_RX_TYPE_NUM_MAX*ETH_PORT_NUM-1:0]      cfg_ipv4_proto       ;
+  wire                 [8  *IPV6_RX_TYPE_NUM_MAX*ETH_PORT_NUM-1:0]      cfg_ipv6_nh          ;
+  wire                 [32 *UDP_RX_PORT_NUM_MAX*ETH_PORT_NUM-1:0]       cfg_udp_port         ;
+  wire                 [16 *ETH_PORT_NUM-1:0]                           cfg_cmd_udp_port     ;
+  wire                 [PENDING_TIME_WIDTH*ETH_PORT_NUM-1:0]            cfg_pending_time     ;
+  wire                 [ARBITER_VAL_WIDTH*ETH_PORT_NUM-1:0]             cfg_arp_prio         ;
+  wire                 [ARBITER_VAL_WIDTH*ETH_PORT_NUM-1:0]             cfg_icmp_prio        ;
+  wire                 [ETH_PORT_NUM-1:0]                               cfg_arp_cache_clear  ;
+  wire                 [ETH_PORT_NUM-1:0]                               cfg_arp_pending_clear;
+  wire                 [ETH_PORT_NUM-1:0]                               cfg_stat_clear       ;
+
+  // ---- cfg_cmd_top 状态输入（来自 net_stack_top，按口打包）----
+  wire                 [ETH_PORT_NUM-1:0]                  stat_link_status        ;
+  wire                 [ETH_PORT_NUM-1:0]                  stat_tx_idle            ;
+  wire                 [TX_IDX_WIDTH*ETH_PORT_NUM-1:0]     stat_tx_active_port     ;
+  wire                 [ETH_PORT_NUM-1:0]                  stat_is_df              ;
+  wire                 [ETH_PORT_NUM-1:0]                  stat_arp_rx_error       ;
+  wire                 [ETH_PORT_NUM-1:0]                  stat_arp_ack_ovf        ;
+  wire                 [ETH_PORT_NUM-1:0]                  stat_arp_pend_ovf       ;
+  wire                 [ETH_PORT_NUM-1:0]                  stat_arp_no_resp        ;
+  wire                 [ETH_PORT_NUM-1:0]                  stat_arp_pend_clr       ;
+  wire                 [ETH_PORT_NUM-1:0]                  stat_arp_cache_clr      ;
+  wire                 [ETH_PORT_NUM-1:0]                  stat_arp_src_not_local  ;
+  wire                 [ETH_PORT_NUM-1:0]                  stat_icmp_drop          ;
+  wire                 [3*ETH_PORT_NUM-1:0]                stat_icmp_drop_reason   ;
+  wire                 [7*ETH_PORT_NUM-1:0]                stat_arp                ;// {src_not_local,cache_clr,pend_clr,no_resp,pend_ovf,ack_ovf,rx_error}
+  wire                 [4*ETH_PORT_NUM-1:0]                stat_icmp               ;// {drop_reason[2:0], drop}
+
+  // 逐口打包成 cfg 侧格式（ITEM 0x60 / 0x61 直接读回）
+  genvar gs;
+  generate
+    for (gs = 0; gs < ETH_PORT_NUM; gs = gs + 1) begin : g_stat_pack
+  assign  stat_arp [gs*7 +: 7] = { stat_arp_src_not_local[gs],
+                                   stat_arp_cache_clr    [gs],
+                                   stat_arp_pend_clr     [gs],
+                                   stat_arp_no_resp      [gs],
+                                   stat_arp_pend_ovf     [gs],
+                                   stat_arp_ack_ovf      [gs],
+                                   stat_arp_rx_error     [gs] };
+  assign  stat_icmp[gs*4 +: 4] = { stat_icmp_drop_reason[gs*3 +: 3],
+                                   stat_icmp_drop       [gs] };
+    end
+  endgenerate
+
+  // ---- 命令帧 FIFO 与应答流 ----
+  wire                 [                   512-1:0]        cmd_fifo_mdata          ;
+  wire                 [                    64-1:0]        cmd_fifo_mkeep          ;
+  wire                 [                        1-1:0]      cmd_fifo_mlast          ;
+  wire                                                     cmd_fifo_mvalid         ;
+  wire                                                     cmd_fifo_sready         ;
+  wire                                                     cmd_in_ready            ;
+  wire                 [      UDP_RX_USR_WIDTH-1:0]        cmd_fifo_musr           ;
+
+  wire                 [                   512-1:0]        cmd_rsp_data            ;
+  wire                 [                    64-1:0]        cmd_rsp_keep            ;
+  wire                                                     cmd_rsp_last            ;
+  wire                                                     cmd_rsp_valid           ;
+  wire                                                     cmd_rsp_ready           ;
+  wire                 [     UDP_TX_USR_WIDTH-1:0]         cmd_rsp_usr             ;
+
+  // 逐口拼装：只有 CMD_PORT_SEL 口接真实数据，其余口恒 0 / 悬空不消费
+  //   约束：CMD_PORT_SEL 必须 < ETH_PORT_NUM（否则 cmd_rsp_ready 无驱动，且命令通道全程不工作）
+  genvar gc;
+  generate
+    for (gc = 0; gc < ETH_PORT_NUM; gc = gc + 1) begin : g_cmd_port
+      if (gc == CMD_PORT_SEL) begin : g_sel
+  assign  udp_cmd_axis_mready [gc]        = cmd_fifo_sready                    ;
+  assign  udp_cmd_axis_sdata  [gc*512 +: 512] = cmd_rsp_data                   ;
+  assign  udp_cmd_axis_skeep  [gc*64  +:  64] = cmd_rsp_keep                   ;
+  assign  udp_cmd_axis_slast  [gc]        = cmd_rsp_last                       ;
+  assign  udp_cmd_axis_svalid [gc]        = cmd_rsp_valid                      ;
+  assign  udp_cmd_axis_susr   [gc*UDP_TX_USR_WIDTH +: UDP_TX_USR_WIDTH] = cmd_rsp_usr ;
+  assign  cmd_rsp_ready                   = udp_cmd_axis_sready[gc]            ;
+      end
+      else begin : g_nosel
+  assign  udp_cmd_axis_mready [gc]        = 1'b0                               ;
+  assign  udp_cmd_axis_sdata  [gc*512 +: 512] = 512'd0                         ;
+  assign  udp_cmd_axis_skeep  [gc*64  +:  64] = 64'd0                          ;
+  assign  udp_cmd_axis_slast  [gc]        = 1'b0                               ;
+  assign  udp_cmd_axis_svalid [gc]        = 1'b0                               ;
+  assign  udp_cmd_axis_susr   [gc*UDP_TX_USR_WIDTH +: UDP_TX_USR_WIDTH] = {UDP_TX_USR_WIDTH{1'b0}} ;
+      end
+    end
+  endgenerate
+
+  // ============================================================================
   // DUT : net_stack_top（2 口，全通道引出）
   // ============================================================================
 
   net_stack_top #(
     .ETH_PORT_NUM     (ETH_PORT_NUM     ),
+    .CMD_PORT_SEL     (`CFG_CMD_PORT_SEL),// 命令通道绑定口，与 cfg_map 一致
     .CFG_NUM_WIDTH    (CFG_NUM_WIDTH    ),
     .MAC_RX_TYPE_NUM_ARR(MAC_RX_TYPE_NUM_ARR),
-    .MAC_RX_TYPE_DICT_ARR(MAC_RX_TYPE_DICT_ARR),
     .MAC_TX_TYPE_NUM_ARR(MAC_TX_TYPE_NUM_ARR),
     .IPV4_RX_TYPE_NUM_ARR(IPV4_RX_TYPE_NUM_ARR),
-    .IPV4_RX_TYPE_DICT_ARR(IPV4_RX_TYPE_DICT_ARR),
     .IPV4_TX_TYPE_NUM_ARR(IPV4_TX_TYPE_NUM_ARR),
+    .ICMP_TX_TYPE_NUM_ARR(ICMP_TX_TYPE_NUM_ARR),
     .IPV6_RX_TYPE_NUM_ARR(IPV6_RX_TYPE_NUM_ARR),
-    .IPV6_RX_TYPE_DICT_ARR(IPV6_RX_TYPE_DICT_ARR),
     .IPV6_TX_TYPE_NUM_ARR(IPV6_TX_TYPE_NUM_ARR),
     .UDP_RX_PORT_NUM_ARR(UDP_RX_PORT_NUM_ARR),
-    .UDP_DST_PORT_RANGE_ARR(UDP_DST_PORT_RANGE_ARR),
     .UDP_TX_PORT_NUM_ARR(UDP_TX_PORT_NUM_ARR),
     .LOCAL_IPV4_MAC_NUM_ARR(LOCAL_IPV4_MAC_NUM_ARR),
     .LOCAL_DST_IPV6_MAC_NUM_ARR(LOCAL_DST_IPV6_MAC_NUM_ARR),
@@ -359,6 +486,7 @@ module subsys_test_top(
     .MAC_TX_TYPE_NUM_MAX(MAC_TX_TYPE_NUM_MAX),
     .IPV4_RX_TYPE_NUM_MAX(IPV4_RX_TYPE_NUM_MAX),
     .IPV4_TX_TYPE_NUM_MAX(IPV4_TX_TYPE_NUM_MAX),
+    .ICMP_TX_TYPE_NUM_MAX(ICMP_TX_TYPE_NUM_MAX),
     .IPV6_RX_TYPE_NUM_MAX(IPV6_RX_TYPE_NUM_MAX),
     .IPV6_TX_TYPE_NUM_MAX(IPV6_TX_TYPE_NUM_MAX),
     .UDP_RX_PORT_NUM_MAX(UDP_RX_PORT_NUM_MAX),
@@ -367,14 +495,39 @@ module subsys_test_top(
     .LOCAL_DST_IPV6_MAC_NUM_MAX(LOCAL_DST_IPV6_MAC_NUM_MAX),
     .LOCAL_SRC_IPV6_MAC_NUM_MAX(LOCAL_SRC_IPV6_MAC_NUM_MAX),
     .ARBITER_VAL_WIDTH   (ARBITER_VAL_WIDTH   ),
-    .PENDING_TIME_WIDTH(57               ),
-    .CFG_PENDING_TIME_ARR({ETH_PORT_NUM{57'd400_000_000}}) 
+    .PENDING_TIME_WIDTH  (PENDING_TIME_WIDTH  )
   ) u_dut (
     .sys_clk          (sys_clk          ),
     .clk              (clk_400m         ),
     .clk_locked       (clk_locked       ),
     .qsfp_gt_rst      (qsfp_gt_rst      ),
     .usr_rst          (usr_rst          ),
+    // ---- 运行期配置：批次 B 接入 cfg_cmd_top 之前，先用 cfg_map 默认值驱动（行为与改前一致）----
+    .cfg_eth_type           (cfg_eth_type         ),
+    .cfg_ipv4_proto         (cfg_ipv4_proto       ),
+    .cfg_ipv6_nh            (cfg_ipv6_nh          ),
+    .cfg_udp_port           (cfg_udp_port         ),
+    .cfg_pending_time       (cfg_pending_time     ),
+    .cfg_arp_prio           (cfg_arp_prio         ),
+    .cfg_icmp_prio          (cfg_icmp_prio        ),
+    .cfg_arp_cache_clear    (cfg_arp_cache_clear  ),
+    .cfg_arp_pending_clear  (cfg_arp_pending_clear),
+    .cfg_stat_clear         (cfg_stat_clear       ),
+    // ---- UDP 命令档（接 cfg_cmd_top：命令帧收 / 应答发）----
+    .cfg_cmd_udp_port       (cfg_cmd_udp_port     ),
+    .udp_cmd_axis_mdata     (udp_cmd_axis_mdata   ),
+    .udp_cmd_axis_mkeep     (udp_cmd_axis_mkeep   ),
+    .udp_cmd_axis_mlast     (udp_cmd_axis_mlast   ),
+    .udp_cmd_axis_mvalid    (udp_cmd_axis_mvalid  ),
+    .udp_cmd_axis_musr      (udp_cmd_axis_musr    ),
+    .udp_cmd_axis_mready    (udp_cmd_axis_mready  ),
+    .udp_cmd_axis_sdata     (udp_cmd_axis_sdata   ),
+    .udp_cmd_axis_skeep     (udp_cmd_axis_skeep   ),
+    .udp_cmd_axis_slast     (udp_cmd_axis_slast   ),
+    .udp_cmd_axis_svalid    (udp_cmd_axis_svalid  ),
+    .udp_cmd_axis_susr      (udp_cmd_axis_susr    ),
+    .udp_cmd_axis_sready    (udp_cmd_axis_sready  ),
+    .stat_link_status       (stat_link_status     ),
     // GT / QSFP（口 0 = A 在低位）
     .gt_txp_out       ({gt_txp_out_b , gt_txp_out_a }),
     .gt_txn_out       ({gt_txn_out_b , gt_txn_out_a }),
@@ -388,10 +541,10 @@ module subsys_test_top(
     .qsfp_prsn_port   ({qsfp_prsn_port_b , qsfp_prsn_port_a }),
     .qsfp_led_port    ({qsfp_led_port_b  , qsfp_led_port_a  }),
     // ARP 本机配置
-    .cfg_local_mac    ({CFG_B_MAC , CFG_A_MAC }),
-    .cfg_local_ip     ({CFG_B_IP  , CFG_A_IP  }),
-    .cfg_gateway_ip   ({CFG_GATEWAY, CFG_GATEWAY}),
-    .cfg_subnet_mask  ({CFG_SUBNET, CFG_SUBNET}),
+    .cfg_local_mac    (cfg_local_mac    ),
+    .cfg_local_ip     (cfg_local_ip     ),
+    .cfg_gateway_ip   (cfg_gateway_ip   ),
+    .cfg_subnet_mask  (cfg_subnet_mask  ),
     // MAC flat 通道（RX 对外段: idx0=0x88B5, idx1=兜底; TX 对外段: idx0=0x88B5）
     .mac_axis_mdata   (mac_axis_mdata   ),
     .mac_axis_mkeep   (mac_axis_mkeep   ),
@@ -433,10 +586,10 @@ module subsys_test_top(
     .ipv4_axis_sready (ipv4_axis_sready ),
     // IPv6 IP->MAC 映射表（dest=对端表 / src=本机表; 每口项0 有效, 项1 空）
     //   A 口: dest={0,B} src={0,A};  B 口: dest={0,A} src={0,B}
-    .cfg_dest_match_ipv6({ {128'd0,CFG_A_IPV6}, {128'd0,CFG_B_IPV6} }),
-    .cfg_dest_match_mac({ { 48'd0,CFG_A_MAC }, { 48'd0,CFG_B_MAC } }),
-    .cfg_src_match_ipv6({ {128'd0,CFG_B_IPV6}, {128'd0,CFG_A_IPV6} }),
-    .cfg_src_match_mac({ { 48'd0,CFG_B_MAC }, { 48'd0,CFG_A_MAC } }),
+    .cfg_dst_ipv6 (cfg_dst_ipv6 ),
+    .cfg_dst_mac  (cfg_dst_mac  ),
+    .cfg_src_ipv6 (cfg_src_ipv6 ),
+    .cfg_src_mac  (cfg_src_mac  ),
     // IPv6 flat 通道（ch0=udp / ch1=icmpv6 / ch2=ospf / ch3=other）
     .ipv6_axis_mdata  (ipv6_axis_mdata  ),
     .ipv6_axis_mkeep  (ipv6_axis_mkeep  ),
@@ -464,19 +617,19 @@ module subsys_test_top(
     .udp_axis_susr    (udp_axis_susr    ),
     .udp_axis_sready  (udp_axis_sready  ),
     // 状态
-    .stat_is_df       (                 ),
-    .stat_tx_active_port(                 ),
-    .stat_tx_idle     (                 ),
-    .stat_arp_rx_error(                 ),
-    .stat_arp_ack_ovf (                 ),
-    .stat_arp_pend_ovf(                 ),
-    .stat_arp_no_resp (                 ),
-    .stat_arp_pend_clr(                 ),
-    .stat_arp_cache_clr(                 ),
-    .stat_arp_src_not_local(                 ),
-    .stat_ipv6_drop_pulse(                 ),
-    .stat_icmp_drop      (                 ),
-    .stat_icmp_drop_reason(                 )
+    .stat_is_df          (stat_is_df         ),
+    .stat_tx_active_port (stat_tx_active_port),
+    .stat_tx_idle        (stat_tx_idle       ),
+    .stat_arp_rx_error   (stat_arp_rx_error  ),
+    .stat_arp_ack_ovf    (stat_arp_ack_ovf   ),
+    .stat_arp_pend_ovf   (stat_arp_pend_ovf  ),
+    .stat_arp_no_resp    (stat_arp_no_resp   ),
+    .stat_arp_pend_clr   (stat_arp_pend_clr  ),
+    .stat_arp_cache_clr  (stat_arp_cache_clr ),
+    .stat_arp_src_not_local(stat_arp_src_not_local),
+    .stat_ipv6_drop_pulse(                   ),
+    .stat_icmp_drop      (stat_icmp_drop     ),
+    .stat_icmp_drop_reason(stat_icmp_drop_reason)
   );
 
   // ============================================================================
@@ -913,6 +1066,142 @@ module subsys_test_top(
     .probe_out20       (en_b_fb_ipv4       ),// B 发 IPv4兜底探测->A兜底档
     .probe_out21       (en_b_fb_ipv6       ),// B 发 IPv6兜底探测->A兜底档
     .probe_out22       (en_b_fb_udp        ) // B 发 UDP兜底探测->A兜底档
+  );
+
+  // ============================================================================
+  // 命令通道 FIFO : 隔离 UDP 命令档与 cfg 解析
+  // ============================================================================
+  axis_fifo_sync #(
+    .FIFO_DEPTH      (CMD_FIFO_DEPTH      ),
+    .AXIS_WIDTH      (AXIS_WIDTH          ),
+    .AXIS_USER_WIDTH (UDP_RX_USR_WIDTH    ),
+    .AXIS_ID_WIDTH   (1                   ),
+    .AXIS_DEST_WIDTH (1                   ),
+    .PACKET_FIFO     (0                   ),
+    .FIFO_MEMORY_TYPE("auto"              ),
+    .BRAM_DO_REG     (2                   ),
+    .DEADLOCK_RISK   (1                   )
+  ) u_cmd_fifo (
+    .rst             (usr_rst             ),
+    .clk             (clk_400m            ),
+    // 上游 : net_stack_top 命令档 RX（只取 CMD_PORT_SEL 口）
+    .axis_sdata      (udp_cmd_axis_mdata [CMD_PORT_SEL*AXIS_WIDTH +: AXIS_WIDTH]),
+    .axis_skeep      (udp_cmd_axis_mkeep [CMD_PORT_SEL*(AXIS_WIDTH/8) +: (AXIS_WIDTH/8)]),
+    .axis_svalid     (udp_cmd_axis_mvalid[CMD_PORT_SEL]),
+    .axis_slast      (udp_cmd_axis_mlast [CMD_PORT_SEL]),
+    .axis_sready     (cmd_fifo_sready     ),
+    .axis_susr       (udp_cmd_axis_musr  [CMD_PORT_SEL*UDP_RX_USR_WIDTH +: UDP_RX_USR_WIDTH]),
+    .axis_sstrb      ({AXIS_WIDTH/8{1'b0}}),
+    .axis_sid        (1'b0                ),
+    .axis_sdest      (1'b0                ),
+    // 下游 : cfg_cmd_top
+    .axis_mdata      (cmd_fifo_mdata      ),
+    .axis_mkeep      (cmd_fifo_mkeep      ),
+    .axis_mvalid     (cmd_fifo_mvalid     ),
+    .axis_mlast      (cmd_fifo_mlast      ),
+    .axis_mready     (cmd_in_ready        ),
+    .axis_musr       (cmd_fifo_musr       ),
+    .axis_mstrb      (                    ),
+    .axis_mid        (                    ),
+    .axis_mdest      (                    ),
+    // 状态
+    .prog_empty      (                    ),
+    .prog_full       (                    ),
+    .empty           (                    ),
+    .full            (                    ),
+    .remain_count    (                    )
+  );
+
+  // ============================================================================
+  // 配置命令子系统 : 命令帧解析 + 配置寄存器堆 + 应答组帧
+  // ============================================================================
+  cfg_cmd_top #(
+    .AXIS_WIDTH        (AXIS_WIDTH        ),
+    .CMD_PORT_SEL      (CMD_PORT_SEL      ),
+    .CMD_USR_WIDTH     (CMD_USR_WIDTH     ),
+    .UDP_RX_USR_WIDTH  (UDP_RX_USR_WIDTH  ),
+    .UDP_TX_USR_WIDTH  (UDP_TX_USR_WIDTH  ),
+    .CMD_TTL           (CMD_TTL           ),
+    .ETH_PORT_NUM      (ETH_PORT_NUM      ),
+    .CFG_NUM_WIDTH     (CFG_NUM_WIDTH     ),
+    // 上限
+    .MAC_RX_TYPE_NUM_MAX       (MAC_RX_TYPE_NUM_MAX       ),
+    .MAC_TX_TYPE_NUM_MAX       (MAC_TX_TYPE_NUM_MAX       ),
+    .IPV4_RX_TYPE_NUM_MAX      (IPV4_RX_TYPE_NUM_MAX      ),
+    .IPV4_TX_TYPE_NUM_MAX      (IPV4_TX_TYPE_NUM_MAX      ),
+    .ICMP_TX_TYPE_NUM_MAX      (ICMP_TX_TYPE_NUM_MAX      ),
+    .IPV6_RX_TYPE_NUM_MAX      (IPV6_RX_TYPE_NUM_MAX      ),
+    .IPV6_TX_TYPE_NUM_MAX      (IPV6_TX_TYPE_NUM_MAX      ),
+    .UDP_RX_PORT_NUM_MAX       (UDP_RX_PORT_NUM_MAX       ),
+    .UDP_TX_PORT_NUM_MAX       (UDP_TX_PORT_NUM_MAX       ),
+    .LOCAL_IPV4_MAC_NUM_MAX    (LOCAL_IPV4_MAC_NUM_MAX    ),
+    .LOCAL_DST_IPV6_MAC_NUM_MAX(LOCAL_DST_IPV6_MAC_NUM_MAX),
+    .LOCAL_SRC_IPV6_MAC_NUM_MAX(LOCAL_SRC_IPV6_MAC_NUM_MAX),
+    // 逐口实际档数/套数
+    .MAC_RX_TYPE_NUM_ARR       (MAC_RX_TYPE_NUM_ARR       ),
+    .MAC_TX_TYPE_NUM_ARR       (MAC_TX_TYPE_NUM_ARR       ),
+    .IPV4_RX_TYPE_NUM_ARR      (IPV4_RX_TYPE_NUM_ARR      ),
+    .IPV4_TX_TYPE_NUM_ARR      (IPV4_TX_TYPE_NUM_ARR      ),
+    .ICMP_TX_TYPE_NUM_ARR      (ICMP_TX_TYPE_NUM_ARR      ),
+    .IPV6_RX_TYPE_NUM_ARR      (IPV6_RX_TYPE_NUM_ARR      ),
+    .IPV6_TX_TYPE_NUM_ARR      (IPV6_TX_TYPE_NUM_ARR      ),
+    .UDP_RX_PORT_NUM_ARR       (UDP_RX_PORT_NUM_ARR       ),
+    .UDP_TX_PORT_NUM_ARR       (UDP_TX_PORT_NUM_ARR       ),
+    .LOCAL_IPV4_MAC_NUM_ARR    (LOCAL_IPV4_MAC_NUM_ARR    ),
+    .LOCAL_DST_IPV6_MAC_NUM_ARR(LOCAL_DST_IPV6_MAC_NUM_ARR),
+    .LOCAL_SRC_IPV6_MAC_NUM_ARR(LOCAL_SRC_IPV6_MAC_NUM_ARR),
+    // 分流表默认值
+    .DEF_MAC_RX_TYPE_DICT_ARR  (MAC_RX_TYPE_DICT_ARR      ),
+    .DEF_IPV4_RX_TYPE_DICT_ARR (IPV4_RX_TYPE_DICT_ARR     ),
+    .DEF_IPV6_RX_TYPE_DICT_ARR (IPV6_RX_TYPE_DICT_ARR     ),
+    .DEF_UDP_DST_PORT_RANGE_ARR(UDP_DST_PORT_RANGE_ARR    ),
+    .DEF_PENDING_TIME          (CFG_PENDING_TIME_ARR      ),
+    .DEF_ARP_PRIORITY          (CFG_ARP_PRIO_ARR          ),
+    .DEF_ICMPV4_PRIORITY       (CFG_ICMP_PRIO_ARR         )
+  ) u_cfg_cmd_top (
+    .clk             (clk_400m            ),
+    .rst             (usr_rst             ),
+    // 命令输入（经 FIFO 隔离）
+    .s_axis_cmd_data (cmd_fifo_mdata      ),
+    .s_axis_cmd_keep (cmd_fifo_mkeep      ),
+    .s_axis_cmd_last (cmd_fifo_mlast      ),
+    .s_axis_cmd_valid(cmd_fifo_mvalid     ),
+    .s_axis_cmd_ready(cmd_in_ready        ),
+    .s_axis_cmd_usr  (cmd_fifo_musr       ),
+    // 应答输出 -> 命令档 TX
+    .m_axis_data     (cmd_rsp_data        ),
+    .m_axis_keep     (cmd_rsp_keep        ),
+    .m_axis_last     (cmd_rsp_last        ),
+    .m_axis_valid    (cmd_rsp_valid       ),
+    .m_axis_ready    (cmd_rsp_ready       ),
+    .m_axis_udp_usr  (cmd_rsp_usr         ),
+    // 生效配置 -> net_stack_top
+    .cfg_local_mac       (cfg_local_mac        ),
+    .cfg_local_ip        (cfg_local_ip         ),
+    .cfg_gateway_ip      (cfg_gateway_ip       ),
+    .cfg_subnet_mask     (cfg_subnet_mask      ),
+    .cfg_src_ipv6        (cfg_src_ipv6         ),
+    .cfg_src_mac         (cfg_src_mac          ),
+    .cfg_dst_ipv6        (cfg_dst_ipv6         ),
+    .cfg_dst_mac         (cfg_dst_mac          ),
+    .cfg_eth_type        (cfg_eth_type         ),
+    .cfg_ipv4_proto      (cfg_ipv4_proto       ),
+    .cfg_ipv6_nh         (cfg_ipv6_nh          ),
+    .cfg_udp_port        (cfg_udp_port         ),
+    .cfg_pending_time    (cfg_pending_time     ),
+    .cfg_arp_prio        (cfg_arp_prio         ),
+    .cfg_icmp_prio       (cfg_icmp_prio        ),
+    .cfg_cmd_udp_port    (cfg_cmd_udp_port     ),
+    .cfg_arp_cache_clear (cfg_arp_cache_clear  ),
+    .cfg_arp_pending_clear(cfg_arp_pending_clear),
+    .cfg_stat_clear      (cfg_stat_clear       ),
+    // 只读状态 <- net_stack_top
+    .stat_link_status (stat_link_status    ),
+    .stat_tx_idle     (stat_tx_idle        ),
+    .stat_tx_active   (stat_tx_active_port ),
+    .stat_is_df       (stat_is_df          ),
+    .stat_arp         (stat_arp            ),
+    .stat_icmp        (stat_icmp           )
   );
 
 endmodule

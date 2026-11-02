@@ -19,7 +19,6 @@
 
 module ipv4_top #(
   parameter  RX_TYPE_NUM= 4 , // 用户侧档数(>=1; 不含 other 兜底档 —— 由 demux 内部自动补出)
-  parameter  [     RX_TYPE_NUM*8-1:0]        RX_TYPE_DICT= {8'h59,8'h01,8'h11}, // ospf/icmp/udp
   parameter  TX_TYPE_NUM= 3 ,
   localparam  TX_IDX_WIDTH= (TX_TYPE_NUM <= 1) ? 1 : $clog2(TX_TYPE_NUM),
   parameter  AXIS_USER_WIDTH= 4 , // TX 侧仲裁值位宽
@@ -28,6 +27,8 @@ module ipv4_top #(
 ) (
   input  wire                                          clk             ,
   input  wire                                          rst             ,
+
+  input  wire          [     RX_TYPE_NUM*8-1:0]        rx_type_dict    ,
 
   // ============================================================================
   // RX 输入 : eth_port_top 分出的 IPv4 以太帧(0x0800, 带 14B 以太头)
@@ -97,11 +98,11 @@ module ipv4_top #(
 
 ipv4_proto_demux #(
     .TYPE_NUM         (RX_TYPE_NUM      ),
-    .TYPE_DICT        (RX_TYPE_DICT     ),
     .AXIS_USER_WIDTH  (AXIS_RX_USER_WIDTH)
 ) u_ipv4_proto_demux(
     .clk              (clk              ),// (input)
     .rst              (rst              ),// (input)
+    .type_dict        (rx_type_dict     ),// (input)
     .ipv4_axis_sdata  (ipv4_rx_axis_mdata),// (input)
     .ipv4_axis_skeep  (ipv4_rx_axis_mkeep),// (input)
     .ipv4_axis_slast  (ipv4_rx_axis_mlast),// (input)

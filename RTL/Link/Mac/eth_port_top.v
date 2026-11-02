@@ -22,7 +22,6 @@
 module eth_port_top #(
   parameter  PORT_SEL= 0 ,// 0 = cmac_a_if, 1 = cmac_b_if
   parameter  RX_TYPE_NUM= 4 ,
-  parameter  [    RX_TYPE_NUM*16-1:0]        RX_TYPE_DICT= {16'hB588, 16'hDD86, 16'h0608, 16'h0008}, // 88B5/ipv6/arp/ipv4
   parameter  TX_TYPE_NUM= 4 ,
   localparam  TX_IDX_WIDTH= (TX_TYPE_NUM <= 1) ? 1 : $clog2(TX_TYPE_NUM),
   parameter  AXIS_TX_USER_WIDTH= 4 ,
@@ -54,12 +53,16 @@ module eth_port_top #(
   input  wire                                          qsfp_prsn_port  ,
   output wire                                          qsfp_led_port   ,
 
+  output wire                                          stat_link_status,
+
   // ============================================================================
   // 用户时钟域 用户域
   // ============================================================================
   input  wire                                          clk             ,// 用户时钟域
   input  wire                                          rst             ,// 用户时钟域 域逻辑复位
   input  wire                                          fifo_tx_rst     ,// 用户时钟域 域 TX CDC FIFO 复位
+
+  input  wire          [    RX_TYPE_NUM*16-1:0]        rx_type_dict    ,
 
   // ============================================================================
   // RX flat 流输出 : RX_TYPE_NUM 路, 第 k 档 = [k*512 +: 512]
@@ -178,7 +181,8 @@ module eth_port_top #(
     .qsfp_lp_mode_port(qsfp_lp_mode_port),
     .qsfp_seln_port   (qsfp_seln_port   ),
     .qsfp_prsn_port   (qsfp_prsn_port   ),
-    .qsfp_led_port    (qsfp_led_port    ) 
+    .qsfp_led_port    (qsfp_led_port    ),
+    .stat_link_status (stat_link_status )
       );
     end else begin : gen_cmac_b
       cmac_b_if u_cmac_if (
@@ -209,7 +213,8 @@ module eth_port_top #(
     .qsfp_lp_mode_port(qsfp_lp_mode_port),
     .qsfp_seln_port   (qsfp_seln_port   ),
     .qsfp_prsn_port   (qsfp_prsn_port   ),
-    .qsfp_led_port    (qsfp_led_port    ) 
+    .qsfp_led_port    (qsfp_led_port    ),
+    .stat_link_status (stat_link_status )
       );
     end
   endgenerate
@@ -317,11 +322,11 @@ endgenerate
   // ============================================================================
   eth_type_demux #(
     .TYPE_NUM         (RX_TYPE_NUM      ),
-    .TYPE_DICT        (RX_TYPE_DICT     ),
     .AXIS_USER_WIDTH  (AXIS_RX_USER_WIDTH) 
   ) u_demux (
     .clk              (clk              ),
     .rst              (rst              ),
+    .type_dict        (rx_type_dict     ),
     .eth_axis_sdata   (skid_rx_data          ),
     .eth_axis_skeep   (skid_rx_keep          ),
     .eth_axis_slast   (skid_rx_last          ),

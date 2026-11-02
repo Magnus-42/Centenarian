@@ -48,10 +48,11 @@ module cmac_a_if(
   output wire                                          qsfp_lp_mode_port,
   output wire                                          qsfp_seln_port  ,
   input  wire                                          qsfp_prsn_port  ,
-  output wire                                          qsfp_led_port    
+  output wire                                          qsfp_led_port   ,
+
+  output wire                                          stat_link_status
 );
 
-  wire                                                 stat_rx_aligned    ;
   wire                                                 gt_txusrclk2       ;
   wire                                                 gt_rxusrclk2       ;
   wire                                                 rx_clk             ;
@@ -172,7 +173,7 @@ cmac_usplus_a u_cmac_usplus_a (
     .drp_we           (1'b0             ),// input wire drp_we
   
 	// RX 链路 / PCS 状态
-    .stat_rx_aligned  (                 ),// output wire stat_rx_aligned
+    .stat_rx_aligned  (                   ),// output wire stat_rx_aligned
     .stat_rx_aligned_err(                 ),// output wire stat_rx_aligned_err
     .stat_rx_bad_code (                 ),// output wire [2 : 0] stat_rx_bad_code
     .stat_rx_bad_fcs  (                 ),// output wire [2 : 0] stat_rx_bad_fcs
@@ -270,7 +271,7 @@ cmac_usplus_a u_cmac_usplus_a (
     .stat_rx_packet_small(                 ),// output wire [2 : 0] stat_rx_packet_small
     .stat_rx_received_local_fault(                 ),// output wire stat_rx_received_local_fault
     .stat_rx_remote_fault(                 ),// output wire stat_rx_remote_fault
-    .stat_rx_status   (                 ),// output wire stat_rx_status
+    .stat_rx_status   (stat_link_status),// output wire stat_rx_status
     .stat_rx_stomped_fcs(                 ),// output wire [2 : 0] stat_rx_stomped_fcs
     .stat_rx_synced   (                 ),// output wire [19 : 0] stat_rx_synced
     .stat_rx_synced_err(                 ),// output wire [19 : 0] stat_rx_synced_err

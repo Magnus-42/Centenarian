@@ -34,7 +34,13 @@
 #
 # RTL 收集：**按目录全深度递归**（RTL/A/B/C/*.v 都在内），自动跳过任一层级的
 #       `Backup/` 与以 `.` 开头的目录 —— 因此 RTL 分层（Bsp/Axis、Transport/Udp/Ipv4 …）
-#       增减层级都不需要改脚本。
+#       增减层级都不需要改脚本。头文件（`.vh`/`.svh`，如 RTL/Config/cfg_map.vh）
+#       一并收入 sources_1 并标成 Verilog Header，供 `include` 解析。
+#
+# 约束分两阶段（与签核工程一致）：
+#       <顶层>.xdc       管脚 + create_clock + bitstream，综合与实现都读；
+#       <顶层>_impl.xdc  pblock / clock_groups / false_path，**只用于 implementation**
+#                        （脚本显式设 USED_IN=implementation，否则默认会带进综合）。
 # ============================================================================
 
 # ---------- 参数解析 ----------
@@ -136,6 +142,18 @@ set rtl_files [collect_hdl_files $RTL_DIR {.v .sv} {Backup}]
 if {[llength $rtl_files] == 0} { error "未在 $RTL_DIR 下找到任何 .v/.sv 文件" }
 add_files -norecurse -fileset sources_1 $rtl_files
 puts "  RTL : [llength $rtl_files] 个源文件（来自 $RTL_DIR，递归全深度）"
+
+# ---------- 加入头文件（.vh / .svh，如 RTL/Config/cfg_map.vh）----------
+# 头文件必须作为 File 进 fileset：Vivado 由它的位置推导 include 搜索路径。
+# RTL 与头文件同目录时综合即使漏收也能过，但 TB/ 在别的目录、仿真时会直接报
+#   ERROR: [VRFC 10-3195] cannot open include file 'cfg_map.vh'
+set hdr_files [collect_hdl_files $RTL_DIR {.vh .svh} {Backup}]
+if {[llength $hdr_files] > 0} {
+    add_files -norecurse -fileset sources_1 $hdr_files
+    set_property file_type {Verilog Header} [get_files $hdr_files]
+    puts "  HDR : [llength $hdr_files] 个头文件"
+    foreach f $hdr_files { puts "        - [file tail $f]" }
+}
 # 按「RTL 下一级目录」分组统计 —— 漏扫/多扫一眼可见
 array set _rtl_cnt {}
 foreach f $rtl_files {
@@ -184,6 +202,14 @@ if {[llength $xdc_files] > 0} {
     set _xdc_hit 0
     foreach f $xdc_files {
         set _base [file tail $f]
+        # 两阶段拆分：<顶层>_impl.xdc 只承载 pblock / clock_groups / false_path，
+        # 必须设成 implementation only —— 默认的 USED_IN 含 synthesis，会把布局约束
+        # 和跨时钟组提前带到综合，与签核那版不是一回事。
+        if {[string match "*_impl.xdc" $_base]} {
+            set_property USED_IN {implementation} [get_files $f]
+            puts "        - $_base（仅 implementation：pblock/clock_groups 不进综合）"
+            continue
+        }
         if {[string equal $_base $xdc_enable]} {
             set_property IS_ENABLED true [get_files $f]
             puts "        - $_base（启用）"

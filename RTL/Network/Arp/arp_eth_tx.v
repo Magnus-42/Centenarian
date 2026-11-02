@@ -16,11 +16,12 @@
 
 module arp_eth_tx#(
   parameter  AXIS_WIDTH= 512,
-  parameter  AXIS_TX_USR_WIDTH = 4,
-  parameter  ARP_PRIORITY = 15
+  parameter  AXIS_TX_USR_WIDTH = 4
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
+
+  input  wire          [AXIS_TX_USR_WIDTH-1:0]         arp_priority    ,
 
   // arp frame input
   input  wire                                          arp_frame_valid ,
@@ -115,7 +116,7 @@ always @(posedge clk) begin
       arp_axis_mkeep_reg <= 64'h 0fff_ffff_ffff_ffff;
       arp_axis_mvalid_reg <= 1'b1;
       arp_axis_mlast_reg <= 1'b1;
-      arp_axis_musr_reg <= ARP_PRIORITY;
+      arp_axis_musr_reg <= arp_priority;
     end
     else if (m_handshake) begin
       arp_axis_mvalid_reg <= 1'b0;

@@ -21,12 +21,13 @@
 module udp_ipv4_port_demux#(
   parameter  PORT_NUM= 3 , // 最小配置为1
   localparam PORT_NUM_EFF = (PORT_NUM > 0) ? PORT_NUM : 1,  // 字典占位项数(>=1；PORT_NUM=0 时为 1 项占位，内容不被读取)
-  parameter  [PORT_NUM_EFF*32-1:0]        DST_PORT_RANGE= {32'h00080002,32'h00010001,32'h00000000},// 端口禁止重叠
   parameter  AXIS_USER_WIDTH= 241 ,
   parameter  USR_DPORT_LSB= AXIS_USER_WIDTH - 48
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
+
+  input  wire          [PORT_NUM_EFF*32-1:0]           dst_port_range  ,
 
   input  wire          [                 511:0]        udp_axis_sdata  ,
   input  wire          [                  63:0]        udp_axis_skeep  ,
@@ -116,8 +117,10 @@ module udp_ipv4_port_demux#(
         end
       end
       else begin : gen_range_port
-  wire                                                 is_low_port_bound = DST_PORT_RANGE[port_index*32+:16]<=udp_axis_susr[USR_DPORT_LSB+:16]  ;
-  wire                                                 is_high_port_bound = DST_PORT_RANGE[port_index*32+16+:16]>=udp_axis_susr[USR_DPORT_LSB+:16] ;
+ 
+  wire [15:0]                                          usr_dport_msb   = {udp_axis_susr[USR_DPORT_LSB    +: 8], udp_axis_susr[USR_DPORT_LSB + 8+: 8]};
+  wire                                                 is_low_port_bound = dst_port_range[port_index*32+:16]<=usr_dport_msb  ;
+  wire                                                 is_high_port_bound = dst_port_range[port_index*32+16+:16]>=usr_dport_msb ;
   assign  port_hit[port_index]= is_low_port_bound && is_high_port_bound;
   assign  port_compare[port_index]= port_hit[port_index] && ~(|port_index == 0 ? 1'b0 : port_hit[port_index-1:0]);
       end

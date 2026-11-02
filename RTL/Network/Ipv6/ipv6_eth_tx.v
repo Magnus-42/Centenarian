@@ -33,10 +33,10 @@ module ipv6_eth_tx #(
   output wire                                          ipv6_axis_sready,
 
   // 上游统一配置的 IP->MAC 映射表 (dest=对端表 / src=本机表)
-  input  wire          [128*DEST_MAC_ENTRY_NUM-1:0]    cfg_dest_match_ipv6,
-  input  wire          [48*DEST_MAC_ENTRY_NUM-1:0]     cfg_dest_match_mac,
-  input  wire          [128*SRC_MAC_ENTRY_NUM-1:0]     cfg_src_match_ipv6,
-  input  wire          [48*SRC_MAC_ENTRY_NUM-1:0]      cfg_src_match_mac,
+  input  wire          [128*DEST_MAC_ENTRY_NUM-1:0]    cfg_dst_ipv6,
+  input  wire          [48*DEST_MAC_ENTRY_NUM-1:0]     cfg_dst_mac,
+  input  wire          [128*SRC_MAC_ENTRY_NUM-1:0]     cfg_src_ipv6,
+  input  wire          [48*SRC_MAC_ENTRY_NUM-1:0]      cfg_src_mac,
 
   output wire          [                 511:0]        eth_axis_mdata  ,
   output wire          [                  63:0]        eth_axis_mkeep  ,
@@ -65,10 +65,10 @@ ipv6_mac_lookup #(
 ) u_ipv6_mac_lookup (
     .clk              (clk              ),// (input)
     .rst              (rst              ),// (input)
-    .cfg_dest_match_ipv6(cfg_dest_match_ipv6),// (input)
-    .cfg_dest_match_mac(cfg_dest_match_mac),// (input)
-    .cfg_src_match_ipv6(cfg_src_match_ipv6),// (input)
-    .cfg_src_match_mac(cfg_src_match_mac),// (input)
+    .cfg_dst_ipv6(cfg_dst_ipv6),// (input)
+    .cfg_dst_mac(cfg_dst_mac),// (input)
+    .cfg_src_ipv6(cfg_src_ipv6),// (input)
+    .cfg_src_mac(cfg_src_mac),// (input)
     .ipv6_axis_sdata  (ipv6_axis_sdata  ),// (input)
     .ipv6_axis_skeep  (ipv6_axis_skeep  ),// (input)
     .ipv6_axis_slast  (ipv6_axis_slast  ),// (input)

@@ -246,9 +246,10 @@ module ipv4_test_top(
   eth_port_top #(
     .PORT_SEL         (0                ),
     .RX_TYPE_NUM      (2                ),
-    .RX_TYPE_DICT     ({16'h0608, 16'h0008}),
     .TX_TYPE_NUM      (4                )
   ) u_eth_port_top_a (
+    .rx_type_dict     ({16'h0608, 16'h0008}),
+
     .init_clk         (sys_clk          ),
     .sys_reset        (~clk_locked      ),
     .gt_txusrclk      (gt_txusrclk_a    ),
@@ -266,6 +267,7 @@ module ipv4_test_top(
     .qsfp_seln_port   (qsfp_seln_port_a ),
     .qsfp_prsn_port   (qsfp_prsn_port_a ),
     .qsfp_led_port    (qsfp_led_port_a  ),
+    .stat_link_status (                  ),// 未使用
     .clk              (clk_400m         ),
     .rst              (usr_rst          ),
     .fifo_tx_rst      (usr_rst          ),
@@ -291,6 +293,7 @@ module ipv4_test_top(
     .AXIS_WIDTH       (512              ),
     .LOCAL_IP_NUM     (LOCAL_IP_NUM     )
   ) u_arp_eng_a (
+    .arp_priority     (4'd15           ),// 与原默认值一致
     .clk              (clk_400m         ),
     .rst              (usr_rst          ),
     .query_src_ip     (q1_src_ip        ),
@@ -319,6 +322,7 @@ module ipv4_test_top(
     .cfg_pending_time (CFG_PENDING_TIME ),
     .cfg_clear_cache  (1'b0             ),
     .cfg_clear_pending(1'b0             ),
+    .cfg_stat_clear   (1'b0             ),
     .stat_rx_error    (stat1_rx_error   ),
     .stat_ack_fifo_overflow_error(stat1_ack_ovf    ),
     .stat_pending_fifo_overflow_error(stat1_pend_ovf   ),
@@ -330,10 +334,11 @@ module ipv4_test_top(
 
   ipv4_top #(
     .RX_TYPE_NUM      (1                ),
-    .RX_TYPE_DICT     ({8'h11}          ),
     .TX_TYPE_NUM      (1                ),
     .AXIS_USER_WIDTH  (4                )
   ) u_port1 (
+    .rx_type_dict     ({8'h11}          ),
+
     .clk              (clk_400m         ),
     .rst              (usr_rst          ),
     .eth_ipv4_axis_sdata(p1_ipv4_data      ),
@@ -379,9 +384,10 @@ module ipv4_test_top(
   eth_port_top #(
     .PORT_SEL         (1                ),
     .RX_TYPE_NUM      (2                ),
-    .RX_TYPE_DICT     ({16'h0608, 16'h0008}),
     .TX_TYPE_NUM      (4                )
   ) u_eth_port_top_b (
+    .rx_type_dict     ({16'h0608, 16'h0008}),
+
     .init_clk         (sys_clk          ),
     .sys_reset        (~clk_locked      ),
     .gt_txusrclk      (gt_txusrclk_b    ),
@@ -399,6 +405,7 @@ module ipv4_test_top(
     .qsfp_seln_port   (qsfp_seln_port_b ),
     .qsfp_prsn_port   (qsfp_prsn_port_b ),
     .qsfp_led_port    (qsfp_led_port_b  ),
+    .stat_link_status (                  ),// 未使用
     .clk              (clk_400m         ),
     .rst              (usr_rst          ),
     .fifo_tx_rst      (usr_rst          ),
@@ -424,6 +431,7 @@ module ipv4_test_top(
     .AXIS_WIDTH       (512              ),
     .LOCAL_IP_NUM     (LOCAL_IP_NUM     )
   ) u_arp_eng_b (
+    .arp_priority     (4'd15           ),// 与原默认值一致
     .clk              (clk_400m         ),
     .rst              (usr_rst          ),
     .query_src_ip     (q2_src_ip        ),
@@ -452,6 +460,7 @@ module ipv4_test_top(
     .cfg_pending_time (CFG_PENDING_TIME ),
     .cfg_clear_cache  (1'b0             ),
     .cfg_clear_pending(1'b0             ),
+    .cfg_stat_clear   (1'b0             ),
     .stat_rx_error    (stat2_rx_error   ),
     .stat_ack_fifo_overflow_error(stat2_ack_ovf    ),
     .stat_pending_fifo_overflow_error(stat2_pend_ovf   ),
@@ -463,10 +472,11 @@ module ipv4_test_top(
 
   ipv4_top #(
     .RX_TYPE_NUM      (1                ),
-    .RX_TYPE_DICT     ({8'h11}          ),
     .TX_TYPE_NUM      (1                ),
     .AXIS_USER_WIDTH  (4                )
   ) u_port2 (
+    .rx_type_dict     ({8'h11}          ),
+
     .clk              (clk_400m         ),
     .rst              (usr_rst          ),
     .eth_ipv4_axis_sdata(p2_ipv4_data      ),

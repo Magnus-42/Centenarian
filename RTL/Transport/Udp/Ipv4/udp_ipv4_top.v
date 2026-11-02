@@ -16,7 +16,6 @@
 
 module udp_ipv4_top#(
   parameter  RX_PORT_NUM= 3 ,
-  parameter  [    RX_PORT_NUM*32-1:0]        DST_PORT_RANGE= {32'h00080002,32'h00010001,32'h00000000}, // 端口禁止重叠
   parameter  TX_PORT_NUM= 4 ,
   localparam TX_IDX_WIDTH= (TX_PORT_NUM <= 1) ? 1 : $clog2(TX_PORT_NUM),
   parameter  AXIS_TX_USER_WIDTH= 108, // 每包元数据: prio/ttl/port/ip
@@ -27,6 +26,8 @@ module udp_ipv4_top#(
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
+
+  input  wire          [    RX_PORT_NUM*32-1:0]        dst_port_range  ,
 
   // rx
   input  wire          [                 511:0]        ipv4_udp_axis_sdata,
@@ -146,13 +147,13 @@ module udp_ipv4_top#(
 
   udp_ipv4_port_demux#(
     .PORT_NUM         (RX_PORT_NUM      ),
-    .DST_PORT_RANGE   (DST_PORT_RANGE   ),
     .AXIS_USER_WIDTH  (AXIS_RX_USER_WIDTH),
     .USR_DPORT_LSB    (AXIS_RX_USER_WIDTH - 48)
   )
   u_udp_ipv4_type_demux(
     .clk              (clk              ),// (input)
     .rst              (rst              ),// (input)
+    .dst_port_range   (dst_port_range   ),// (input)
     .udp_axis_sdata   (udp_str_axis_mdata),// (input)
     .udp_axis_skeep   (udp_str_axis_mkeep),// (input)
     .udp_axis_slast   (udp_str_axis_mlast),// (input)

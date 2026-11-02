@@ -139,7 +139,8 @@ module cmac_test_top(
     .qsfp_lp_mode_port(qsfp_lp_mode_port_a),// (output)
     .qsfp_seln_port   (qsfp_seln_port_a ),// (output)
     .qsfp_prsn_port   (qsfp_prsn_port_a ),// (input)
-    .qsfp_led_port    (qsfp_led_port_a  ) // (output)
+    .qsfp_led_port    (qsfp_led_port_a  ),// (output)
+    .stat_link_status (                  ) // (output)
   );
 
   cmac_b_if u_cmac_b_if(
@@ -170,7 +171,8 @@ module cmac_test_top(
     .qsfp_lp_mode_port(qsfp_lp_mode_port_b),// (output)
     .qsfp_seln_port   (qsfp_seln_port_b ),// (output)
     .qsfp_prsn_port   (qsfp_prsn_port_b ),// (input)
-    .qsfp_led_port    (qsfp_led_port_b  ) // (output)
+    .qsfp_led_port    (qsfp_led_port_b  ),// (output)
+    .stat_link_status (                  ) // (output)
   );
 
 

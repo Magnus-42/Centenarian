@@ -144,8 +144,8 @@ module arbiter_by_val #(
   generate
     if (!LOW_FIRST) begin : gen_low_onehot
       // 高位先行：段内取最低位
-  assign  onehot_hi_s2     = sel_hi_s2  & (~sel_hi_s2  + 1'b1);
-  assign  onehot_base_s2   = eq_mask_s2 & (~eq_mask_s2 + 1'b1);
+  assign  onehot_hi_s2     = sel_hi_s2  & (-sel_hi_s2);
+  assign  onehot_base_s2   = eq_mask_s2 & (-eq_mask_s2);
     end else begin : gen_high_onehot
         // 低位先行：段内取最高位
   wire                 [                 N-1:0]        sel_hi_rev       , eq_rev;
@@ -156,8 +156,8 @@ module arbiter_by_val #(
   assign  eq_rev[g]        = eq_mask_s2[N-1-g];
       end
 
-  assign  low_hi_rev       = sel_hi_rev & (~sel_hi_rev + 1'b1);
-  assign  low_base_rev     = eq_rev     & (~eq_rev     + 1'b1);
+  assign  low_hi_rev       = sel_hi_rev & (-sel_hi_rev);
+  assign  low_base_rev     = eq_rev     & (-eq_rev);
 
       for (g = 0; g < N; g = g + 1) begin : gen_rev_bk
   assign  onehot_hi_s2[g]  = low_hi_rev[N-1-g];

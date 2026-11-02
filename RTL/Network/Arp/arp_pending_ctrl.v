@@ -69,6 +69,14 @@ module arp_pending_ctrl#(
 
   reg                                                 is_timeout         ;
 
+  reg          [        TIME_WIDTH-1: 0]       cfg_pending_time_reg;
+  reg                                          cfg_clear_reg;
+
+  always @(posedge clk) begin
+    cfg_pending_time_reg <= cfg_pending_time;
+    cfg_clear_reg <= cfg_clear;
+  end
+
   // 计算hash
   // 读取
   // 等待1
@@ -80,7 +88,7 @@ module arp_pending_ctrl#(
 
   // clear_addr_reg
   always @(posedge clk) begin
-    if (cfg_clear || rst) begin
+    if (cfg_clear_reg || rst) begin
       clear_addr_reg <= 'd0;
     end
     else begin
@@ -90,7 +98,7 @@ module arp_pending_ctrl#(
 
   // clear_finish
   always @(posedge clk)begin
-    if (rst || cfg_clear) begin
+    if (rst || cfg_clear_reg) begin
       clear_finish <= 'd0;
     end
     else begin
@@ -102,7 +110,7 @@ module arp_pending_ctrl#(
 
   // time_base_reg
   always @(posedge clk) begin
-    if (rst || cfg_clear) begin
+    if (rst || cfg_clear_reg) begin
         time_base_reg <= 'd0;
     end
     else begin
@@ -285,7 +293,7 @@ module arp_pending_ctrl#(
       is_timeout <= 1'b0;
     end
     else begin
-      is_timeout <= (time_base_reg - match_time_s6) >= cfg_pending_time;
+      is_timeout <= (time_base_reg - match_time_s6) >= cfg_pending_time_reg;
     end
   end
 

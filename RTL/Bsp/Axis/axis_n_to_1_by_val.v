@@ -47,7 +47,7 @@ module axis_n_to_1_by_val #(
   input  wire                                          axis_mready     ,
 
     // --- 状态 / 调试 ---
-  output wire          [             IDX_WIDTH-1:0]        stat_active_port,// 当前正在传输的端口号
+  output wire          [             IDX_WIDTH-1:0]    stat_active_port,// 当前正在传输的端口号
   output wire                                          stat_idle        // 空闲状态指示
 );
   // valid输入 s1
@@ -112,6 +112,7 @@ module axis_n_to_1_by_val #(
   // 仲裁输出 (由 arbiter 例化驱动)
   // ----------------------------------------------------------------------------
   wire                 [         NUM_PORTS-1:0]        arbiter_onehot   ;
+  wire                 [         IDX_WIDTH-1:0]        arbiter_idx      ;
   wire                                                 arbiter_valid    ;
 
   // ----------------------------------------------------------------------------
@@ -194,25 +195,18 @@ module axis_n_to_1_by_val #(
     end
   endfunction
 
-  wire                 [             IDX_WIDTH-1:0]        tid_idx           = oh2bin(arbiter_onehot)               ;// 仅 UPDATE_TID=1 时使用
-
+  assign arbiter_idx = oh2bin(arbiter_onehot);
+  
   reg                  [        AXIS_WIDTH-1:0]        sdata_sel        ;
   reg                  [      AXIS_WIDTH/8-1:0]        skeep_sel        ;
   reg                  [     AXIS_ID_WIDTH-1:0]        sid_sel          ;
   reg                  [   AXIS_USER_WIDTH-1:0]        susr_sel         ;
   wire                                                 slast_sel         = |(axis_slast_d0 & arbiter_onehot)    ;
-  integer                                              q2               ;
   always @(*) begin
-    sdata_sel = {AXIS_WIDTH{1'b0}};
-    skeep_sel = {AXIS_WIDTH/8{1'b0}};
-    sid_sel   = {AXIS_ID_WIDTH{1'b0}};
-    susr_sel = {AXIS_USER_WIDTH{1'b0}};
-    for (q2 = 0; q2 < NUM_PORTS; q2 = q2 + 1) begin
-      sdata_sel = sdata_sel | ({AXIS_WIDTH{arbiter_onehot[q2]}}      & axis_sdata_d0[q2*AXIS_WIDTH +: AXIS_WIDTH]);
-      skeep_sel = skeep_sel | ({AXIS_WIDTH/8{arbiter_onehot[q2]}}    & axis_skeep_d0[q2*AXIS_WIDTH/8 +: AXIS_WIDTH/8]);
-      sid_sel   = sid_sel   | ({AXIS_ID_WIDTH{arbiter_onehot[q2]}}   & axis_sid_d0[q2*AXIS_ID_WIDTH +: AXIS_ID_WIDTH]);
-      susr_sel = susr_sel | ({AXIS_USER_WIDTH{arbiter_onehot[q2]}} & axis_susr_d0[q2*AXIS_USER_WIDTH +: AXIS_USER_WIDTH]);
-    end
+    sdata_sel = axis_sdata_d0[arbiter_idx*AXIS_WIDTH     +: AXIS_WIDTH     ];
+    skeep_sel = axis_skeep_d0[arbiter_idx*AXIS_WIDTH/8   +: AXIS_WIDTH/8   ];
+    sid_sel   = axis_sid_d0  [arbiter_idx*AXIS_ID_WIDTH  +: AXIS_ID_WIDTH  ];
+    susr_sel  = axis_susr_d0 [arbiter_idx*AXIS_USER_WIDTH +: AXIS_USER_WIDTH];
   end
 
   // ============================================================================
@@ -232,7 +226,7 @@ module axis_n_to_1_by_val #(
         axis_sdata_d1 <= sdata_sel;
         axis_skeep_d1 <= skeep_sel;
         axis_sid_d1 <= UPDATE_TID ?
-                    tid_idx :
+                    arbiter_idx :
                     sid_sel;
         axis_susr_d1 <= susr_sel;
         axis_slast_d1 <= slast_sel;

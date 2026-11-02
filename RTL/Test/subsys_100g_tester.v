@@ -184,6 +184,16 @@ module subsys_100g_tester #(
       if (rx_pkt_beats != PKT_LEN_BEATS) rx_len_err_cnt <= rx_len_err_cnt + 1'b1;
     end
   end
+  
+  ila_tester u_ila_tester (
+    .clk(clk), // input wire clk
+    
+    .probe0(rx_error_cnt), // input wire [31:0]  probe0  
+    .probe1(rx_bw_bytes_per_s), // input wire [35:0]  probe1 
+    .probe2(rx_pkt_per_s), // input wire [35:0]  probe2 
+    .probe3(rx_len_err_cnt), // input wire [31:0]  probe3 
+    .probe4(debug_rx_lock) // input wire [0:0]  probe4
+  );
 
 endmodule
 `resetall

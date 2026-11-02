@@ -19,7 +19,6 @@
 
 module ipv6_top #(
   parameter  RX_TYPE_NUM= 3 , // 用户侧档数(>=1; 不含 other 兜底档 —— 由 demux 内部自动补出)
-  parameter  [     RX_TYPE_NUM*8-1:0]        RX_TYPE_DICT= {8'h59,8'h3A,8'h11}, // ospf/icmpv6/udp
   parameter  DEST_MAC_ENTRY_NUM= 8 ,
   parameter  SRC_MAC_ENTRY_NUM= 8 ,
   parameter  TX_TYPE_NUM= 3 ,
@@ -30,6 +29,8 @@ module ipv6_top #(
 ) (
   input  wire                                          clk             ,
   input  wire                                          rst             ,
+
+  input  wire          [     RX_TYPE_NUM*8-1:0]        rx_type_dict    ,
 
   // ============================================================================
   // RX 输入 : eth_port_top 分出的 IPv6 以太帧(0x86DD, 带 14B 以太头)
@@ -74,13 +75,13 @@ module ipv6_top #(
   // ============================================================================
   // IP->MAC 映射表(上游统一配置, "多 IP 配 MAC"; 查不到对应 MAC 的包直接丢弃)
   //   dest 表(对端): 目的IP -> 对端MAC;  src 表(本机): 本机IP -> 本机MAC
-  //   第 i 项: IP  = cfg_dest_match_ipv6[i*128 +: 128] / cfg_src_match_ipv6[i*128 +: 128]
-  //            MAC = cfg_dest_match_mac [i*48  +: 48 ] / cfg_src_match_mac [i*48  +: 48 ]
+  //   第 i 项: IP  = cfg_dst_ipv6[i*128 +: 128] / cfg_src_ipv6[i*128 +: 128]
+  //            MAC = cfg_dst_mac [i*48  +: 48 ] / cfg_src_mac [i*48  +: 48 ]
   // ============================================================================
-  input  wire          [128*DEST_MAC_ENTRY_NUM-1:0]    cfg_dest_match_ipv6,
-  input  wire          [48*DEST_MAC_ENTRY_NUM-1:0]     cfg_dest_match_mac,
-  input  wire          [128*SRC_MAC_ENTRY_NUM-1:0]     cfg_src_match_ipv6,
-  input  wire          [48*SRC_MAC_ENTRY_NUM-1:0]      cfg_src_match_mac,
+  input  wire          [128*DEST_MAC_ENTRY_NUM-1:0]    cfg_dst_ipv6,
+  input  wire          [48*DEST_MAC_ENTRY_NUM-1:0]     cfg_dst_mac,
+  input  wire          [128*SRC_MAC_ENTRY_NUM-1:0]     cfg_src_ipv6,
+  input  wire          [48*SRC_MAC_ENTRY_NUM-1:0]      cfg_src_mac,
 
   output wire                                          stat_tx_drop_pulse,
   output wire          [          TX_IDX_WIDTH-1:0]        stat_tx_active_port,
@@ -100,11 +101,11 @@ module ipv6_top #(
 
 ipv6_proto_demux #(
     .TYPE_NUM         (RX_TYPE_NUM      ),
-    .TYPE_DICT        (RX_TYPE_DICT     ),
     .AXIS_USER_WIDTH  (AXIS_RX_USER_WIDTH)
 ) u_ipv6_proto_demux(
     .clk              (clk              ),// (input)
     .rst              (rst              ),// (input)
+    .type_dict        (rx_type_dict     ),// (input)
     .ipv6_axis_sdata  (ipv6_rx_axis_mdata),// (input)
     .ipv6_axis_skeep  (ipv6_rx_axis_mkeep),// (input)
     .ipv6_axis_slast  (ipv6_rx_axis_mlast),// (input)
@@ -191,10 +192,10 @@ ipv6_proto_demux #(
     .ipv6_axis_svalid (mux_mvalid       ),
     .ipv6_axis_susr   (mux_musr         ),
     .ipv6_axis_sready (mux_mready       ),
-    .cfg_dest_match_ipv6(cfg_dest_match_ipv6),
-    .cfg_dest_match_mac(cfg_dest_match_mac),
-    .cfg_src_match_ipv6(cfg_src_match_ipv6),
-    .cfg_src_match_mac(cfg_src_match_mac),
+    .cfg_dst_ipv6(cfg_dst_ipv6),
+    .cfg_dst_mac(cfg_dst_mac),
+    .cfg_src_ipv6(cfg_src_ipv6),
+    .cfg_src_mac(cfg_src_mac),
     .eth_axis_mdata   (eth_tx_axis_mdata),
     .eth_axis_mkeep   (eth_tx_axis_mkeep),
     .eth_axis_mlast   (eth_tx_axis_mlast),

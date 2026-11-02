@@ -15,11 +15,12 @@
 // ============================================================================
 module icmpv4_echo_reply#(
   parameter AXIS_USER_WIDTH  = 4, // TX 侧仲裁值位宽
-  parameter AXIS_RX_USER_WIDTH= 97, // RX 侧 usr 每通道位宽(来自 IPv4 层)
-  parameter ARBITER_VAL = 12
+  parameter AXIS_RX_USER_WIDTH= 97 // RX 侧 usr 每通道位宽(来自 IPv4 层)
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
+
+  input  wire          [    AXIS_USER_WIDTH-1:0]       arbiter_val     ,
 
   input  wire          [                 511:0]        ipv4_axis_sdata,
   input  wire          [                  63:0]        ipv4_axis_skeep,
@@ -194,7 +195,7 @@ module icmpv4_echo_reply#(
       end
       ipv4_axis_skeep_s2 <= ipv4_axis_skeep_s1;
       ipv4_axis_slast_s2 <= ipv4_axis_slast_s1;
-      ipv4_axis_susr_s2  <= ARBITER_VAL;
+      ipv4_axis_susr_s2  <= arbiter_val;
     end
   end
 

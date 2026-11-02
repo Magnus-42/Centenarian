@@ -27,11 +27,12 @@ module arp_engine_top#(
   parameter  HASH_WAY_CNT= 4,
   parameter  LOCAL_IP_NUM = 1,
   parameter  AXIS_TX_USR_WIDTH = 4,
-  parameter  AXIS_RX_USR_WIDTH = 1, // MAC 层 usr 每通道位宽
-  parameter  ARP_PRIORITY = 15
+  parameter  AXIS_RX_USR_WIDTH = 1 // MAC 层 usr 每通道位宽
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
+
+  input  wire          [AXIS_TX_USR_WIDTH-1:0]         arp_priority    ,// ARP 帧仲裁
 
   // eth_arp_query
   input  wire          [                  31: 0]       query_src_ip    ,
@@ -67,9 +68,10 @@ module arp_engine_top#(
   input  wire          [PENDING_TIME_WIDTH-1: 0]       cfg_pending_time,
   input  wire                                          cfg_clear_cache ,// 上游需要能缓存CACHE_DEEP周期
   input  wire                                          cfg_clear_pending,// FIFO需要能缓存PENDING_DEEP周期
+  input  wire                                          cfg_stat_clear  ,// 清锁存统计
 
   // stat
-  output wire                                          stat_rx_error   ,// 收到非标准 ARP 帧(锁存, rst 清零)
+  output wire                                          stat_rx_error   ,// 收到非标准 ARP 帧(锁存, rst / cfg_stat_clear 清零)
   output wire                                          stat_ack_fifo_overflow_error,// ack FIFO 满时写被丢弃(锁存)
   output wire                                          stat_pending_fifo_overflow_error,// pending FIFO 满时写被丢弃(锁存)
   output wire                                          stat_lookup_no_resp_error,// 查询周期已到但没有查表结果(锁存)
@@ -191,16 +193,28 @@ module arp_engine_top#(
   reg [31:0] match_gateway_ip_comb;
   reg [31:0] match_subnet_comb;
 
+  reg          [   32*LOCAL_IP_NUM-1: 0]       cfg_local_ip_reg;
+  reg          [   48*LOCAL_IP_NUM-1: 0]       cfg_local_mac_reg;
+  reg          [   32*LOCAL_IP_NUM-1: 0]       cfg_gateway_ip_reg;
+  reg          [   32*LOCAL_IP_NUM-1: 0]       cfg_subnet_mask_reg;
+
+  always @(posedge clk) begin
+    cfg_local_ip_reg <= cfg_local_ip;
+    cfg_local_mac_reg <= cfg_local_mac;
+    cfg_gateway_ip_reg <= cfg_gateway_ip;
+    cfg_subnet_mask_reg <= cfg_subnet_mask;
+  end
+  
   always @(*) begin : match_src
     integer local_ip_index;
     match_src_ip_comb = 1'b0;
     match_local_ip_comb = 'd0;
     match_local_mac_comb = 'd0;
     for (local_ip_index = 0; local_ip_index<LOCAL_IP_NUM; local_ip_index=local_ip_index+1'b1) begin
-      if (arp_rx_tpa == cfg_local_ip[local_ip_index*32 +:32]) begin
+      if (arp_rx_tpa == cfg_local_ip_reg[local_ip_index*32 +:32]) begin
         match_src_ip_comb = 1'b1;
         match_local_ip_comb = arp_rx_tpa;
-        match_local_mac_comb = cfg_local_mac[local_ip_index*48+:48];
+        match_local_mac_comb = cfg_local_mac_reg[local_ip_index*48+:48];
       end
     end
   end
@@ -213,12 +227,12 @@ module arp_engine_top#(
     match_gateway_ip_comb = 'd0;
     match_subnet_comb = 'd0;
     for (local_ip_index = 0; local_ip_index<LOCAL_IP_NUM; local_ip_index=local_ip_index+1'b1) begin
-      if (query_src_ip == cfg_local_ip[local_ip_index*32 +:32]) begin
+      if (query_src_ip == cfg_local_ip_reg[local_ip_index*32 +:32]) begin
         match_query_comb = 1'b1;
         match_query_src_comb = query_src_ip;
-        match_query_src_mac_comb = cfg_local_mac[local_ip_index*48+:48];
-        match_gateway_ip_comb = cfg_gateway_ip[local_ip_index*32+:32];
-        match_subnet_comb = cfg_subnet_mask[local_ip_index*32+:32];
+        match_query_src_mac_comb = cfg_local_mac_reg[local_ip_index*48+:48];
+        match_gateway_ip_comb = cfg_gateway_ip_reg[local_ip_index*32+:32];
+        match_subnet_comb = cfg_subnet_mask_reg[local_ip_index*32+:32];
       end
     end
   end
@@ -582,7 +596,7 @@ module arp_engine_top#(
   // ============================================================================
   // stat_lookup_no_resp_error
   always @(posedge clk) begin
-    if (rst) begin
+    if (rst || cfg_stat_clear) begin
       stat_lookup_no_resp_error_reg <= 1'b0;
     end
     else begin
@@ -594,7 +608,7 @@ module arp_engine_top#(
 
   // stat_rx_error: 收到非标准 ARP 帧(长度/keep 不合规)
   always @(posedge clk) begin
-    if (rst) begin
+    if (rst || cfg_stat_clear) begin
       stat_rx_error_reg <= 1'b0;
     end
     else begin
@@ -606,7 +620,7 @@ module arp_engine_top#(
 
   // stat_ack_fifo_overflow_error: ack FIFO 满, 应答帧被丢弃
   always @(posedge clk) begin
-    if (rst) begin
+    if (rst || cfg_stat_clear) begin
       stat_ack_fifo_overflow_error_reg <= 1'b0;
     end
     else begin
@@ -618,7 +632,7 @@ module arp_engine_top#(
 
   // stat_pending_fifo_overflow_error: pending FIFO 满, 请求帧被丢弃
   always @(posedge clk) begin
-    if (rst) begin
+    if (rst || cfg_stat_clear) begin
       stat_pending_fifo_overflow_error_reg <= 1'b0;
     end
     else begin
@@ -630,7 +644,7 @@ module arp_engine_top#(
 
   // stat_query_src_not_local_reg
   always @(posedge clk) begin
-    if (rst) begin
+    if (rst || cfg_stat_clear) begin
       stat_query_src_not_local_reg <= 1'b0;
     end
     else begin
@@ -720,12 +734,12 @@ arbiter#(
 
 arp_eth_tx#(
     .AXIS_WIDTH       (AXIS_WIDTH       ) ,
-    .AXIS_TX_USR_WIDTH  (AXIS_TX_USR_WIDTH  ) ,
-    .ARP_PRIORITY     (ARP_PRIORITY     )
+    .AXIS_TX_USR_WIDTH  (AXIS_TX_USR_WIDTH  )
 )
  u_arp_eth_tx(
     .clk              (clk              ),// (input)
     .rst              (rst              ),// (input)
+    .arp_priority     (arp_priority     ),// (input)
     // arp frame input
     .arp_frame_valid  (arp_tx_frame_valid),// (input)
     .arp_frame_ready  (arp_tx_frame_ready),// (output)

@@ -10,18 +10,19 @@
 // Date        : 2026-09-19
 // Version     : v2.0
 // ----------------------------------------------------------------------------
-// Description : 支持流水线设计，将数据按TYPE_DICT匹配，没有匹配到的走默认通道
+// Description : 支持流水线设计，将数据按type_dict匹配，没有匹配到的走默认通道
 // 
 // ============================================================================
 
 module eth_type_demux#(
   parameter  TYPE_NUM= 2 ,
   localparam TYPE_NUM_EFF = (TYPE_NUM > 0) ? TYPE_NUM : 1,  // 字典占位项数(>=1；TYPE_NUM=0 时为 1 项占位，内容不被读取)
-  parameter  [TYPE_NUM_EFF*16-1:0]        TYPE_DICT= {16'h0008,16'h0608},// ipv4/arp
   parameter  AXIS_USER_WIDTH= 1 // usr 每通道位宽（MAC 层: 帧错误标志）
 )(
   input  wire                                          clk             ,
   input  wire                                          rst             ,
+
+  input  wire          [TYPE_NUM_EFF*16-1:0]           type_dict       ,
 
   input  wire          [                 511:0]        eth_axis_sdata  ,
   input  wire          [                  63:0]        eth_axis_skeep  ,
@@ -117,7 +118,7 @@ module eth_type_demux#(
         end
       end
       else begin:gen_range_type
-  wire                                                 is_match          = TYPE_DICT[type_index*16+:16]==eth_axis_sdata[96 +: 16]          ;
+  wire                                                 is_match          = type_dict[type_index*16+:16]==eth_axis_sdata[96 +: 16]          ;
         
   assign  type_hit[type_index]= is_match         ;
   assign  type_compare[type_index]= type_hit[type_index] && ~(|type_index == 0 ? 1'b0 : type_hit[type_index-1:0]);

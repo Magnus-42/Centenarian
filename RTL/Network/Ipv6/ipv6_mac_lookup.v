@@ -26,11 +26,11 @@ module ipv6_mac_lookup #(
   // ============================================================================
   // 上游统一配置的 IP->MAC 映射表(扁平打包)
   // ============================================================================
-  input  wire          [128*DEST_MAC_ENTRY_NUM-1:0]    cfg_dest_match_ipv6,
-  input  wire          [48*DEST_MAC_ENTRY_NUM-1:0]     cfg_dest_match_mac,
+  input  wire          [128*DEST_MAC_ENTRY_NUM-1:0]    cfg_dst_ipv6,
+  input  wire          [48*DEST_MAC_ENTRY_NUM-1:0]     cfg_dst_mac,
 
-  input  wire          [128*SRC_MAC_ENTRY_NUM-1:0]     cfg_src_match_ipv6,
-  input  wire          [48*SRC_MAC_ENTRY_NUM-1:0]      cfg_src_match_mac,
+  input  wire          [128*SRC_MAC_ENTRY_NUM-1:0]     cfg_src_ipv6,
+  input  wire          [48*SRC_MAC_ENTRY_NUM-1:0]      cfg_src_mac,
 
   // ============================================================================
   // 输入 : 纯 IPv6 包
@@ -70,6 +70,18 @@ module ipv6_mac_lookup #(
   reg                                                  dst_hit_comb     ;
   reg                                                  src_hit_comb     ;
 
+  reg          [128*DEST_MAC_ENTRY_NUM-1:0]    cfg_dst_ipv6_reg;
+  reg          [48*DEST_MAC_ENTRY_NUM-1:0]     cfg_dst_mac_reg;
+  reg          [128*SRC_MAC_ENTRY_NUM-1:0]     cfg_src_ipv6_reg;
+  reg          [48*SRC_MAC_ENTRY_NUM-1:0]      cfg_src_mac_reg;
+
+  always @(posedge clk) begin
+    cfg_dst_ipv6_reg <= cfg_dst_ipv6;
+    cfg_dst_mac_reg <= cfg_dst_mac;
+    cfg_src_ipv6_reg <= cfg_src_ipv6;
+    cfg_src_mac_reg <= cfg_src_mac;
+  end
+
   integer                                              i                ;
   always @(*) begin
     dst_mac_comb = 48'd0;
@@ -78,16 +90,16 @@ module ipv6_mac_lookup #(
     src_hit_comb = 1'b0;
     for (i = 0; i < DEST_MAC_ENTRY_NUM; i = i + 1) begin
       // 目的 IPv6 地址查 dst_mac (byte24~39)
-      if (ipv6_axis_sdata[192 +: 128] == cfg_dest_match_ipv6[i*128 +: 128]) begin
-        dst_mac_comb = cfg_dest_match_mac[i*48 +: 48];
+      if (ipv6_axis_sdata[192 +: 128] == cfg_dst_ipv6_reg[i*128 +: 128]) begin
+        dst_mac_comb = cfg_dst_mac_reg[i*48 +: 48];
         dst_hit_comb = 1'b1;
       end
     end
 
     for (i = 0; i < SRC_MAC_ENTRY_NUM; i = i + 1) begin
       // 源 IPv6 地址查 src_mac (byte8~23)
-      if (ipv6_axis_sdata[64 +: 128] == cfg_src_match_ipv6[i*128 +: 128]) begin
-        src_mac_comb = cfg_src_match_mac[i*48 +: 48];
+      if (ipv6_axis_sdata[64 +: 128] == cfg_src_ipv6_reg[i*128 +: 128]) begin
+        src_mac_comb = cfg_src_mac_reg[i*48 +: 48];
         src_hit_comb = 1'b1;
       end
     end

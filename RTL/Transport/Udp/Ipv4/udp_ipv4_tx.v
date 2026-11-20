@@ -1,144 +1,147 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : udp_ipv4_tx.v
 // Module Name : udp_ipv4_tx
 // Author      : LiXintao
-// Date        : 2026-10-18
+// Created     : 2026-10-18
 // Version     : v2.1
-// ----------------------------------------------------------------------------
-// Description : UDP 发送链容器(支持流水线设计
-// 
-// ============================================================================
 
-module udp_ipv4_tx#(
-  parameter  AXIS_USER_WIDTH    = 108,
-  parameter  ARBITER_VAL_WIDTH= 4
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+// Description : UDP发送链，计算长度和校验和并插入UDP及IPv4头。
+//
+// -----------------------------------------------------------------------------
 
-  input  wire          [                 511:0]        udp_axis_sdata  ,
-  input  wire          [                  63:0]        udp_axis_skeep  ,
-  input  wire                                          udp_axis_slast  ,
-  input  wire                                          udp_axis_svalid ,
-  input  wire          [AXIS_USER_WIDTH-1:0]           udp_axis_susr   ,
-  output wire                                          udp_axis_sready ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  output wire          [                 511:0]        ipv4_axis_mdata ,
-  output wire          [                  63:0]        ipv4_axis_mkeep ,
-  output wire                                          ipv4_axis_mlast ,
-  output wire                                          ipv4_axis_mvalid,
-  output wire          [ARBITER_VAL_WIDTH-1:0]       ipv4_axis_musr  ,
-  input  wire                                          ipv4_axis_mready
+module udp_ipv4_tx #(
+    parameter  integer ReqWidth = 4,
+    localparam integer UsrWidth = ReqWidth + 104
+) (
+    input wire clk,
+    input wire rst,
+
+    input  wire [       511:0] axis_sdata,
+    input  wire [        63:0] axis_skeep,
+    input  wire                axis_slast,
+    input  wire                axis_svalid,
+    input  wire [UsrWidth-1:0] axis_susr,
+    output wire                axis_sready,
+
+    output wire [       511:0] axis_mdata,
+    output wire [        63:0] axis_mkeep,
+    output wire                axis_mlast,
+    output wire                axis_mvalid,
+    output wire [ReqWidth-1:0] axis_musr,
+    input  wire                axis_mready
 );
 
-  // --------------------------------------------------------------------------
-  // 1) 长度 / 校验和
-  // --------------------------------------------------------------------------
-  wire                 [                 511:0]        lc_m_data        ;
-  wire                 [                  63:0]        lc_m_keep        ;
-  wire                                                 lc_m_last        ;
-  wire                                                 lc_m_valid       ;
-  wire                 [AXIS_USER_WIDTH-1:0]           lc_m_usr         ;
-  wire                                                 lc_m_ready       ;
-  wire                 [                  15:0]        pkt_udp_len      ;
-  wire                 [                  15:0]        pkt_udp_cksum    ;
+  // 整包缓存载荷并计算UDP长度与校验和。
+  // 依次插入UDP头和IPv4头，出口保留请求字段。
 
-  udp_ipv4_len_checksum#(
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  )
-  ) u_udp_ipv4_len_checksum(
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    .udp_axis_sdata   (udp_axis_sdata   ),// (input)
-    .udp_axis_skeep   (udp_axis_skeep   ),// (input)
-    .udp_axis_slast   (udp_axis_slast   ),// (input)
-    .udp_axis_svalid  (udp_axis_svalid  ),// (input)
-    .udp_axis_susr    (udp_axis_susr    ),// (input)
-    .udp_axis_sready  (udp_axis_sready  ),// (output)
-    .udp_axis_mdata   (lc_m_data        ),// (output)
-    .udp_axis_mkeep   (lc_m_keep        ),// (output)
-    .udp_axis_mlast   (lc_m_last        ),// (output)
-    .udp_axis_mvalid  (lc_m_valid       ),// (output)
-    .udp_axis_musr    (lc_m_usr         ),// (output)
-    .udp_axis_mready  (lc_m_ready       ),// (input)
-    .total_len        (pkt_udp_len      ),// (output)
-    .head_checksum    (pkt_udp_cksum    ) // (output)
+  // 参数范围检查
+  initial begin
+    if (ReqWidth < 1) begin
+      $display("错误：udp_ipv4_tx：不支持的参数配置。");
+      $finish;
+    end
+  end
+
+  // 长度与校验和接口
+  wire [       511:0] checksum_data;
+  wire [        63:0] checksum_keep;
+  wire                checksum_last;
+  wire                checksum_valid;
+  wire [UsrWidth-1:0] checksum_usr;
+  wire                checksum_ready;
+  wire [        15:0] pkt_udp_len;
+  wire [        15:0] pkt_udp_checksum;
+
+  // UDP封装接口
+  wire [       511:0] udp_header_data;
+  wire [        63:0] udp_header_keep;
+  wire                udp_header_last;
+  wire                udp_header_valid;
+  wire [UsrWidth-1:0] udp_header_usr;
+  wire                udp_header_ready;
+
+  // IPv4封装接口
+  wire [       511:0] ipv4_header_data;
+  wire [        63:0] ipv4_header_keep;
+  wire                ipv4_header_last;
+  wire                ipv4_header_valid;
+  wire [UsrWidth-1:0] ipv4_header_usr;
+  wire                ipv4_header_ready;
+
+  // 长度与校验和
+  udp_ipv4_len_checksum #(
+      .ReqWidth(ReqWidth)
+  ) udp_ipv4_len_checksum_inst (
+      .clk          (clk),
+      .rst          (rst),
+      .axis_sdata   (axis_sdata),
+      .axis_skeep   (axis_skeep),
+      .axis_slast   (axis_slast),
+      .axis_svalid  (axis_svalid),
+      .axis_susr    (axis_susr),
+      .axis_sready  (axis_sready),
+      .axis_mdata   (checksum_data),
+      .axis_mkeep   (checksum_keep),
+      .axis_mlast   (checksum_last),
+      .axis_mvalid  (checksum_valid),
+      .axis_musr    (checksum_usr),
+      .axis_mready  (checksum_ready),
+      .total_len    (pkt_udp_len),
+      .head_checksum(pkt_udp_checksum)
   );
 
-  // --------------------------------------------------------------------------
-  // 2) 插 8B UDP 头  ->  直连 IPv4 头模块
-  // --------------------------------------------------------------------------
-  wire                 [                 511:0]        uh_m_data        ;
-  wire                 [                  63:0]        uh_m_keep        ;
-  wire                                                 uh_m_last        ;
-  wire                                                 uh_m_valid       ;
-  wire                 [AXIS_USER_WIDTH-1:0]           uh_m_usr         ;
-  wire                                                 uh_m_ready       ;
-
-  udp_header_add#(
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  )
-  ) u_udp_header_add(
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    .udp_axis_sdata   (lc_m_data        ),// (input)
-    .udp_axis_skeep   (lc_m_keep        ),// (input)
-    .udp_axis_slast   (lc_m_last        ),// (input)
-    .udp_axis_svalid  (lc_m_valid       ),// (input)
-    .udp_axis_susr    (lc_m_usr         ),// (input)
-    .udp_axis_sready  (lc_m_ready       ),// (output)
-    .pkt_total_len    (pkt_udp_len      ),// (input)
-    .pkt_head_checksum(pkt_udp_cksum    ),// (input)
-    .udp_axis_mdata   (uh_m_data        ),// (output)
-    .udp_axis_mkeep   (uh_m_keep        ),// (output)
-    .udp_axis_mlast   (uh_m_last        ),// (output)
-    .udp_axis_mvalid  (uh_m_valid       ),// (output)
-    .udp_axis_musr    (uh_m_usr         ),// (output)
-    .udp_axis_mready  (uh_m_ready       ) // (input)
+  // UDP头插入
+  udp_header_add #(
+      .ReqWidth(ReqWidth)
+  ) udp_header_add_inst (
+      .clk              (clk),
+      .rst              (rst),
+      .axis_sdata       (checksum_data),
+      .axis_skeep       (checksum_keep),
+      .axis_slast       (checksum_last),
+      .axis_svalid      (checksum_valid),
+      .axis_susr        (checksum_usr),
+      .axis_sready      (checksum_ready),
+      .pkt_total_len    (pkt_udp_len),
+      .pkt_head_checksum(pkt_udp_checksum),
+      .axis_mdata       (udp_header_data),
+      .axis_mkeep       (udp_header_keep),
+      .axis_mlast       (udp_header_last),
+      .axis_mvalid      (udp_header_valid),
+      .axis_musr        (udp_header_usr),
+      .axis_mready      (udp_header_ready)
   );
 
-  // --------------------------------------------------------------------------
-  // 3) 插 20B IPv4 头  ->  直连输出端口
-  // --------------------------------------------------------------------------
-  wire                 [                 511:0]        ih_m_data        ;
-  wire                 [                  63:0]        ih_m_keep        ;
-  wire                                                 ih_m_last        ;
-  wire                                                 ih_m_valid       ;
-  wire                 [AXIS_USER_WIDTH-1:0]           ih_m_usr         ;
-  wire                                                 ih_m_ready       ;
-
-  udp_ipv4_header_add#(
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  )
-  ) u_udp_ipv4_header_add(
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    .udp_axis_sdata   (uh_m_data        ),// (input)
-    .udp_axis_skeep   (uh_m_keep        ),// (input)
-    .udp_axis_slast   (uh_m_last        ),// (input)
-    .udp_axis_svalid  (uh_m_valid       ),// (input)
-    .udp_axis_susr    (uh_m_usr         ),// (input)
-    .udp_axis_sready  (uh_m_ready       ),// (output)
-    .ipv4_axis_mdata  (ih_m_data        ),// (output)
-    .ipv4_axis_mkeep  (ih_m_keep        ),// (output)
-    .ipv4_axis_mlast  (ih_m_last        ),// (output)
-    .ipv4_axis_mvalid (ih_m_valid       ),// (output)
-    .ipv4_axis_musr   (ih_m_usr         ),// (output)
-    .ipv4_axis_mready (ih_m_ready       ) // (input)
+  // IPv4头插入
+  udp_ipv4_header_add #(
+      .ReqWidth(ReqWidth)
+  ) udp_ipv4_header_add_inst (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sdata (udp_header_data),
+      .axis_skeep (udp_header_keep),
+      .axis_slast (udp_header_last),
+      .axis_svalid(udp_header_valid),
+      .axis_susr  (udp_header_usr),
+      .axis_sready(udp_header_ready),
+      .axis_mdata (ipv4_header_data),
+      .axis_mkeep (ipv4_header_keep),
+      .axis_mlast (ipv4_header_last),
+      .axis_mvalid(ipv4_header_valid),
+      .axis_musr  (ipv4_header_usr),
+      .axis_mready(ipv4_header_ready)
   );
 
-  // --------------------------------------------------------------------------
-  // 4) 输出直连: 无 skid, 仅做 usr 收窄(IPv4 头已建好, 只保留优先级)
-  // --------------------------------------------------------------------------
-  assign ipv4_axis_mdata  = ih_m_data;
-  assign ipv4_axis_mkeep  = ih_m_keep;
-  assign ipv4_axis_mlast  = ih_m_last;
-  assign ipv4_axis_mvalid = ih_m_valid;
-  assign ipv4_axis_musr   = ih_m_usr[ARBITER_VAL_WIDTH-1:0];
-
-  assign ih_m_ready       = ipv4_axis_mready;
-
+  // 输出：IPv4头已插入，仅保留低ReqWidth位请求字段。
+  assign axis_mdata        = ipv4_header_data;
+  assign axis_mkeep        = ipv4_header_keep;
+  assign axis_mlast        = ipv4_header_last;
+  assign axis_mvalid       = ipv4_header_valid;
+  assign axis_musr         = ipv4_header_usr[ReqWidth-1:0];
+  assign ipv4_header_ready = axis_mready;
 endmodule
 `resetall

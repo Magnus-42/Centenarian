@@ -1,390 +1,353 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : axis_fifo_sync.v
 // Module Name : axis_fifo_sync
 // Author      : LiXintao
-// Date        : 2026-08-13
-// Version     : v2.1
-// ----------------------------------------------------------------------------
-// Description : 同步 AXI-Stream FIFO, 支持包为单位传输
-//               1. 读写同钟, 内部以 RAM (distributed/block) 实现
-//               2. 支持包模式 (PACKET_FIFO), 输出侧按整包交付
-//               3. 输出空/满/可编程阈值/剩余深度等状态
-// Note        : 1. FIFO_DEPTH 包模式下深度需 >= 最大包 beat 数,
-//                  否则大包无法完整放入会卡死
-//               2. axis_sready 为反压信号: 满时拉低, 上游需 hold 数据等待,
-//                  不会丢包
-//               3. distributed 实现为组合读 (异步读), block 实现为输出寄存器
-//                  形式 (同步读, 自带一拍延迟，可配置BRAM_DO_REG再增加延迟以提升时序)
-//               4. 支持自动计算RAM类型
-//               5. DEADLOCK_RISK避免包模式死锁
-// ============================================================================
+// Created     : 2026-11-09
+// Version     : 1.0
+// -----------------------------------------------------------------------------
+// Description : 同步AXIS FIFO，支持包模式和非包模式。
+// Note        : 含block配置时Depth必须不小于5；全分布式配置Depth必须不小于2
+//               包模式下DeadlockRisk=1严格等待完整包，Depth需容纳最大包
+//               DeadlockRisk=0允许接近满时提前交付，并持续到该包结束
+// -----------------------------------------------------------------------------
+
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
+
 module axis_fifo_sync #(
-  parameter  FIFO_DEPTH= 32,                    // FIFO 深度, 需为 2 的幂
-  parameter  AXIS_WIDTH= 64,                    // 数据位宽 (字节整数倍)
-  parameter  AXIS_USER_WIDTH= 100,                   // 用户自定义信息位宽
-  parameter  AXIS_ID_WIDTH= 1 ,                     // 流标识位宽
-  parameter  AXIS_DEST_WIDTH= 1 ,                     // 路由信息位宽
-  parameter  PACKET_FIFO= 1 ,                     // 包模式开关: 1 开启, 0 关闭
-  parameter  FIFO_MEMORY_TYPE= "distributed",         // 存储类型: distributed / block / auto
-  parameter  PROG_EMPTY_THRESH= FIFO_DEPTH/4,          // 可编程空阈值 (剩余 <= 该值拉高 prog_empty)
-  parameter  PROG_FULL_THRESH= FIFO_DEPTH/2,          // 可编程满阈值 (剩余 >= 该值拉高 prog_full)
-  localparam  REMAIN_COUNT_WIDTH= $clog2(FIFO_DEPTH) + 1, // 剩余深度计数输出位宽
-  parameter  BRAM_DO_REG= 2 , // BRAM的输出流水线级数，推荐为2，可以提高时序
-  parameter  DEADLOCK_RISK= 0 
+    parameter integer Depth = 32,
+    parameter integer DataWidth = 64,
+    parameter integer UsrWidth = 100,
+    parameter integer PacketFifo = 1,
+    parameter DataMemoryType = "distributed",  // distributed/block，data和keep
+    parameter UsrMemoryType = "distributed",  // distributed/block，usr
+    parameter integer ProgEmptyThresh = Depth / 4,
+    parameter integer ProgFullThresh = Depth / 2,
+    parameter integer DeadlockRisk = 0,
+    localparam integer KeepWidth = DataWidth / 8,
+    localparam integer CountWidth = $clog2(Depth) + 1
 ) (
-  input  wire                                          rst             ,
-  input  wire                                          clk             ,
+    input wire clk,
+    input wire rst,
 
-    // ============================================================================
-    // AXI-Stream 从机接口 (上游写)
-    // ============================================================================
-  input  wire          [        AXIS_WIDTH-1:0]        axis_sdata      ,// 数据
-  input  wire          [      AXIS_WIDTH/8-1:0]        axis_skeep      ,// 字节有效标志
-  input  wire                                          axis_svalid     ,// 数据有效
-  input  wire                                          axis_slast      ,// 包结束标志
-  output wire                                          axis_sready     ,// 反压: 还能写入
-  input  wire          [   AXIS_USER_WIDTH-1:0]        axis_susr       ,// 用户自定义信息
-  input  wire          [      AXIS_WIDTH/8-1:0]        axis_sstrb      ,// 字节选通
-  input  wire          [     AXIS_ID_WIDTH-1:0]        axis_sid        ,// 流标识
-  input  wire          [   AXIS_DEST_WIDTH-1:0]        axis_sdest      ,// 路由信息
+    input  wire [DataWidth-1:0] axis_sdata,
+    input  wire [KeepWidth-1:0] axis_skeep,
+    input  wire [ UsrWidth-1:0] axis_susr,
+    input  wire                 axis_svalid,
+    input  wire                 axis_slast,
+    output wire                 axis_sready,
 
-    // ============================================================================
-    // AXI-Stream 主机接口 (下游读)
-    // ============================================================================
-  output wire          [        AXIS_WIDTH-1:0]        axis_mdata      ,// 数据
-  output wire          [      AXIS_WIDTH/8-1:0]        axis_mkeep      ,// 字节有效标志
-  output wire                                          axis_mvalid     ,// 有数据可读
-  output wire                                          axis_mlast      ,// 包结束标志
-  input  wire                                          axis_mready     ,// 下游能接收
-  output wire          [   AXIS_USER_WIDTH-1:0]        axis_musr       ,// 用户自定义信息
-  output wire          [      AXIS_WIDTH/8-1:0]        axis_mstrb      ,// 字节选通
-  output wire          [     AXIS_ID_WIDTH-1:0]        axis_mid        ,// 流标识
-  output wire          [   AXIS_DEST_WIDTH-1:0]        axis_mdest      ,// 路由信息
+    output wire [DataWidth-1:0] axis_mdata,
+    output wire [KeepWidth-1:0] axis_mkeep,
+    output wire [ UsrWidth-1:0] axis_musr,
+    output wire                 axis_mvalid,
+    output wire                 axis_mlast,
+    input  wire                 axis_mready,
 
-    // ============================================================================
-    // 状态端口
-    // ============================================================================
-  output wire                                          prog_empty      ,// 剩余深度 <= PROG_EMPTY_THRESH
-  output wire                                          prog_full       ,// 剩余深度 >= PROG_FULL_THRESH
-
-  output wire                                          empty           ,// FIFO 空
-  output wire                                          full            ,// FIFO 满
-
-  output wire          [REMAIN_COUNT_WIDTH-1:0]        remain_count     // 当前剩余深度 (已写入未读走的字数)
+    output wire                  stat_prog_empty,
+    output wire                  stat_prog_full,
+    output wire                  stat_empty,
+    output wire                  stat_full,
+    output wire [CountWidth-1:0] stat_data_count
 );
+
+  // data与keep、usr、last分别存储，使用同一AXIS握手保持对齐。
+  // last预取到输出寄存器，包计数控制完整包与提前释放。
+
+  // 参数范围检查
   initial begin
-    if (REMAIN_COUNT_WIDTH != $clog2(FIFO_DEPTH) + 1) begin
-      $display("REMAIN_COUNT_WIDTH长度应该设置为$clog2(FIFO_DEPTH) + 1");
+    if (Depth < 2 || DataWidth < 8 || DataWidth % 8 != 0 || UsrWidth < 1) begin
+      $display({"错误：axis_fifo_sync：Depth必须不小于2，",
+                "DataWidth必须为8的正整数倍，UsrWidth必须不小于1"});
+      $finish;
+    end
+    if ((DataMemoryType != "distributed" && DataMemoryType != "block") ||
+        (UsrMemoryType != "distributed" && UsrMemoryType != "block")) begin
+      $display({"错误：axis_fifo_sync：DataMemoryType和UsrMemoryType",
+                "仅支持distributed或block"});
+      $finish;
+    end
+    if ((DataMemoryType == "block" || UsrMemoryType == "block") && Depth < 5) begin
+      $display("错误：axis_fifo_sync：使用block存储时Depth必须不小于5");
+      $finish;
+    end
+    if ((PacketFifo != 0 && PacketFifo != 1) || (DeadlockRisk != 0 && DeadlockRisk != 1)) begin
+      $display("错误：axis_fifo_sync：PacketFifo和DeadlockRisk仅支持0或1");
+      $finish;
+    end
+    if (ProgEmptyThresh < 0 || ProgEmptyThresh > Depth || ProgFullThresh < 0 ||
+        ProgFullThresh > Depth) begin
+      $display("错误：axis_fifo_sync：阈值必须位于0到Depth范围内");
       $finish;
     end
   end
 
-  // ----------------------------------------------------------------------------
-  // 地址位宽与剩余深度高位补零位宽
-  // ----------------------------------------------------------------------------
-  localparam FIFO_DEPTH_WIDTH= $clog2(FIFO_DEPTH);
+  // 内部常量
+  localparam integer DataKeepWidth = DataWidth + KeepWidth;
+  localparam integer EarlyReleaseThresh = (Depth > 4) ? Depth - 4 : Depth;
 
-  // 基于容量/位宽/深度 设计ram类型
-  // ≤ 64	任意	分布式 RAM
-  // ≤1K 且	≤9Kb	分布式 RAM
-  // > 1K	任意	BRAM
-  // 任意	> 18Kb	BRAM
-  // 任意（浅）	位宽 ≥ 256	BRAM	超宽位宽分布式要成片 LUT
-  function is_distributed;
-  input                                                integer width   ;
-  input                                                integer depth   ;
-    begin
-      is_distributed = (depth <= 64 || (depth <= 1024 && width*depth <= 9216)) && width < 256;
-    end
-  endfunction
+  // 数据与usr FIFO接口
+  wire [DataKeepWidth-1:0] data_keep_fifo;
+  wire [     UsrWidth-1:0] usr_fifo;
+  wire                     data_keep_full;
+  wire                     data_keep_empty;
+  wire                     usr_full;
+  wire                     usr_empty;
 
-  localparam DATA_AUTO_TYPE= is_distributed(AXIS_WIDTH,      FIFO_DEPTH) ? "distributed" : "block";
-  localparam KEEP_AUTO_TYPE= is_distributed(AXIS_WIDTH/8,    FIFO_DEPTH) ? "distributed" : "block";
-  localparam USER_AUTO_TYPE= is_distributed(AXIS_USER_WIDTH, FIFO_DEPTH) ? "distributed" : "block";
-  localparam ID_AUTO_TYPE= is_distributed(AXIS_ID_WIDTH,   FIFO_DEPTH) ? "distributed" : "block";
-  localparam DEST_AUTO_TYPE= is_distributed(AXIS_DEST_WIDTH, FIFO_DEPTH) ? "distributed" : "block";
-  localparam STRB_AUTO_TYPE= is_distributed(AXIS_WIDTH/8,    FIFO_DEPTH) ? "distributed" : "block";
-  localparam LAST_AUTO_TYPE= is_distributed(1,    FIFO_DEPTH) ? "distributed" : "block";
+  // last FIFO与输出寄存
+  wire                     last_fifo;
+  wire                     last_fifo_rd_en;
+  reg                      last_output;
+  reg                      last_output_valid;
+  wire                     last_full;
+  wire                     last_empty;
 
-  localparam DATA_MEMORY_TYPE= FIFO_MEMORY_TYPE == "auto" ? DATA_AUTO_TYPE : FIFO_MEMORY_TYPE;
-  localparam KEEP_MEMORY_TYPE= FIFO_MEMORY_TYPE == "auto" ? KEEP_AUTO_TYPE : FIFO_MEMORY_TYPE;
-  localparam USER_MEMORY_TYPE= FIFO_MEMORY_TYPE == "auto" ? USER_AUTO_TYPE : FIFO_MEMORY_TYPE;
-  localparam ID_MEMORY_TYPE= FIFO_MEMORY_TYPE   == "auto" ? ID_AUTO_TYPE : FIFO_MEMORY_TYPE;
-  localparam DEST_MEMORY_TYPE= FIFO_MEMORY_TYPE == "auto" ? DEST_AUTO_TYPE : FIFO_MEMORY_TYPE;
-  localparam STRB_MEMORY_TYPE= FIFO_MEMORY_TYPE == "auto" ? STRB_AUTO_TYPE : FIFO_MEMORY_TYPE;
-  localparam LAST_MEMORY_TYPE= FIFO_MEMORY_TYPE == "auto" ? LAST_AUTO_TYPE : FIFO_MEMORY_TYPE;
+  // AXIS握手
+  wire                     fifo_rd_en;
+  wire                     s_handshake;
+  wire                     m_handshake;
 
-  localparam ALL_DISTRIBUTED= FIFO_MEMORY_TYPE == "auto" &&
-                               DATA_MEMORY_TYPE == "distributed" &&
-                               KEEP_MEMORY_TYPE == "distributed" &&
-                               LAST_MEMORY_TYPE == "distributed" &&
-                               USER_MEMORY_TYPE == "distributed" &&
-                               STRB_MEMORY_TYPE == "distributed" &&
-                               ID_MEMORY_TYPE  == "distributed" &&
-                               DEST_MEMORY_TYPE == "distributed";
+  // 占用与阈值状态
+  reg  [   CountWidth-1:0] data_count;
+  reg                      prog_full_reg;
+  reg                      prog_empty_reg;
 
-  // ----------------------------------------------------------------------------
-  // RAM 存储 (ram_style 由 FIFO_MEMORY_TYPE 决定)
-  // ----------------------------------------------------------------------------
-(* ram_style = DATA_MEMORY_TYPE *)   reg                  [        AXIS_WIDTH-1:0]        ram_data[0:FIFO_DEPTH-1];
-(* ram_style = KEEP_MEMORY_TYPE *)   reg                  [      AXIS_WIDTH/8-1:0]        ram_keep[0:FIFO_DEPTH-1];
-(* ram_style = LAST_MEMORY_TYPE *)   reg                                                  ram_last[0:FIFO_DEPTH-1];
-(* ram_style = USER_MEMORY_TYPE *)   reg                  [   AXIS_USER_WIDTH-1:0]        ram_usr[0:FIFO_DEPTH-1];
-(* ram_style = STRB_MEMORY_TYPE *)   reg                  [      AXIS_WIDTH/8-1:0]        ram_strb[0:FIFO_DEPTH-1];
-(* ram_style = ID_MEMORY_TYPE *)   reg                  [     AXIS_ID_WIDTH-1:0]        ram_id[0:FIFO_DEPTH-1];
-(* ram_style = DEST_MEMORY_TYPE *)   reg                  [   AXIS_DEST_WIDTH-1:0]        ram_dest[0:FIFO_DEPTH-1];
+  // 包计数与读取控制
+  reg  [   CountWidth-1:0] packet_count;
+  reg                      packet_active;
+  wire                     s_packet_end;
+  wire                     m_packet_end;
+  reg                      early_release_active;
+  reg                      complete_packet_empty;
+  wire                     allow_read;
 
-  // ------------------------------------------
-  // RAM 仿真及上电初始化 (综合工具支持)
-  // ------------------------------------------
-  integer                                              i                ;
-  initial begin
-    for (i = 0; i < FIFO_DEPTH; i = i + 1) begin
-      ram_data[i] = {AXIS_WIDTH{1'b0}};
-      ram_keep[i] = {AXIS_WIDTH/8{1'b0}};
-      ram_last[i] = 1'b0;
-      ram_usr[i]  = {AXIS_USER_WIDTH{1'b0}};
-      ram_strb[i] = 'd0;
-      ram_id  [i] = 'd0;
-      ram_dest[i] = 'd0;
-    end
-  end
+  // AXIS握手
+  assign s_handshake = axis_svalid && axis_sready;
+  assign m_handshake = axis_mvalid && axis_mready;
 
-  // ----------------------------------------------------------------------------
-  // 指针与计数 (多 1 位用于满检测的回绕判断)
-  // ----------------------------------------------------------------------------
-  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_ptr           ;
-  reg                  [    FIFO_DEPTH_WIDTH:0]        wr_packet_cnt    ;
-  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_ptr           ;
-  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_packet_cnt    ;
-  wire                 [  FIFO_DEPTH_WIDTH-1:0]        wr_addr           = wr_ptr[FIFO_DEPTH_WIDTH-1:0]                                                                       ;
-  wire                 [  FIFO_DEPTH_WIDTH-1:0]        rd_addr           = rd_ptr[FIFO_DEPTH_WIDTH-1:0]                                                                       ;
-
-  wire                                                 deadlock_risk    ;
-  // ----------------------------------------------------------------------------
-  // 状态信号
-  // ----------------------------------------------------------------------------
-  assign  remain_count     = wr_ptr - rd_ptr  ;
-  /* verilator lint_off WIDTH */
-  assign  prog_empty       = (remain_count <= PROG_EMPTY_THRESH);
-  assign  prog_full        = (remain_count >= PROG_FULL_THRESH);
-  /* verilator lint_on WIDTH */
-
-  wire                                                 internal_empty    = (wr_ptr == rd_ptr)                                                                                 ;
-  assign  deadlock_risk    = (remain_count >= (FIFO_DEPTH - 4));
-  assign full = (wr_ptr[FIFO_DEPTH_WIDTH] != rd_ptr[FIFO_DEPTH_WIDTH]) &&
-                wr_ptr[FIFO_DEPTH_WIDTH-1:0] == rd_ptr[FIFO_DEPTH_WIDTH-1:0];
-  wire                                                 s_handshake       = axis_svalid && axis_sready                                                                         ;
-  wire                                                 m_handshake       = axis_mvalid && axis_mready                                                                         ;
-  wire                                                 packet_empty      = wr_packet_cnt == rd_packet_cnt                                                                     ;
-  // wire packet_full = (wr_packet_cnt[FIFO_DEPTH_WIDTH] != rd_packet_cnt[FIFO_DEPTH_WIDTH]) &&
-  //                    wr_packet_cnt[FIFO_DEPTH_WIDTH-1:0] == rd_packet_cnt[FIFO_DEPTH_WIDTH-1:0];
-  assign  axis_sready      = !full            ;// 满时拉低反压, 上游 hold 等待
-
-  // ============================================================================
-  // 写逻辑
-  // ============================================================================
-  always @(posedge clk) begin
-    if (s_handshake) begin
-      ram_data[wr_addr] <= axis_sdata;
-      ram_keep[wr_addr] <= axis_skeep;
-      ram_last[wr_addr] <= axis_slast;
-      ram_usr[wr_addr] <= axis_susr;
-      ram_strb[wr_addr] <= axis_sstrb;
-      ram_id[wr_addr]   <= axis_sid;
-      ram_dest[wr_addr] <= axis_sdest;
-    end
-  end
-
+  // 占用计数
   always @(posedge clk) begin
     if (rst) begin
-      wr_ptr <= 'd0;
-      wr_packet_cnt <= 'd0;
+      data_count     <= 'd0;
+      prog_full_reg  <= {CountWidth{1'b0}} >= ProgFullThresh;
+      prog_empty_reg <= {CountWidth{1'b0}} <= ProgEmptyThresh;
     end else begin
-      if (s_handshake) begin
-        wr_ptr <= wr_ptr + 1'b1;
-
-        if (axis_slast) wr_packet_cnt <= wr_packet_cnt + 1'b1;
-        else wr_packet_cnt <= wr_packet_cnt;
-      end
+      case ({
+        s_handshake, m_handshake
+      })
+        2'b10: begin
+          data_count     <= data_count + 1'b1;
+          prog_full_reg  <= prog_full_reg || (data_count == (ProgFullThresh - 1));
+          prog_empty_reg <= data_count < ProgEmptyThresh;
+        end
+        2'b01: begin
+          data_count     <= data_count - 1'b1;
+          prog_full_reg  <= data_count > ProgFullThresh;
+          prog_empty_reg <= prog_empty_reg || (data_count == (ProgEmptyThresh + 1));
+        end
+        default: begin
+          data_count     <= data_count;
+          prog_full_reg  <= prog_full_reg;
+          prog_empty_reg <= prog_empty_reg;
+        end
+      endcase
     end
   end
 
-  // ============================================================================
-  // 读逻辑 : distributed 为组合读, block 为输出寄存器形式
-  // ============================================================================
-  generate
-    if (FIFO_MEMORY_TYPE == "distributed" || ALL_DISTRIBUTED) begin : gen_dist_ram
-  assign  empty            = internal_empty   ;
-  assign  axis_mvalid      = PACKET_FIFO ? (DEADLOCK_RISK ? !packet_empty : !packet_empty||deadlock_risk) : !empty;// 包模式下无完整包则无效
-  assign  axis_mdata       = ram_data[rd_addr];
-  assign  axis_mkeep       = ram_keep[rd_addr];
-  assign  axis_mlast       = ram_last[rd_addr];
-  assign  axis_musr        = ram_usr[rd_addr] ;
-  assign  axis_mstrb       = ram_strb[rd_addr];
-  assign  axis_mid         = ram_id[rd_addr]  ;
-  assign  axis_mdest       = ram_dest[rd_addr];
-
-      always @(posedge clk) begin
-        if (rst) begin
-          rd_ptr <= 'd0;
-          rd_packet_cnt <= 'd0;
-        end else begin
-          if (m_handshake) begin
-            rd_ptr <= rd_ptr + 1'b1;
-
-            if (axis_mlast) rd_packet_cnt <= rd_packet_cnt + 1'b1;
-            else rd_packet_cnt <= rd_packet_cnt;
-          end
+  // 包模式
+  assign allow_read =
+      (PacketFifo == 0) || !complete_packet_empty || packet_active || early_release_active;
+  //// 包计数器
+  assign s_packet_end = s_handshake && axis_slast;
+  assign m_packet_end = m_handshake && last_output;
+  always @(posedge clk) begin
+    if (rst) begin
+      packet_count <= 'd0;
+    end else begin
+      case ({
+        s_packet_end, m_packet_end
+      })
+        2'b10: begin
+          packet_count <= packet_count + 1'b1;
         end
-      end
-    end else begin : gen_block_ram
-      // block RAM 为同步读, 需输出寄存器打一拍 (FWFT 形式)
-  reg                  [        AXIS_WIDTH-1:0]        mdata_reg        ;
-  reg                  [      AXIS_WIDTH/8-1:0]        mkeep_reg        ;
-  reg                                                  mlast_reg        ;
-  reg                  [   AXIS_USER_WIDTH-1:0]        musr_reg         ;
-  reg                  [      AXIS_WIDTH/8-1:0]        mstrb_reg        ;
-  reg                  [     AXIS_ID_WIDTH-1:0]        mid_reg          ;
-  reg                  [   AXIS_DEST_WIDTH-1:0]        mdest_reg        ;
-  reg                                                  mvalid_reg       ;
-
-  reg                  [    FIFO_DEPTH_WIDTH:0]        rd_packet_cnt_plus1;
-  wire                                                 is_holding_last  ;
-  wire                 [    FIFO_DEPTH_WIDTH:0]        cmp_rd_pkt_cnt   ;
-  wire                                                 allow_read       ;
-  wire                                                 ram_read_en      ;
-
-
-  assign  axis_mdata       = mdata_reg        ;
-  assign  axis_mkeep       = mkeep_reg        ;
-  assign  axis_mlast       = mlast_reg        ;
-  assign  axis_musr        = musr_reg         ;
-  assign  axis_mstrb       = mstrb_reg        ;
-  assign  axis_mid         = mid_reg          ;
-  assign  axis_mdest       = mdest_reg        ;
-  assign  axis_mvalid      = mvalid_reg       ;
-
-      if (BRAM_DO_REG == 1) begin : gen_direct
-  assign  empty            = internal_empty && !mvalid_reg;// RAM 空且输出寄存器无数据才空
-  assign  is_holding_last  = mvalid_reg && mlast_reg;
-  assign  cmp_rd_pkt_cnt   = is_holding_last ? rd_packet_cnt_plus1 : rd_packet_cnt;
-  assign  allow_read       = PACKET_FIFO ? (DEADLOCK_RISK ? (wr_packet_cnt != cmp_rd_pkt_cnt) : (wr_packet_cnt != cmp_rd_pkt_cnt)||deadlock_risk) : !internal_empty;
-  assign  ram_read_en      = allow_read && (!mvalid_reg || axis_mready);
-
-        always @(posedge clk) begin
-          if (rst) begin
-            rd_ptr        <= 'd0;
-            rd_packet_cnt <= 'd0;
-            rd_packet_cnt_plus1 <= 'd1;
-            mvalid_reg    <= 'b0;
-          end else begin
-            // 从 BRAM 中读取数据并推入输出寄存器
-            if (ram_read_en) begin
-              rd_ptr <= rd_ptr + 1'b1;
-            end
-
-            if (ram_read_en) mvalid_reg <= 1'b1;
-            else if (m_handshake) mvalid_reg <= 1'b0;
-
-            if (m_handshake && mlast_reg) begin
-              rd_packet_cnt <= rd_packet_cnt + 1'b1;
-              rd_packet_cnt_plus1 <= rd_packet_cnt_plus1 + 1'b1;
-            end
-          end
+        2'b01: begin
+          packet_count <= packet_count - 1'b1;
         end
-        
-        always @(posedge clk) begin
-          // 从 BRAM 中读取数据并推入输出寄存器
-          if (ram_read_en) begin
-            mdata_reg <= ram_data[rd_addr];
-            mkeep_reg <= ram_keep[rd_addr];
-            mlast_reg <= ram_last[rd_addr];
-            musr_reg <= ram_usr[rd_addr];
-            mstrb_reg <= ram_strb[rd_addr];
-            mid_reg <= ram_id[rd_addr];
-            mdest_reg <= ram_dest[rd_addr];
-          end
+        default: begin
+          packet_count <= packet_count;
         end
-      end
-      else if (BRAM_DO_REG == 2) begin : gen_do_reg
-  reg                  [        AXIS_WIDTH-1:0]        mdata_direct     ;
-  reg                  [      AXIS_WIDTH/8-1:0]        mkeep_direct     ;
-  reg                                                  mlast_direct     ;
-  reg                  [   AXIS_USER_WIDTH-1:0]        musr_direct      ;
-  reg                  [      AXIS_WIDTH/8-1:0]        mstrb_direct     ;
-  reg                  [     AXIS_ID_WIDTH-1:0]        mid_direct       ;
-  reg                  [   AXIS_DEST_WIDTH-1:0]        mdest_direct     ;
-  reg                                                  mvalid_direct    ;
-
-  wire                                                 mready_direct     = !mvalid_reg || axis_mready                                                                         ;
-  wire                                                 direct_handshake  = mvalid_direct && mready_direct                                                                     ;
-
-  assign  empty            = internal_empty && !mvalid_direct && !mvalid_reg;// RAM 空且输出寄存器无数据才空
-  assign  is_holding_last  = mvalid_direct && mlast_direct;
-  assign  cmp_rd_pkt_cnt   = is_holding_last ? rd_packet_cnt_plus1 : rd_packet_cnt;
-  assign  allow_read       = PACKET_FIFO ? (DEADLOCK_RISK ? (wr_packet_cnt != cmp_rd_pkt_cnt) : (wr_packet_cnt != cmp_rd_pkt_cnt)||deadlock_risk) : !internal_empty;
-  assign  ram_read_en      = allow_read && (!mvalid_direct || !mvalid_reg || axis_mready);
-
-        always @(posedge clk) begin
-          if (direct_handshake) begin
-            mdata_reg  <= mdata_direct;
-            mkeep_reg  <= mkeep_direct;
-            mlast_reg  <= mlast_direct;
-            musr_reg  <= musr_direct;
-            mstrb_reg  <= mstrb_direct;
-            mid_reg    <= mid_direct;
-            mdest_reg  <= mdest_direct;
-          end
-        end
-
-        always @(posedge clk) begin
-          if (rst) begin
-            rd_ptr        <= 'd0;
-            rd_packet_cnt <= 'd0;
-            rd_packet_cnt_plus1 <= 'd1;
-            mvalid_reg    <= 'b0;
-            mvalid_direct <= 'b0;
-          end else begin
-            // 从 BRAM 中读取数据并推入输出寄存器
-            if (ram_read_en) begin
-              rd_ptr <= rd_ptr + 1'b1;
-            end
-
-            if (ram_read_en) mvalid_direct <= 1'b1;
-            else if (direct_handshake) mvalid_direct <= 1'b0;
-
-            if (direct_handshake) mvalid_reg <= 1'b1;
-            else if (m_handshake) mvalid_reg <= 1'b0;
-
-            if (direct_handshake && mlast_direct) begin
-              rd_packet_cnt <= rd_packet_cnt + 1'b1;
-              rd_packet_cnt_plus1 <= rd_packet_cnt_plus1 + 1'b1;
-            end
-          end
-        end
-        
-        always @(posedge clk) begin
-          // 从 BRAM 中读取数据并推入输出寄存器
-          if (ram_read_en) begin
-            mdata_direct <= ram_data[rd_addr];
-            mkeep_direct <= ram_keep[rd_addr];
-            mlast_direct <= ram_last[rd_addr];
-            musr_direct <= ram_usr[rd_addr];
-            mstrb_direct <= ram_strb[rd_addr];
-            mid_direct <= ram_id[rd_addr];
-            mdest_direct <= ram_dest[rd_addr];
-          end
-        end
-      end
-
+      endcase
     end
-  endgenerate
+  end
+  //// 防死锁
+  always @(posedge clk) begin
+    if (rst) early_release_active <= 1'b0;
+    else if (DeadlockRisk != 0) early_release_active <= 1'b0;
+    else begin
+      case ({
+        s_handshake, m_handshake
+      })
+        2'b10: begin
+          early_release_active <= data_count >= (EarlyReleaseThresh - 1);
+        end
+        2'b01: begin
+          early_release_active <= data_count > EarlyReleaseThresh;
+        end
+        default: begin
+          early_release_active <= early_release_active;
+        end
+      endcase
+    end
+  end
+  //// 完整包空标志
+  always @(posedge clk) begin
+    if (rst) complete_packet_empty <= 1'b1;
+    else begin
+      case ({
+        s_packet_end, m_packet_end
+      })
+        2'b10: begin
+          complete_packet_empty <= packet_count == {CountWidth{1'b1}};
+        end
+        2'b01: begin
+          complete_packet_empty <= packet_count == 1;
+        end
+        default: begin
+          complete_packet_empty <= complete_packet_empty;
+        end
+      endcase
+    end
+  end
+  //// 包检测
+  always @(posedge clk) begin
+    if (rst) begin
+      packet_active <= 1'b0;
+    end else if (fifo_rd_en) begin
+      packet_active <= (PacketFifo != 0) && !last_output;
+    end
+  end
+
+  // 底层FIFO
+  assign fifo_rd_en = m_handshake;
+  //// data和keep合并存储
+  if (DataMemoryType == "block") begin : gen_data_block
+    fifo_sync_fwft #(
+        .Depth(Depth),
+        .Width(DataKeepWidth)
+    ) fifo_sync_fwft_data_keep (
+        .clk  (clk),
+        .rst  (rst),
+        .wr_en(s_handshake),
+        .din  ({axis_skeep, axis_sdata}),
+        .rd_en(fifo_rd_en),
+        .dout (data_keep_fifo),
+        .full (data_keep_full),
+        .empty(data_keep_empty)
+    );
+  end else begin : gen_data_distributed
+    fifo_sync #(
+        .Depth          (Depth),
+        .Width          (DataKeepWidth),
+        .MemoryType     ("distributed"),
+        .ProgEmptyThresh(0),
+        .ProgFullThresh (0)
+    ) fifo_sync_data_keep (
+        .clk            (clk),
+        .rst            (rst),
+        .wr_en          (s_handshake),
+        .din            ({axis_skeep, axis_sdata}),
+        .rd_en          (fifo_rd_en),
+        .dout           (data_keep_fifo),
+        .full           (data_keep_full),
+        .empty          (data_keep_empty),
+        .prog_full      (),
+        .prog_empty     (),
+        .stat_data_count()
+    );
+  end
+  //// usr存储
+  if (UsrMemoryType == "block") begin : gen_usr_block
+    fifo_sync_fwft #(
+        .Depth(Depth),
+        .Width(UsrWidth)
+    ) fifo_sync_fwft_usr (
+        .clk  (clk),
+        .rst  (rst),
+        .wr_en(s_handshake),
+        .din  (axis_susr),
+        .rd_en(fifo_rd_en),
+        .dout (usr_fifo),
+        .full (usr_full),
+        .empty(usr_empty)
+    );
+  end else begin : gen_usr_distributed
+    fifo_sync #(
+        .Depth          (Depth),
+        .Width          (UsrWidth),
+        .MemoryType     ("distributed"),
+        .ProgEmptyThresh(0),
+        .ProgFullThresh (0)
+    ) fifo_sync_usr (
+        .clk            (clk),
+        .rst            (rst),
+        .wr_en          (s_handshake),
+        .din            (axis_susr),
+        .rd_en          (fifo_rd_en),
+        .dout           (usr_fifo),
+        .full           (usr_full),
+        .empty          (usr_empty),
+        .prog_full      (),
+        .prog_empty     (),
+        .stat_data_count()
+    );
+  end
+  //// last
+  ////// last输出寄存器
+  assign last_fifo_rd_en = !rst && !last_empty && (!last_output_valid || m_handshake);
+  always @(posedge clk) begin
+    if (last_fifo_rd_en) last_output <= last_fifo;
+  end
+  always @(posedge clk) begin
+    if (rst) last_output_valid <= 1'b0;
+    else if (last_fifo_rd_en) last_output_valid <= 1'b1;
+    else if (m_handshake) last_output_valid <= 1'b0;
+  end
+  ////// last固定使用分布式FIFO
+  fifo_sync #(
+      .Depth          (Depth),
+      .Width          (1),
+      .MemoryType     ("distributed"),
+      .ProgEmptyThresh(0),
+      .ProgFullThresh (0)
+  ) fifo_sync_last (
+      .clk            (clk),
+      .rst            (rst),
+      .wr_en          (s_handshake),
+      .din            (axis_slast),
+      .rd_en          (last_fifo_rd_en),
+      .dout           (last_fifo),
+      .full           (last_full),
+      .empty          (last_empty),
+      .prog_full      (),
+      .prog_empty     (),
+      .stat_data_count()
+  );
+
+  // 输出
+  //// 状态信号
+  assign stat_data_count          = data_count;
+  assign stat_full                = data_keep_full || usr_full || last_full;
+  assign stat_empty               = !last_output_valid || data_keep_empty || usr_empty;
+  assign stat_prog_empty          = prog_empty_reg;
+  assign stat_prog_full           = prog_full_reg;
+
+  //// AXIS接口
+  assign axis_mvalid              = !rst && !stat_empty && allow_read;
+  assign axis_sready              = !rst && !stat_full;
+  assign {axis_mkeep, axis_mdata} = data_keep_fifo;
+  assign axis_musr                = usr_fifo;
+  assign axis_mlast               = last_output;
 
 endmodule
 `resetall

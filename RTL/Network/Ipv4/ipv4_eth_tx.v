@@ -1,108 +1,119 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : ipv4_eth_tx.v
 // Module Name : ipv4_eth_tx
 // Author      : LiXintao
-// Date        : 2026-09-18
+// Created     : 2026-09-18
 // Version     : v2.0
-// ----------------------------------------------------------------------------
-// Description : 支持流水线设计
-// Note        : u_ipv4_arp_service -> u_ipv4_eth_header_add
-// ============================================================================
+// -----------------------------------------------------------------------------
+// Description : IPv4发送通路，连接ARP查询与以太网头插入。
+// Note        : ARP结果须满足ipv4_arp_service的应答时序。
+// -----------------------------------------------------------------------------
 
-module ipv4_eth_tx#(
-  parameter  AXIS_USER_WIDTH= 4 
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  input  wire          [                 511:0]        ipv4_axis_sdata ,
-  input  wire          [                  63:0]        ipv4_axis_skeep ,
-  input  wire                                          ipv4_axis_slast ,
-  input  wire                                          ipv4_axis_svalid,
-  input  wire          [   AXIS_USER_WIDTH-1:0]        ipv4_axis_susr  ,
-  output wire                                          ipv4_axis_sready,
+module ipv4_eth_tx #(
+    parameter  integer ReqWidth = 4,
+    localparam integer UsrWidth = ReqWidth
+) (
+    input wire clk,
+    input wire rst,
 
+    input wire cfg_stat_clear,
 
-  output wire          [                  31:0]        query_src_ip    ,
-  output wire          [                  31:0]        query_dst_ip    ,
-  output wire                                          query_valid_pulse,
-  input  wire          [                  47:0]        arp_dst_mac     ,
-  input  wire          [                  47:0]        arp_src_mac     ,
-  input  wire                                          arp_miss        ,
-  input  wire                                          arp_valid       ,
+    input  wire [       511:0] axis_sdata,
+    input  wire [        63:0] axis_skeep,
+    input  wire [UsrWidth-1:0] axis_susr,
+    input  wire                axis_svalid,
+    input  wire                axis_slast,
+    output wire                axis_sready,
 
-  output wire          [                 511:0]        eth_axis_mdata  ,
-  output wire          [                  63:0]        eth_axis_mkeep  ,
-  output wire                                          eth_axis_mlast  ,
-  output wire                                          eth_axis_mvalid ,
-  output wire          [   AXIS_USER_WIDTH-1:0]        eth_axis_musr   ,
-  input  wire                                          eth_axis_mready  
+    output wire [31:0] query_src_ip,
+    output wire [31:0] query_dst_ip,
+    output wire        query_valid_pulse,
+    input  wire [47:0] arp_dst_mac,
+    input  wire [47:0] arp_src_mac,
+    input  wire        arp_miss,
+    input  wire        arp_valid,
+
+    output wire [       511:0] axis_mdata,
+    output wire [        63:0] axis_mkeep,
+    output wire [UsrWidth-1:0] axis_musr,
+    output wire                axis_mvalid,
+    output wire                axis_mlast,
+    input  wire                axis_mready,
+
+    output wire stat_tx_drop
 );
 
+  // ARP查询服务缓存应答并过滤未命中的帧。
+  // 命中帧插入以太网头后输出。
 
-  wire                 [                 511:0]        ipv4_arp_axis_mdata;
-  wire                 [                  63:0]        ipv4_arp_axis_mkeep;
-  wire                                                 ipv4_arp_axis_mlast;
-  wire                                                 ipv4_arp_axis_mvalid;
-  wire                                                 ipv4_arp_axis_mready;
-  wire                 [   AXIS_USER_WIDTH-1:0]        ipv4_arp_axis_musr;
+  // ARP处理后的帧
+  wire [       511:0] arp_frame_data;
+  wire [        63:0] arp_frame_keep;
+  wire                arp_frame_last;
+  wire                arp_frame_valid;
+  wire                arp_frame_ready;
+  wire [UsrWidth-1:0] arp_frame_usr;
 
-  wire                 [                  47:0]        dst_mac          ;
-  wire                 [                  47:0]        src_mac          ;
-  
-ipv4_arp_service#(
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ) 
-) u_ipv4_arp_service(
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    .ipv4_axis_sdata  (ipv4_axis_sdata  ),// (input)
-    .ipv4_axis_skeep  (ipv4_axis_skeep  ),// (input)
-    .ipv4_axis_slast  (ipv4_axis_slast  ),// (input)
-    .ipv4_axis_svalid (ipv4_axis_svalid ),// (input)
-    .ipv4_axis_susr   (ipv4_axis_susr   ),// (input)
-    .ipv4_axis_sready (ipv4_axis_sready ),// (output)
-    .ipv4_axis_mdata  (ipv4_arp_axis_mdata),// (output)
-    .ipv4_axis_mkeep  (ipv4_arp_axis_mkeep),// (output)
-    .ipv4_axis_mlast  (ipv4_arp_axis_mlast),// (output)
-    .ipv4_axis_mvalid (ipv4_arp_axis_mvalid),// (output)
-    .ipv4_axis_musr   (ipv4_arp_axis_musr),// (output)
-    .ipv4_axis_mready (ipv4_arp_axis_mready),// (input)
-    .dst_mac          (dst_mac          ),// (output)
-    .src_mac          (src_mac          ),// (output)
-    .query_src_ip     (query_src_ip     ),// (output)
-    .query_dst_ip     (query_dst_ip     ),// (output)
-    .query_valid_pulse(query_valid_pulse),// (output)
-    .arp_dst_mac      (arp_dst_mac      ),// (input)
-    .arp_src_mac      (arp_src_mac      ),// (input)
-    .arp_miss         (arp_miss         ),// (input)
-    .arp_valid        (arp_valid        ) // (input)
-);
+  // 首拍MAC地址
+  wire [        47:0] dst_mac;
+  wire [        47:0] src_mac;
 
-ipv4_eth_header_add #(
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ) 
-  )u_ipv4_eth_header_add(
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    .ipv4_axis_sdata  (ipv4_arp_axis_mdata),// (input)
-    .ipv4_axis_skeep  (ipv4_arp_axis_mkeep),// (input)
-    .ipv4_axis_slast  (ipv4_arp_axis_mlast),// (input)
-    .ipv4_axis_svalid (ipv4_arp_axis_mvalid),// (input)
-    .ipv4_axis_susr   (ipv4_arp_axis_musr),// (input)
-    .ipv4_axis_sready (ipv4_arp_axis_mready),// (output)
-    .dst_mac          (dst_mac          ),// (input)
-    .src_mac          (src_mac          ),// (input)
-    .eth_axis_mdata   (eth_axis_mdata   ),// (output)
-    .eth_axis_mkeep   (eth_axis_mkeep   ),// (output)
-    .eth_axis_mlast   (eth_axis_mlast   ),// (output)
-    .eth_axis_mvalid  (eth_axis_mvalid  ),// (output)
-    .eth_axis_musr    (eth_axis_musr    ),// (output)
-    .eth_axis_mready  (eth_axis_mready  ) // (input)
-);
+  // ARP查询与未命中帧过滤
+  ipv4_arp_service #(
+      .ReqWidth(ReqWidth)
+  ) ipv4_arp_service_inst (
+      .clk              (clk),
+      .rst              (rst),
+      .cfg_stat_clear   (cfg_stat_clear),
+      .axis_sdata       (axis_sdata),
+      .axis_skeep       (axis_skeep),
+      .axis_susr        (axis_susr),
+      .axis_svalid      (axis_svalid),
+      .axis_slast       (axis_slast),
+      .axis_sready      (axis_sready),
+      .axis_mdata       (arp_frame_data),
+      .axis_mkeep       (arp_frame_keep),
+      .axis_musr        (arp_frame_usr),
+      .axis_mvalid      (arp_frame_valid),
+      .axis_mlast       (arp_frame_last),
+      .axis_mready      (arp_frame_ready),
+      .dst_mac          (dst_mac),
+      .src_mac          (src_mac),
+      .query_dst_ip     (query_dst_ip),
+      .query_src_ip     (query_src_ip),
+      .query_valid_pulse(query_valid_pulse),
+      .arp_dst_mac      (arp_dst_mac),
+      .arp_src_mac      (arp_src_mac),
+      .arp_miss         (arp_miss),
+      .arp_valid        (arp_valid),
+      .stat_tx_drop     (stat_tx_drop)
+  );
+
+  // 以太网头插入
+  ipv4_eth_header_add #(
+      .ReqWidth(ReqWidth)
+  ) ipv4_eth_header_add_inst (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sdata (arp_frame_data),
+      .axis_skeep (arp_frame_keep),
+      .axis_susr  (arp_frame_usr),
+      .axis_svalid(arp_frame_valid),
+      .axis_slast (arp_frame_last),
+      .axis_sready(arp_frame_ready),
+      .dst_mac    (dst_mac),
+      .src_mac    (src_mac),
+      .axis_mdata (axis_mdata),
+      .axis_mkeep (axis_mkeep),
+      .axis_musr  (axis_musr),
+      .axis_mvalid(axis_mvalid),
+      .axis_mlast (axis_mlast),
+      .axis_mready(axis_mready)
+  );
 
 endmodule
 `resetall

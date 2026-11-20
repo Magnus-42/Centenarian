@@ -1,330 +1,290 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : icmpv4_echo_reply.v
 // Module Name : icmpv4_echo_reply
 // Author      : LiXintao
-// Date        : 2026-10-10
+// Created     : 2026-10-10
 // Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : ICMPV4 的ping包回复，支持任意ping包长度
-// Note        : 
-// ============================================================================
-module icmpv4_echo_reply#(
-  parameter AXIS_USER_WIDTH  = 4, // TX 侧仲裁值位宽
-  parameter AXIS_RX_USER_WIDTH= 97 // RX 侧 usr 每通道位宽(来自 IPv4 层)
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+// -----------------------------------------------------------------------------
+// Description : ICMPv4回显应答，改写首拍头部并保留后续载荷。
+// Note        : 上游保证IHL=5、首拍头部完整且非分片；仅检查首拍TTL，有在途帧时优先级须稳定。
+// -----------------------------------------------------------------------------
 
-  input  wire          [    AXIS_USER_WIDTH-1:0]       arbiter_val     ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  input  wire          [                 511:0]        ipv4_axis_sdata,
-  input  wire          [                  63:0]        ipv4_axis_skeep,
-  input  wire                                          ipv4_axis_slast,
-  input  wire                                          ipv4_axis_svalid,
-  input  wire          [AXIS_RX_USER_WIDTH-1:0]        ipv4_axis_susr  ,
-  output wire                                          ipv4_axis_sready,
+module icmpv4_echo_reply #(
+    parameter  integer ReqWidth   = 4,
+    localparam integer TxUsrWidth = ReqWidth,
+    localparam integer RxUsrWidth = 97
+) (
+    input wire clk,
+    input wire rst,
 
-  output wire          [                 511:0]        ipv4_axis_mdata,
-  output wire          [                  63:0]        ipv4_axis_mkeep,
-  output wire                                          ipv4_axis_mlast,
-  output wire                                          ipv4_axis_mvalid,
-  output wire          [    AXIS_USER_WIDTH-1:0]       ipv4_axis_musr  ,
-  input  wire                                          ipv4_axis_mready,
+    input wire [TxUsrWidth-1:0] cfg_arbiter_value,
+    input wire cfg_clear_error,
 
-  output wire                                          stat_drop_pulse ,
-  output wire          [                   2:0]        stat_drop_reason // [0]TTL=0 [1]MAC错 [2]非echo(防御)
+    input  wire [         511:0] axis_sdata,
+    input  wire [          63:0] axis_skeep,
+    input  wire [RxUsrWidth-1:0] axis_susr,
+    input  wire                  axis_svalid,
+    input  wire                  axis_slast,
+    output wire                  axis_sready,
+
+    output wire [         511:0] axis_mdata,
+    output wire [          63:0] axis_mkeep,
+    output wire [TxUsrWidth-1:0] axis_musr,
+    output wire                  axis_mvalid,
+    output wire                  axis_mlast,
+    input  wire                  axis_mready,
+
+    output wire stat_ttl_error
 );
-  // +0------7-------15---------------31
-  // |  Type | Code  |    Checksum    |
-  // +--------------------------------+
-  // |   Identifier  | Sequence Number|
-  // +--------------------------------+
-  // |             Data               |
-  // +--------------------------------+
 
-  // +-----------------+-------+------------------------------------------------------------------------------------------------------------+
-  // | 字段            | 长度  | 含义                                                                                                       |
-  // |-----------------+-------+------------------------------------------------------------------------------------------------------------|
-  // | Type            | 1字节 | 消息类型：                                                                                                 |
-  // | 0：回显应答报文 |       |                                                                                                            |
-  // | 8：请求回显报文 |       |                                                                                                            |
-  // | Code            | 1字节 | 消息代码，此处值为0。                                                                                      |
-  // | Checksum        | 2字节 | 检验和，使用和IP相同的加法校验和算法，但是ICMP校验和仅覆盖ICMP报文。                                       |
-  // | Identifier      | 2字节 | 标识符，发送端标示此发送的报文。                                                                           |
-  // | Sequence Number | 2字节 | 序列号，发送端发送的报文的顺序号。每发送一次顺序号就加1。                                                  |
-  // | Data            | 可变  | 选项数据，是一个可变长的字段，其中包含要返回给发送者的数据。回显应答通常返回与所收到的数据完全相同的数据。 |
-  // +-----------------+-------+------------------------------------------------------------------------------------------------------------+
+  // 入口skid缓存输入。
+  // p1检查首拍TTL并更新ICMP校验和。
+  // p2交换IP、改写type/code并过滤丢弃帧，出口skid缓存应答。
 
-  reg is_first_beat,is_first_beat_s1;
-  reg          [                 511:0]        ipv4_axis_sdata_s1;
-  reg          [                  63:0]        ipv4_axis_skeep_s1;
-  reg                                          ipv4_axis_slast_s1;
-  reg                                          ipv4_axis_svalid_s1;
-  reg          [AXIS_RX_USER_WIDTH-1:0]        ipv4_axis_susr_s1;
+  // 参数范围检查
+  initial begin
+    if (TxUsrWidth < 1 || RxUsrWidth < 1) begin
+      $display("错误：icmpv4_echo_reply：不支持的参数配置。");
+      $finish;
+    end
+  end
 
-  reg          [                 511:0]        ipv4_axis_sdata_s2;
-  reg          [                  63:0]        ipv4_axis_skeep_s2;
-  reg                                          ipv4_axis_slast_s2;
-  reg                                          ipv4_axis_svalid_s2;
-  reg          [AXIS_RX_USER_WIDTH-1:0]        ipv4_axis_susr_s2;
+  // 应答配置
+  reg  [TxUsrWidth-1:0] cfg_arbiter_value_d1;
+  reg                   cfg_clear_error_d1;
 
-  reg          [                 511:0]        ipv4_axis_mdata_reg;
-  reg          [                  63:0]        ipv4_axis_mkeep_reg;
-  reg                                          ipv4_axis_mlast_reg;
-  reg                                          ipv4_axis_mvalid_reg;
-  reg          [    AXIS_USER_WIDTH-1:0]        ipv4_axis_musr_reg;
+  // 入口skid接口
+  wire [         511:0] axis_sdata_skid;
+  wire [          63:0] axis_skeep_skid;
+  wire                  axis_slast_skid;
+  wire                  axis_svalid_skid;
+  wire                  axis_sready_skid;
+  wire                  s_handshake_skid;
 
-  reg          [                 511:0]        ipv4_axis_mdata_skid;
-  reg          [                  63:0]        ipv4_axis_mkeep_skid;
-  reg                                          ipv4_axis_mlast_skid;
-  reg                                          ipv4_axis_mvalid_skid;
-  reg          [    AXIS_USER_WIDTH-1:0]        ipv4_axis_musr_skid;
+  // p1 输入缓存
+  reg  [         511:0] p1_axis_sdata;
+  reg  [          63:0] p1_axis_skeep;
+  reg                   p1_axis_slast;
+  reg                   p1_axis_svalid;
+  reg                   p1_is_ttl_live;
+  reg  [          31:0] p1_dst_ip;
+  reg  [          31:0] p1_src_ip;
+  reg  [          15:0] p1_checksum;
 
-  // s1 计算是否为请求帧、ttl、源/目的ip、校验checksum
-  // s2 给输出
-  // s3 将输出给skid和reg
+  // p2 输出缓存
+  reg  [         511:0] p2_axis_sdata;
+  reg  [          63:0] p2_axis_skeep;
+  reg                   p2_axis_slast;
+  reg                   p2_axis_svalid;
 
-  wire s2_ready = !ipv4_axis_mvalid_skid;
-  wire s1_ready = !ipv4_axis_svalid_s2 || s2_ready;
-  assign ipv4_axis_sready = s1_ready || !ipv4_axis_svalid_s1;
+  // 首拍标志
+  reg                   is_first_beat;
+  reg                   p1_is_first_beat;
 
-  wire s_handshake = ipv4_axis_sready && ipv4_axis_svalid;
-  wire s1_handshake = s1_ready && ipv4_axis_svalid_s1;
-  wire s2_handshake = s2_ready && ipv4_axis_svalid_s2;
-  wire m_handshake = ipv4_axis_mready && ipv4_axis_mvalid;
+  // 流水控制
+  wire                  p2_ready;
+  wire                  p1_ready;
+  wire                  p1_handshake;
+  wire                  p2_handshake;
 
-  wire reg_can_take = !ipv4_axis_mvalid_reg || ipv4_axis_mready;
-  wire skid_to_reg = ipv4_axis_mvalid_skid && reg_can_take;
-  wire s2_to_reg = s2_handshake && reg_can_take;
-  wire s2_to_skid = s2_handshake && !reg_can_take;
+  // 首拍预处理与丢弃状态
+  reg                   drop_frame_locked;
+  wire                  is_ttl_live;
+  reg                   ttl_error;
+  wire [          31:0] dst_ip;
+  wire [          31:0] src_ip;
+  wire [          16:0] checksum_sum;
 
-  wire is_ttl_live = ipv4_axis_sdata[71:64] != 8'h00;
-  reg is_ttl_live_s1;
+  // 流水控制
+  assign p1_ready         = !p2_axis_svalid || p2_ready;
+  assign axis_sready_skid = p1_ready || !p1_axis_svalid;
+  assign s_handshake_skid = axis_sready_skid && axis_svalid_skid;
+  assign p1_handshake     = p1_ready && p1_axis_svalid;
+  assign p2_handshake     = p2_ready && p2_axis_svalid;
 
-  wire is_echo_req = ipv4_axis_sdata[175:160] == 16'h0008;
-  reg is_echo_req_s1;
+  // 首拍预处理
+  assign is_ttl_live      = axis_sdata_skid[71:64] != 8'h00;
+  assign dst_ip           = axis_sdata_skid[159:128];
+  assign src_ip           = axis_sdata_skid[127:96];
+  assign checksum_sum     = {1'b0, axis_sdata_skid[191:176]} + 17'h0008;
 
-  wire [31:0] dst_ip = ipv4_axis_sdata[159:128];
-  wire [31:0] src_ip = ipv4_axis_sdata[127:96];
-  reg [31:0] dst_ip_s1;
-  reg [31:0] src_ip_s1;
-
-  wire [16:0] checksum_tmp = {1'b0,ipv4_axis_sdata[191:176]} + 17'h0008;
-  reg [15:0] checksum_s1;
-
-  wire is_frame_valid_s1 = ipv4_axis_susr_s1[0] == 1'b0; // 校验0bit需要为0，否则为错误帧
-
-  reg is_drop_reg;
-
-  reg stat_drop_pulse_reg;
-  reg [2:0] stat_drop_reason_reg;
-
-  // s1: valid
+  // 配置寄存
   always @(posedge clk) begin
     if (rst) begin
-      ipv4_axis_svalid_s1 <= 'b0;
+      cfg_arbiter_value_d1 <= 'd0;
+    end else begin
+      cfg_arbiter_value_d1 <= cfg_arbiter_value;
     end
-    else begin
-      if (s_handshake) begin
-        ipv4_axis_svalid_s1 <= 1'b1;
+  end
+  always @(posedge clk) begin
+    if (rst) begin
+      cfg_clear_error_d1 <= 1'b0;
+    end else begin
+      cfg_clear_error_d1 <= cfg_clear_error;
+    end
+  end
+
+  // 入口skid
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (RxUsrWidth)
+  ) axis_skid_buffer_in (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(axis_sready),
+      .axis_sdata (axis_sdata),
+      .axis_skeep (axis_skeep),
+      .axis_susr  (axis_susr),
+      .axis_slast (axis_slast),
+      .axis_svalid(axis_svalid),
+      .axis_mready(axis_sready_skid),
+      .axis_mdata (axis_sdata_skid),
+      .axis_mkeep (axis_skeep_skid),
+      .axis_musr  (),
+      .axis_mlast (axis_slast_skid),
+      .axis_mvalid(axis_svalid_skid)
+  );
+
+  // p1 输入缓存与首拍预处理
+  //// 有效位
+  always @(posedge clk) begin
+    if (rst) begin
+      p1_axis_svalid <= 'd0;
+    end else begin
+      if (s_handshake_skid) begin
+        p1_axis_svalid <= 1'b1;
+      end else if (p1_handshake) begin
+        p1_axis_svalid <= 1'b0;
       end
-      else if (s1_handshake) begin
-        ipv4_axis_svalid_s1 <= 1'b0;
+    end
+  end
+  //// 数据与边带
+  always @(posedge clk) begin
+    if (s_handshake_skid) begin
+      p1_axis_sdata <= axis_sdata_skid;
+      p1_axis_skeep <= axis_skeep_skid;
+      p1_axis_slast <= axis_slast_skid;
+    end
+  end
+  //// TTL检查
+  always @(posedge clk) begin
+    if (rst) begin
+      p1_is_ttl_live <= 'd0;
+    end else begin
+      if (s_handshake_skid) begin
+        p1_is_ttl_live <= is_ttl_live;
+      end
+    end
+  end
+  //// 源与目的IP
+  always @(posedge clk) begin
+    if (s_handshake_skid) begin
+      p1_dst_ip <= dst_ip;
+      p1_src_ip <= src_ip;
+    end
+  end
+  //// 校验和
+  // 首拍将type/code改为0，并以增量方式更新ICMP校验和。
+  always @(posedge clk) begin
+    if (s_handshake_skid) begin
+      p1_checksum <= {15'd0, checksum_sum[16]} + checksum_sum[15:0];
+    end
+  end
+  //// 首拍标志
+  always @(posedge clk) begin
+    if (rst) begin
+      is_first_beat    <= 1'b1;
+      p1_is_first_beat <= 1'b0;
+    end else begin
+      if (s_handshake_skid) begin
+        // 本包末拍握手后，下一次传输为新包首拍。
+        is_first_beat    <= axis_slast_skid;
+        p1_is_first_beat <= is_first_beat;
       end
     end
   end
 
-  // s1: data keep last
-  always @(posedge clk) begin
-    if (s_handshake) begin
-      ipv4_axis_sdata_s1 <= ipv4_axis_sdata;
-      ipv4_axis_skeep_s1 <= ipv4_axis_skeep;
-      ipv4_axis_slast_s1 <= ipv4_axis_slast;
-      ipv4_axis_susr_s1  <= ipv4_axis_susr;
-    end
-  end
-
-  // is_drop_reg
+  // p2 应答组装与丢弃
+  //// 丢包状态
   always @(posedge clk) begin
     if (rst) begin
-      is_drop_reg <= 'b0;
-    end
-    else begin
-      if (s1_handshake && is_first_beat_s1 && is_ttl_live_s1 && is_echo_req_s1 && is_frame_valid_s1) begin
-        is_drop_reg <= 1'b0;
-      end
-      else if(s1_handshake && is_first_beat_s1) begin
-        is_drop_reg <= 1'b1;
+      drop_frame_locked <= 'd0;
+    end else begin
+      if (p1_handshake && p1_is_first_beat) begin
+        drop_frame_locked <= !p1_is_ttl_live;
       end
     end
   end
-
-  // s2: valid
+  //// 有效位
   always @(posedge clk) begin
     if (rst) begin
-      ipv4_axis_svalid_s2 <= 'b0;
-    end
-    else begin
-      if (s1_handshake) begin
-        if (is_first_beat_s1) begin
-          ipv4_axis_svalid_s2 <= is_ttl_live_s1 && is_echo_req_s1 && is_frame_valid_s1;
+      p2_axis_svalid <= 'd0;
+    end else begin
+      if (p1_handshake) begin
+        if (p1_is_first_beat) begin
+          p2_axis_svalid <= p1_is_ttl_live;
+        end else begin
+          p2_axis_svalid <= !drop_frame_locked;
         end
-        else begin
-          ipv4_axis_svalid_s2 <= ~is_drop_reg;
-        end
-      end
-      else if (s2_handshake) begin
-        ipv4_axis_svalid_s2 <= 1'b0;
+      end else if (p2_handshake) begin
+        p2_axis_svalid <= 1'b0;
       end
     end
   end
-
-  // s2: data keep last
+  //// 数据与边带
   always @(posedge clk) begin
-    if (s1_handshake) begin
-      if (is_first_beat_s1) begin
-        ipv4_axis_sdata_s2 <= {ipv4_axis_sdata_s1[511:192],checksum_s1,16'h0000,src_ip_s1,dst_ip_s1,ipv4_axis_sdata_s1[95:0]};
+    if (p1_handshake) begin
+      if (p1_is_first_beat) begin
+        p2_axis_sdata <= {
+          p1_axis_sdata[511:192], p1_checksum, 16'h0000, p1_src_ip, p1_dst_ip, p1_axis_sdata[95:0]
+        };
+      end else begin
+        p2_axis_sdata <= p1_axis_sdata;
       end
-      else begin
-        ipv4_axis_sdata_s2 <= ipv4_axis_sdata_s1;
-      end
-      ipv4_axis_skeep_s2 <= ipv4_axis_skeep_s1;
-      ipv4_axis_slast_s2 <= ipv4_axis_slast_s1;
-      ipv4_axis_susr_s2  <= arbiter_val;
+      p2_axis_skeep <= p1_axis_skeep;
+      p2_axis_slast <= p1_axis_slast;
     end
   end
 
-  // reg skid: valid
-  always @(posedge clk) begin
-    if (rst) begin
-      ipv4_axis_mvalid_reg <= 'd0;
-      ipv4_axis_mvalid_skid <= 'd0;
-    end
-    else begin
-      if (s2_to_reg || skid_to_reg) begin
-        ipv4_axis_mvalid_reg <= 1'b1;
-      end
-      else if (m_handshake) begin
-        ipv4_axis_mvalid_reg <= 1'b0;
-      end
+  // 输出优先级
+  assign axis_musr = cfg_arbiter_value_d1;
 
-      if (s2_to_skid) begin
-        ipv4_axis_mvalid_skid <= 1'b1;
-      end
-      else if (skid_to_reg) begin
-        ipv4_axis_mvalid_skid <= 1'b0;
-      end
-    end
-  end
+  // 出口skid
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (1)
+  ) axis_skid_buffer_out (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(p2_ready),
+      .axis_sdata (p2_axis_sdata),
+      .axis_skeep (p2_axis_skeep),
+      .axis_susr  (1'b0),
+      .axis_slast (p2_axis_slast),
+      .axis_svalid(p2_axis_svalid),
+      .axis_mready(axis_mready),
+      .axis_mdata (axis_mdata),
+      .axis_mkeep (axis_mkeep),
+      .axis_musr  (),
+      .axis_mlast (axis_mlast),
+      .axis_mvalid(axis_mvalid)
+  );
 
-  // reg skid: data keep last
-  always @(posedge clk) begin
-    if (skid_to_reg) begin
-      ipv4_axis_mdata_reg <= ipv4_axis_mdata_skid;
-      ipv4_axis_mkeep_reg <= ipv4_axis_mkeep_skid;
-      ipv4_axis_mlast_reg <= ipv4_axis_mlast_skid;
-      ipv4_axis_musr_reg  <= ipv4_axis_musr_skid;
-    end
-    else if (s2_to_reg) begin
-      ipv4_axis_mdata_reg <= ipv4_axis_sdata_s2;
-      ipv4_axis_mkeep_reg <= ipv4_axis_skeep_s2;
-      ipv4_axis_mlast_reg <= ipv4_axis_slast_s2;
-      ipv4_axis_musr_reg  <= ipv4_axis_susr_s2;
-    end
-
-    if (s2_to_skid) begin
-      ipv4_axis_mdata_skid <= ipv4_axis_sdata_s2;
-      ipv4_axis_mkeep_skid <= ipv4_axis_skeep_s2;
-      ipv4_axis_mlast_skid <= ipv4_axis_slast_s2;
-      ipv4_axis_musr_skid  <= ipv4_axis_susr_s2;
-    end
-  end
-
-  // is_ttl_live_s1
+  // TTL错误锁存，新错误优先于配置清除
   always @(posedge clk) begin
     if (rst) begin
-      is_ttl_live_s1 <= 'b0;
-    end
-    else begin
-      if (s_handshake) begin
-        is_ttl_live_s1 <= is_ttl_live;
-      end
-    end
-  end
-
-  // is_echo_req_s1
-  always @(posedge clk) begin
-    if (rst) begin
-      is_echo_req_s1 <= 'b0;
-    end
-    else begin
-      if (s_handshake) begin
-        is_echo_req_s1 <= is_echo_req;
-      end
+      ttl_error <= 1'b0;
+    end else if (p1_handshake && p1_is_first_beat && !p1_is_ttl_live) begin
+      ttl_error <= 1'b1;
+    end else if (cfg_clear_error_d1) begin
+      ttl_error <= 1'b0;
     end
   end
-
-  // dst_ip_s1 src_ip_s1
-  always @(posedge clk) begin
-    if (s_handshake) begin
-      dst_ip_s1 <= dst_ip;
-      src_ip_s1 <= src_ip;
-    end
-  end
-
-  // checksum_s1
-  always @(posedge clk) begin
-    if (s_handshake) begin
-      checksum_s1 <= checksum_tmp[16] + checksum_tmp[15:0];
-    end
-  end
-
-  // is_first_beat
-  always @(posedge clk) begin
-    if (rst) begin
-      is_first_beat <= 1'b1;                                        // 复位后第一拍视为首拍
-      is_first_beat_s1 <= 1'b0;
-    end
-    else begin
-      if (s_handshake) begin
-        is_first_beat <= ipv4_axis_slast;                           // 本拍收的是本包最后一拍 -> 下一拍即新包首拍
-        is_first_beat_s1 <= is_first_beat;
-      end
-    end
-  end
-
-  // stat_drop_pulse_reg
-  always @(posedge clk) begin
-    if (rst) begin
-      stat_drop_pulse_reg <= 'd0;
-      stat_drop_reason_reg <= 'd0;
-    end
-    else begin
-      if (s1_handshake && is_first_beat_s1) begin
-        stat_drop_pulse_reg <= ~(is_ttl_live_s1 && is_echo_req_s1 && is_frame_valid_s1);
-      end
-      else begin
-        stat_drop_pulse_reg <= 1'b0;
-      end
-      // 原因码保持到下一次丢弃, 便于 ILA / 计数器观测
-      if (s1_handshake && is_first_beat_s1 && ~(is_ttl_live_s1 && is_echo_req_s1 && is_frame_valid_s1)) begin
-        stat_drop_reason_reg <= {~is_echo_req_s1,~is_frame_valid_s1,~is_ttl_live_s1};
-      end
-    end
-  end
-
-  assign ipv4_axis_mdata  = ipv4_axis_mdata_reg;
-  assign ipv4_axis_mkeep  = ipv4_axis_mkeep_reg;
-  assign ipv4_axis_mlast  = ipv4_axis_mlast_reg;
-  assign ipv4_axis_mvalid = ipv4_axis_mvalid_reg;
-  assign ipv4_axis_musr   = ipv4_axis_musr_reg;
-  assign stat_drop_pulse = stat_drop_pulse_reg;
-  assign stat_drop_reason = stat_drop_reason_reg;
+  assign stat_ttl_error = ttl_error;
 
 endmodule
 `resetall

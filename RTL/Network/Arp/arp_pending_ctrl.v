@@ -1,430 +1,304 @@
+// -----------------------------------------------------------------------------
+// File Name   : arp_pending_ctrl.v
+// Module Name : arp_pending_ctrl
+// Author      : LiXintao
+// Created     : 2026-09-15
+// Version     : 1.0
+// -----------------------------------------------------------------------------
+// Description : ARP待决请求控制，利用IP和时间戳抑制超时前的重复请求
+// Note        : 5级流水线，每拍接收请求；连续同IP请求存在在途更新不可见窗口
+// -----------------------------------------------------------------------------
+
 `resetall
 `default_nettype none
-`timescale 1ns/100ps
-// Language: Verilog 2001
-// ============================================================================
-// File Name   : arp_pending_lookup.v
-// Module Name : arp_pending_lookup
-// Author      : LiXintao
-// Date        : 2026-09-15
-// Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : 8级流水，如果单拍ARP，最多同时突发8次，若数据包长度>=4（passby），则只会突发一次
-// 
-// ============================================================================
+`timescale 1ns / 100ps
 
-module arp_pending_ctrl#(
-  parameter  ITEM_WIDTH= 90, // valid+ip+time=1+32+57
-  parameter  CACHE_DEEP= 1024,
-  localparam  CACHE_ADDR_WIDTH= CACHE_DEEP == 1? 1 : $clog2(CACHE_DEEP),
-  parameter  HASH_WAY_CNT= 4 ,
-  parameter  TIME_WIDTH= 57
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+module arp_pending_ctrl #(
+    parameter integer TimeWidth = 24,  // 毫秒时间戳，约4.66小时回绕
+    localparam integer ItemWidth = 33 + TimeWidth,  // valid+ip+time
+    parameter integer CacheDepth = 1024,
+    localparam integer CacheAddrWidth = CacheDepth == 1 ? 1 : $clog2(CacheDepth),
+    parameter integer HashWayCount = 4,
+    parameter integer ClkFreqHz = 400000000
+) (
+    input wire clk,
+    input wire rst,
 
-  input  wire                                          req_valid_pulse ,
-  input  wire          [                  31: 0]       req_ip          ,
+    input wire        req_valid_pulse,
+    input wire [31:0] req_ip,
 
-  output wire                                          permit_valid_pulse,
-  output wire                                          permit_miss     ,
-  output wire          [                  31: 0]       permit_ip       ,
+    output wire permit_valid_pulse,
+    output wire permit_blocked,
+    output wire [31:0] permit_ip,
 
-  input  wire          [        TIME_WIDTH-1: 0]       cfg_pending_time,
-  input  wire                                          cfg_clear       ,
+    input wire [TimeWidth-1:0] cfg_pending_time,
+    input wire                 cfg_clear,
 
-  output wire                                          stat_clear_finish 
+    output wire stat_clear_finish
 );
 
-  localparam HASH_WAY_CNT_WIDTH= HASH_WAY_CNT == 1 ? 1 : $clog2(HASH_WAY_CNT);
+  // p1发出读请求，p2/p3对齐待决表返回。
+  // p4寄存匹配和超时结果，p5输出许可并按需写回。
+  // 毫秒时基维护时间戳，清表期间屏蔽请求。
 
-  reg                  [        TIME_WIDTH-1: 0]       time_base_reg      ;
-
-  reg                  [  CACHE_ADDR_WIDTH-1: 0]       lookup_addr_reg    ;
-  reg                                                  lookup_re_reg      ;
-  wire                 [ITEM_WIDTH*HASH_WAY_CNT-1: 0]  lookup_dout        ;
-
-  reg                  [      HASH_WAY_CNT-1: 0]       write_we_full_reg  ;
-  reg                  [      HASH_WAY_CNT-1: 0]       write_we_full_random  ;
-  reg                  [  CACHE_ADDR_WIDTH-1: 0]       write_addr_reg     ;
-  reg                  [        ITEM_WIDTH-1: 0]       write_din_reg      ;
-
-  reg                                                  permit_valid_pulse_reg  ;
-  reg                                                  permit_miss_reg    ;
-  reg                  [                  31: 0]       permit_ip_reg      ;
-
-  wire                 [                  31: 0]       ip_hash            ;
-  reg                  [  CACHE_ADDR_WIDTH-1: 0]       ip_hash_s1,      ip_hash_s2,ip_hash_s3,ip_hash_s4,ip_hash_s5,ip_hash_s6,ip_hash_s7;
-  reg                                                  req_valid_pulse_s1,req_valid_pulse_s2,req_valid_pulse_s3,req_valid_pulse_s4,req_valid_pulse_s5,req_valid_pulse_s6,req_valid_pulse_s7  ;
-  reg                  [                  31: 0]       req_ip_s1,req_ip_s2,req_ip_s3,req_ip_s4,req_ip_s5,req_ip_s6,req_ip_s7  ;
-
-  reg                                                  match_comb         ;
-  reg                  [HASH_WAY_CNT_WIDTH-1: 0]       match_way_index_comb  ;
-  reg                                                  empty_comb         ;
-  reg                  [HASH_WAY_CNT_WIDTH-1: 0]       empty_way_index_comb  ;
-  reg                  [        TIME_WIDTH-1: 0]       match_time_comb    ;
-   
-  reg                                                  clear_finish       ;
-  reg                  [  CACHE_ADDR_WIDTH-1: 0]       clear_addr_reg     ;
-
-  reg                                                 is_timeout         ;
-
-  reg          [        TIME_WIDTH-1: 0]       cfg_pending_time_reg;
-  reg                                          cfg_clear_reg;
-
-  always @(posedge clk) begin
-    cfg_pending_time_reg <= cfg_pending_time;
-    cfg_clear_reg <= cfg_clear;
+  // 参数范围检查
+  initial begin
+    if (CacheDepth < 2 || (CacheDepth & (CacheDepth - 1)) != 0 || HashWayCount < 1 ||
+        TimeWidth < 1 || ClkFreqHz < 1000) begin
+      $display(
+          "错误：arp_pending_ctrl：深度须为不小于2的2次幂，路数和时间位宽须大于0");
+      $display("错误：arp_pending_ctrl：ClkFreqHz须不小于1000");
+      $finish;
+    end
   end
 
-  // 计算hash
+  // 内部常量
+  localparam integer CyclesPerMs  = ClkFreqHz / 1000;
+  localparam integer MsCountWidth = CyclesPerMs <= 1 ? 1 : $clog2(CyclesPerMs);
+  localparam integer RequestDelay = 4;
+
+  // 待决配置
+  reg  [                  TimeWidth-1:0] cfg_pending_time_d1;
+  reg                                    cfg_clear_d1;
+
+  // 请求流水
+  reg  [               RequestDelay-1:0] req_valid_shift;
+  reg  [            32*RequestDelay-1:0] req_ip_shift;
+  reg  [CacheAddrWidth*RequestDelay-1:0] req_addr_shift;
+  wire [                           31:0] ip_hash;
+
+  // p4 比较结果
+  reg                                    p4_has_match;
+  reg                                    p4_has_empty_way;
+  reg                                    p4_match_expired;
+  reg  [               HashWayCount-1:0] p4_matched_way_onehot;
+  reg  [               HashWayCount-1:0] p4_empty_way_onehot;
+
+  // p5 写回接口
+  reg  [               HashWayCount-1:0] p5_write_we;
+  reg  [             CacheAddrWidth-1:0] p5_write_addr;
+  reg  [                  ItemWidth-1:0] p5_write_din;
+
+  // p5 许可结果
+  reg                                    p5_permit_valid_pulse;
+  reg                                    p5_permit_blocked;
+  reg  [                           31:0] p5_permit_ip;
+
+  // 毫秒时基
+  reg  [               MsCountWidth-1:0] ms_cycle_count;
+  wire                                   ms_tick;
+  reg  [                  TimeWidth-1:0] timestamp_ms;
+
+  // 清表扫描
+  reg                                    clear_finish;
+  reg  [             CacheAddrWidth-1:0] clear_addr;
+
+  // 匹配与替换选择
+  wire [     ItemWidth*HashWayCount-1:0] lookup_dout;
+  reg  [               HashWayCount-1:0] replace_way_onehot;
+  reg                                    has_match;
+  reg                                    has_empty_way;
+  reg                                    matched_entry_expired;
+  wire [               HashWayCount-1:0] expired_way_mask;
+  wire [               HashWayCount-1:0] matched_way_mask;
+  wire [               HashWayCount-1:0] empty_way_mask;
+  wire [               HashWayCount-1:0] matched_way_onehot;
+  wire [               HashWayCount-1:0] empty_way_onehot;
+
+  // 生成循环
+  genvar g_timeout_way;
+  genvar g_select;
+  genvar g_way_index;
+
+  // 毫秒计数终值
+  assign ms_tick = ms_cycle_count == CyclesPerMs - 1;
+
+  // 请求流水与配置
+  //// 请求载荷与有效位延迟
+  always @(posedge clk) begin
+    req_ip_shift <= {req_ip_shift[32*(RequestDelay-1)-1:0], req_ip};
+    req_addr_shift <= {
+      req_addr_shift[CacheAddrWidth*(RequestDelay-1)-1:0], ip_hash[CacheAddrWidth-1:0]
+    };
+    if (rst || cfg_clear_d1 || !clear_finish) begin
+      req_valid_shift <= 'd0;
+    end else begin
+      req_valid_shift <= {req_valid_shift[RequestDelay-2:0], req_valid_pulse};
+    end
+  end
+  //// 寄存配置
+  always @(posedge clk) begin
+    cfg_pending_time_d1 <= cfg_pending_time;
+  end
+  always @(posedge clk) begin
+    cfg_clear_d1 <= cfg_clear;
+  end
+  //// 毫秒时基
+  always @(posedge clk) begin
+    if (rst || cfg_clear_d1 || ms_tick) begin
+      ms_cycle_count <= 'd0;
+    end else begin
+      ms_cycle_count <= ms_cycle_count + 1'b1;
+    end
+  end
+  always @(posedge clk) begin
+    if (rst || cfg_clear_d1) begin
+      timestamp_ms <= 'd0;
+    end else if (ms_tick) begin
+      timestamp_ms <= timestamp_ms + 1'b1;
+    end
+  end
+
   // 读取
-  // 等待1
-  // 等待2
-  // 缓存输入，计算条件
-  // 计算结果
-  // 计算超时
-  // 输出/写入
-
-  // clear_addr_reg
-  always @(posedge clk) begin
-    if (cfg_clear_reg || rst) begin
-      clear_addr_reg <= 'd0;
-    end
-    else begin
-      clear_addr_reg <= clear_addr_reg + 1'b1;
-    end
-  end
-
-  // clear_finish
-  always @(posedge clk)begin
-    if (rst || cfg_clear_reg) begin
-      clear_finish <= 'd0;
-    end
-    else begin
-      if (clear_addr_reg == {CACHE_ADDR_WIDTH{1'b1}}) begin
-        clear_finish <= 1'b1;
-      end
-    end
-  end
-
-  // time_base_reg
-  always @(posedge clk) begin
-    if (rst || cfg_clear_reg) begin
-        time_base_reg <= 'd0;
-    end
-    else begin
-        time_base_reg <= time_base_reg + 1'b1;
-    end
-  end
-
-  // 流水线
-  always @(posedge clk)begin
-    if (rst || !clear_finish) begin
-      {req_valid_pulse_s7,req_valid_pulse_s6,req_valid_pulse_s5,req_valid_pulse_s4,req_valid_pulse_s3,req_valid_pulse_s2} <= 'd0;
-    end
-    else begin
-      if (clear_finish) begin
-        {req_valid_pulse_s7,req_valid_pulse_s6,req_valid_pulse_s5,req_valid_pulse_s4,req_valid_pulse_s3,req_valid_pulse_s2} <= {req_valid_pulse_s6,req_valid_pulse_s5,req_valid_pulse_s4,req_valid_pulse_s3,req_valid_pulse_s2,req_valid_pulse_s1};
-      end
-    end
-
-    if (clear_finish) begin
-      {ip_hash_s7,ip_hash_s6,ip_hash_s5,ip_hash_s4,ip_hash_s3,ip_hash_s2} <= {ip_hash_s6,ip_hash_s5,ip_hash_s4,ip_hash_s3,ip_hash_s2,ip_hash_s1};
-      {req_ip_s7,req_ip_s6,req_ip_s5,req_ip_s4,req_ip_s3,req_ip_s2} <= {req_ip_s6,req_ip_s5,req_ip_s4,req_ip_s3,req_ip_s2,req_ip_s1};
-    end
-  end
-
-  // 第一级，对哈希结果打拍，原始输入进行缓存
-  // ip_hash_s1
-  always @(posedge clk)begin
-    if (req_valid_pulse) begin
-      ip_hash_s1 <= ip_hash[CACHE_ADDR_WIDTH-1:0];
-    end
-  end
-
-  // req_valid_pulse_s1
-  always @(posedge clk)begin
-    if (rst) begin
-      req_valid_pulse_s1 <= 'd0;
-    end
-    else begin
-      if (req_valid_pulse && clear_finish) begin
-        req_valid_pulse_s1 <= req_valid_pulse;
-      end
-      else begin
-        req_valid_pulse_s1 <= 'd0;
-      end
-    end
-  end
-
-  // req_ip_s1
-  always @(posedge clk)begin
-    if (req_valid_pulse && clear_finish) begin
-      req_ip_s1 <= req_ip;
-    end
-  end
-
-  // 第二级，读取RAM中的数据 s1
-  // lookup_re_reg
-  always @(posedge clk)begin
-    if(rst)begin
-      lookup_re_reg <= 'd0;
-    end
-    else begin
-      if (req_valid_pulse_s1) begin
-        lookup_re_reg <= 1'b1;
-      end
-      else begin
-        lookup_re_reg <= 1'b0;
-      end
-    end
-  end
-
-  // lookup_addr_reg
-  always @(posedge clk)begin
-    if(req_valid_pulse_s1)begin
-      lookup_addr_reg <= ip_hash_s1;
-    end
-  end
-
-  // 第三级，等待 s2
-  // 第四级，等待 s3
-  // 第五级，缓存输出，计算条件 s4
-  // 第六级，计算结果 s5
-  // 第七级，计算超时 s6
-  // 第八级，输出结果 s7
-  // 静态优先级编码器
-  reg [ITEM_WIDTH*HASH_WAY_CNT-1: 0] lookup_dout_reg ;
-  reg [HASH_WAY_CNT-1:0] is_match_one_hot;
-  reg [HASH_WAY_CNT-1:0] is_empty_one_hot;
-  integer                                              way_index          ;
-
-  // lookup_dout_reg is_match_one_hot is_empty_one_hot
-  always @(posedge clk)begin
-    lookup_dout_reg <= lookup_dout;
-    if (rst) begin
-      is_empty_one_hot <= 'd0;
-      is_match_one_hot <= 'd0;
-    end
-    else begin
-      for (way_index = 0; way_index < HASH_WAY_CNT; way_index = way_index + 1) begin
-        is_match_one_hot[way_index] <= lookup_dout[way_index*ITEM_WIDTH+ITEM_WIDTH-1 -: 33] ==  {1'b1,req_ip_s4};
-        is_empty_one_hot[way_index] <= lookup_dout[way_index*ITEM_WIDTH+ITEM_WIDTH-1] == 1'b0;
-      end
-    end
-  end
-
-  
-  always @(*) begin
-    match_comb = 1'b0;
-    match_way_index_comb = 'd0;
-    match_time_comb = 'd0;
-    empty_comb = 1'b0;
-    empty_way_index_comb = 'd0;
-
-    for (way_index = 0; way_index < HASH_WAY_CNT; way_index = way_index + 1) begin
-      if (is_match_one_hot[way_index]) begin// valid+ip
-        match_comb = 1'b1;
-        match_way_index_comb = way_index;
-        match_time_comb = lookup_dout_reg[way_index*ITEM_WIDTH+: TIME_WIDTH];
-      end
-      if (is_empty_one_hot[way_index]) begin// valid
-        empty_comb = 1'b1;
-        empty_way_index_comb = way_index;
-      end
-    end
-  end
-
-  reg match_s6,match_s7;
-  reg [HASH_WAY_CNT_WIDTH-1: 0] match_way_index_s6,match_way_index_s7;
-  reg [ TIME_WIDTH-1: 0]  match_time_s6,match_time_s7;
-  reg empty_s6,empty_s7;
-  reg [HASH_WAY_CNT_WIDTH-1: 0] empty_way_index_s6,empty_way_index_s7;
-
-  always @(posedge clk) begin                                        
-    if(rst) begin
-      match_s6 <= 0;
-      empty_s6 <= 0;
-    end
-    else begin
-      if (req_valid_pulse_s5) begin
-        match_s6 <= match_comb;
-        match_way_index_s6 <= match_way_index_comb;
-        match_time_s6 <= match_time_comb;
-        empty_s6 <= empty_comb;
-        empty_way_index_s6 <= empty_way_index_comb;
-      end
-      else begin
-        match_s6 <= 0;
-        empty_s6 <= 0;
-      end
-    end
-  end
-
-  always @(posedge clk) begin                                        
-    if(rst) begin
-      match_s7 <= 0;
-      empty_s7 <= 0;
-    end
-    else begin
-      match_s7 <= match_s6;
-      match_way_index_s7 <= match_way_index_s6;
-      match_time_s7 <= match_time_s6;
-      empty_s7 <= empty_s6;
-      empty_way_index_s7 <= empty_way_index_s6;
-    end
-  end
-
-
-  // write_we_full_random
-  always @(posedge clk) begin
-    if (rst) begin
-      write_we_full_random <= 'd1;
-    end
-    else begin
-      write_we_full_random <= {write_we_full_random[HASH_WAY_CNT-2:0],write_we_full_random[HASH_WAY_CNT-1]};
-    end
-  end
-
-  // is_timeout
-  always @(posedge clk)begin
-    if(rst)begin
-      is_timeout <= 1'b0;
-    end
-    else begin
-      is_timeout <= (time_base_reg - match_time_s6) >= cfg_pending_time_reg;
-    end
-  end
-
-  // write_we_full_reg
-  always @(posedge clk)begin
-    if(rst)begin
-      write_we_full_reg <= 'd0;
-    end
-    else begin
-      if (~clear_finish) begin
-        write_we_full_reg <= {HASH_WAY_CNT{1'b1}};
-      end
-      else if(req_valid_pulse_s7) begin
-        if(match_s7)begin
-          if (is_timeout) begin
-            write_we_full_reg <= 'b1 << match_way_index_s7;       // 更新
-          end
-          else begin
-            write_we_full_reg <= 'd0;                               // 忽略
-          end
-        end
-        else if(empty_s7) begin
-          write_we_full_reg <= 'b1 << empty_way_index_s7;         // 插入
-        end
-        else begin
-          write_we_full_reg <= write_we_full_random;                // 随机插入
-        end
-      end
-      else begin
-        write_we_full_reg <= 1'b0;
-      end
-    end
-  end
-
-  // write_addr_reg
-  always @(posedge clk)begin
-    if(req_valid_pulse_s7 && clear_finish)begin
-      write_addr_reg <= ip_hash_s7;
-    end
-    else begin
-      write_addr_reg <= clear_addr_reg;
-    end
-  end
-
-  // write_din_reg
-  always @(posedge clk)begin
-    if(req_valid_pulse_s7 && clear_finish)begin
-      write_din_reg <= {1'b1,req_ip_s7,time_base_reg};
-    end
-    else begin
-      write_din_reg <= 'd0;
-    end
-  end
-
-
-  // permit_valid_pulse_reg
-  always @(posedge clk)begin
-    if(req_valid_pulse_s7)begin
-      permit_valid_pulse_reg <= 1'b1;
-    end
-    else begin
-      permit_valid_pulse_reg <= 'd0;
-    end
-  end
-
-  // permit_miss_reg
-  always @(posedge clk)begin
-    if(req_valid_pulse_s7)begin
-      permit_miss_reg <= ~is_timeout && match_s7;
-    end
-  end
-
-  // permit_ip_reg
-  always @(posedge clk)begin
-    if(req_valid_pulse_s7)begin
-      permit_ip_reg <= req_ip_s7;
-    end
-  end
-
-  lfsr#(
-    .LFSR_WIDTH       (32               ),
-    .LFSR_POLY        (32'h4c11db7      ),
-    .LFSR_CONFIG      ("GALOIS"         ),
-    .REVERSE          (1                ),
-    .DATA_WIDTH       (32               ),
-    .STYLE            ("AUTO"           ) 
-  )
-  u_lfsr(
-    .data_in          (req_ip           ),// (input)
-    .state_in         (32'hFFFFFFFF     ),// (input)
-    .data_out         (                 ),// (output)// 加扰后输出
-    .state_out        (ip_hash          ) // (output)
+  //// 计算哈希
+  crc32_d32 crc32_d32_inst (
+      .crc     (32'hFFFFFFFF),
+      .data    (req_ip),
+      .crc_next(ip_hash)
   );
 
+  // 比较
+  //// 计算匹配
+  for (
+      g_timeout_way = 0; g_timeout_way < HashWayCount; g_timeout_way = g_timeout_way + 1
+  ) begin : gen_timeout
+    wire [TimeWidth-1:0] elapsed_ms;
+    assign elapsed_ms = timestamp_ms - lookup_dout[g_timeout_way*ItemWidth+:TimeWidth];
+    assign expired_way_mask[g_timeout_way] = elapsed_ms >= cfg_pending_time_d1;
+  end
+  for (g_select = 0; g_select < HashWayCount; g_select = g_select + 1) begin : gen_select
+    assign matched_way_mask[g_select] = lookup_dout[g_select*ItemWidth+ItemWidth-1-:33] ==
+        {1'b1, req_ip_shift[32*(RequestDelay-2)+:32]};
+    assign empty_way_mask[g_select] = !lookup_dout[g_select*ItemWidth+ItemWidth-1];
+    if (g_select == HashWayCount - 1) begin : gen_last
+      assign matched_way_onehot[g_select] = matched_way_mask[g_select];
+      assign empty_way_onehot[g_select]   = empty_way_mask[g_select];
+    end else begin : gen_priority
+      assign matched_way_onehot[g_select] = matched_way_mask[g_select] &&
+          !(|matched_way_mask[HashWayCount-1:g_select+1]);
+      assign empty_way_onehot[g_select] = empty_way_mask[g_select] &&
+          !(|empty_way_mask[HashWayCount-1:g_select+1]);
+    end
+  end
+  always @(*) begin
+    has_match             = |matched_way_mask;
+    has_empty_way         = |empty_way_mask;
+    matched_entry_expired = |(matched_way_onehot & expired_way_mask);
+  end
+  //// 寄存比较结果
+  always @(posedge clk) begin
+    p4_has_match          <= has_match;
+    p4_has_empty_way      <= has_empty_way;
+    p4_match_expired      <= matched_entry_expired;
+    p4_matched_way_onehot <= matched_way_onehot;
+    p4_empty_way_onehot   <= empty_way_onehot;
+  end
 
-genvar g_way_index;
-generate
-  for (g_way_index = 0; g_way_index < HASH_WAY_CNT; g_way_index = g_way_index + 1) begin : gen_pending_cache_bram
-    sdp_bram#(
-    .DATA_WIDTH       (ITEM_WIDTH       ),
-    .DEEP             (CACHE_DEEP       ),
-    .DO_REG           (1                ),
-    .INIT_EN          (1                ),
-    .INIT_USE_FILE    (0                ),
-    .BYPASS_EN        (1                ) 
-    )
-    u_pending_cache_bram(
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-  // ============================================================================
-  // A 写端口
-  // ============================================================================
-    .a_we             (write_we_full_reg[g_way_index]),// (input)
-    .a_addr           (write_addr_reg   ),// (input)
-    .a_din            (write_din_reg    ),// (input)
-  // ============================================================================
-  // B 读端口
-  // ============================================================================
-    .b_re             (lookup_re_reg    ),// (input)
-    .b_addr           (lookup_addr_reg  ),// (input)
-    .b_dout           (lookup_dout[g_way_index*ITEM_WIDTH +: ITEM_WIDTH]) // (output)
+  // 写入
+  //// 清除计算
+  always @(posedge clk) begin
+    if (rst || cfg_clear_d1) begin
+      clear_addr <= 'd0;
+    end else begin
+      clear_addr <= clear_addr + 1'b1;
+    end
+  end
+  always @(posedge clk) begin
+    if (rst || cfg_clear_d1) begin
+      clear_finish <= 1'b0;
+    end else begin
+      if (clear_addr == {CacheAddrWidth{1'b1}}) clear_finish <= 1'b1;
+    end
+  end
+  //// 写回
+  ////// 替换候选每拍轮转
+  always @(posedge clk) begin
+    if (rst) replace_way_onehot <= {{(HashWayCount - 1) {1'b0}}, 1'b1};
+    else
+      replace_way_onehot <= (replace_way_onehot << 1) | (replace_way_onehot >> (HashWayCount - 1));
+  end
+  ////// 写入地址使能数据
+  always @(posedge clk) begin
+    if (rst) begin
+      p5_write_we <= 'd0;
+    end else begin
+      if (!clear_finish) p5_write_we <= {HashWayCount{1'b1}};
+      else if (cfg_clear_d1 || !req_valid_shift[RequestDelay-1]) p5_write_we <= 'd0;
+      else if (p4_has_match) begin
+        if (p4_match_expired) p5_write_we <= p4_matched_way_onehot;
+        else p5_write_we <= 'd0;
+      end else if (p4_has_empty_way) p5_write_we <= p4_empty_way_onehot;
+      else p5_write_we <= replace_way_onehot;
+    end
+  end
+  always @(posedge clk) begin
+    if (req_valid_shift[RequestDelay-1] && clear_finish && !cfg_clear_d1 && !rst) begin
+      p5_write_addr <= req_addr_shift[CacheAddrWidth*(RequestDelay-1)+:CacheAddrWidth];
+      p5_write_din  <= {1'b1, req_ip_shift[32*(RequestDelay-1)+:32], timestamp_ms};
+    end else begin
+      p5_write_addr <= clear_addr;
+      p5_write_din  <= 'd0;
+    end
+  end
+
+  // 输出
+  always @(posedge clk) begin
+    if (rst) begin
+      p5_permit_blocked <= 1'b0;
+    end else begin
+      if (req_valid_shift[RequestDelay-1] && clear_finish && !cfg_clear_d1) begin
+        p5_permit_blocked <= p4_has_match && !p4_match_expired;
+      end
+    end
+  end
+  always @(posedge clk) begin
+    if (rst) begin
+      p5_permit_valid_pulse <= 1'b0;
+    end else begin
+      p5_permit_valid_pulse <= req_valid_shift[RequestDelay-1] && clear_finish && !cfg_clear_d1;
+    end
+  end
+  always @(posedge clk) begin
+    if (req_valid_shift[RequestDelay-1] && clear_finish && !cfg_clear_d1 && !rst) begin
+      p5_permit_ip <= req_ip_shift[32*(RequestDelay-1)+:32];
+    end
+  end
+
+  for (g_way_index = 0; g_way_index < HashWayCount; g_way_index = g_way_index + 1) begin : gen_way
+    (* dont_touch = "true" *) reg p1_lookup_re;
+    (* dont_touch = "true" *) reg [CacheAddrWidth-1:0] p1_lookup_addr;
+    always @(posedge clk) begin
+      if (rst || cfg_clear_d1 || !clear_finish) p1_lookup_re <= 1'b0;
+      else p1_lookup_re <= req_valid_pulse;
+      if (req_valid_pulse) p1_lookup_addr <= ip_hash[CacheAddrWidth-1:0];
+    end
+    sdp_bram #(
+        .DataWidth  (ItemWidth),
+        .Depth      (CacheDepth),
+        .DoReg      (1),
+        .InitEn     (1),
+        .InitUseFile(0),
+        .BypassEn   (1)
+    ) sdp_bram_inst (
+        .clk(clk),
+        .rst(rst),
+
+        .a_we  (p5_write_we[g_way_index]),
+        .a_addr(p5_write_addr),
+        .a_din (p5_write_din),
+
+        .b_re  (p1_lookup_re),
+        .b_addr(p1_lookup_addr),
+        .b_dout(lookup_dout[g_way_index*ItemWidth+:ItemWidth])
     );
 
   end
-endgenerate
 
-  assign  stat_clear_finish= clear_finish     ;
+  assign stat_clear_finish  = clear_finish;
 
-  assign  permit_valid_pulse= permit_valid_pulse_reg;
-  assign  permit_miss      = permit_miss_reg      ;
-  assign  permit_ip        = permit_ip_reg    ;
+  assign permit_valid_pulse = p5_permit_valid_pulse;
+  assign permit_blocked     = p5_permit_blocked;
+  assign permit_ip          = p5_permit_ip;
 
 endmodule
 `resetall

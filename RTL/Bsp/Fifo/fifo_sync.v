@@ -1,172 +1,186 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : fifo_sync.v
 // Module Name : fifo_sync
 // Author      : LiXintao
-// Date        : 2026-08-27
-// Last Modify : 2026-09-16
-// Version     : v3.0
-// ----------------------------------------------------------------------------
-// Description : 单时钟 FIFO，支持可编程阈值及分布式或块 RAM 存储
-// Note        :
-//   1. FIFO_DEPTH 必须为 2 的幂
-//   2. 允许自动推断FIFO类型
-// ============================================================================
-module fifo_sync #(
-    parameter FIFO_DEPTH = 32,  // FIFO 深度, 需为 2 的幂
-    parameter DATA_WIDTH = 64,  // 数据位宽 (字节整数倍)
-    parameter FIFO_MEMORY_TYPE = "distributed",  // 存储类型: distributed / block / auto
-    parameter PROG_EMPTY_THRESH  = FIFO_DEPTH/4,          // 可编程空阈值 (剩余 <= 该值拉高 prog_empty)
-    parameter PROG_FULL_THRESH   = FIFO_DEPTH/2,          // 可编程满阈值 (剩余 >= 该值拉高 prog_full)
-    localparam REMAIN_COUNT_WIDTH = $clog2(FIFO_DEPTH) + 1,  // 剩余深度计数输出位宽
-    parameter BRAM_DO_REG= 2 // BRAM的输出流水线级数，推荐为2，可以提高时序
-) (
-    // ============================================================================
-    // 时钟与复位
-    // ============================================================================
-    input wire rst,
-    input wire clk,
+// Created     : 2026-11-06
+// Version     : 1.0
+// -----------------------------------------------------------------------------
+// Description : 同步FIFO，支持任意不小于2的深度及两种存储类型。
+// Note        : distributed模式组合输出当前队首，empty=0时有效；
+//               block模式在有效读请求后延迟2拍输出数据。
+// -----------------------------------------------------------------------------
 
-    // ============================================================================
-    // FIFO 数据接口
-    // ============================================================================
-    input  wire [        DATA_WIDTH-1:0] din,
-    input  wire                          wr_en,
-    input  wire                          rd_en,
-    output wire [        DATA_WIDTH-1:0] dout,
-    output wire                          full,
-    output wire                          empty,
-    output wire                          prog_full,
-    output wire                          prog_empty,
-    output wire [REMAIN_COUNT_WIDTH-1:0] remain_count
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
+
+module fifo_sync #(
+    parameter integer Depth = 8,
+    parameter integer Width = 8,
+    parameter MemoryType = "distributed",  // distributed/block
+    parameter integer ProgEmptyThresh = Depth / 4,
+    parameter integer ProgFullThresh = Depth / 2,
+    localparam integer CountWidth = $clog2(Depth) + 1
+) (
+    input wire clk,
+    input wire rst,
+
+    input  wire                  wr_en,
+    input  wire [     Width-1:0] din,
+    input  wire                  rd_en,
+    output wire [     Width-1:0] dout,
+    output wire                  full,
+    output wire                  empty,
+    output wire                  prog_full,
+    output wire                  prog_empty,
+    output wire [CountWidth-1:0] stat_data_count
 );
 
-  // --- 参数 ---
-  localparam ADDR_WIDTH = $clog2(FIFO_DEPTH);
+  // 读写请求分别受满空和复位门控，指针按Depth回绕。
+  // distributed组合输出队首，block通过两级寄存输出读数据。
 
-  // 基于容量/位宽/深度 设计ram类型
-  // ≤ 64	任意	分布式 RAM
-  // ≤1K 且	≤9Kb	分布式 RAM
-  // > 1K	任意	BRAM
-  // 任意	> 18Kb	BRAM
-  // 任意（浅）	位宽 ≥ 256	BRAM	超宽位宽分布式要成片 LUT
-  function is_distributed;
-  input                                                integer width   ;
-  input                                                integer depth   ;
-    begin
-      is_distributed = (depth <= 64 || (depth <= 1024 && width*depth <= 9216)) && width < 256;
+  // 参数范围检查
+  initial begin
+    if (Depth < 2 || Width < 1) begin
+      $display("错误：fifo_sync：Depth必须不小于2，Width必须不小于1");
+      $finish;
     end
-  endfunction
+    if ((MemoryType != "distributed" && MemoryType != "block")) begin
+      $display("错误：fifo_sync：MemoryType仅支持distributed或block");
+      $finish;
+    end
+    if (ProgEmptyThresh < 0 || ProgEmptyThresh > Depth || ProgFullThresh < 0 ||
+        ProgFullThresh > Depth) begin
+      $display("错误：fifo_sync：阈值必须位于0到Depth范围内");
+      $finish;
+    end
+  end
 
-  localparam DATA_AUTO_TYPE= is_distributed(DATA_WIDTH,      FIFO_DEPTH) ? "distributed" : "block";
-  localparam DATA_MEMORY_TYPE= FIFO_MEMORY_TYPE == "auto" ? DATA_AUTO_TYPE : FIFO_MEMORY_TYPE;
+  // 内部常量
+  localparam integer AddrWidth = $clog2(Depth);
 
-  // --- 读写指针 ---
-  reg [ADDR_WIDTH:0] wr_ptr;
-  reg [ADDR_WIDTH:0] rd_ptr;
+  // 存储体
+  (* ram_style = MemoryType *)reg  [     Width-1:0] mem            [0:Depth-1];
 
-  // --- FIFO 状态 ---
-  wire fifo_full;
-  wire fifo_empty;
+  // 写入控制
+  reg  [ AddrWidth-1:0] wr_ptr;
+  wire                  wr_accept;
+  wire                  wr_ptr_wrap;
 
-  // --- FIFO 存储体 ---
-  (* ram_style = DATA_MEMORY_TYPE *) reg [DATA_WIDTH-1:0] fifo_mem[0:FIFO_DEPTH-1];
+  // 读取控制
+  reg  [ AddrWidth-1:0] rd_ptr;
+  wire                  rd_accept;
+  wire                  rd_ptr_wrap;
 
-  // ============================================================================
-  // FIFO 状态与计数
-  // ============================================================================
-  assign fifo_full = (wr_ptr[ADDR_WIDTH] != rd_ptr[ADDR_WIDTH]) &&
-                     (wr_ptr[ADDR_WIDTH-1:0] == rd_ptr[ADDR_WIDTH-1:0]);
-  assign fifo_empty = wr_ptr == rd_ptr;
-  assign remain_count = wr_ptr - rd_ptr;
-  assign full = fifo_full;
-  assign empty = fifo_empty;
-  assign prog_full = remain_count >= PROG_FULL_THRESH;
-  assign prog_empty = remain_count <= PROG_EMPTY_THRESH;
+  // 占用与满空状态
+  reg  [CountWidth-1:0] data_count;
+  reg                   full_reg;
+  reg                   empty_reg;
+  reg                   prog_full_reg;
+  reg                   prog_empty_reg;
 
-  // ============================================================================
-  // 写指针更新
-  // ============================================================================
+  // 写入
+  assign wr_accept   = wr_en && !full && !rst;
+  assign wr_ptr_wrap = wr_ptr == (Depth - 1);
   always @(posedge clk) begin
     if (rst) begin
       wr_ptr <= 'd0;
-    end else if (wr_en && !fifo_full) begin
-      wr_ptr <= wr_ptr + 1'b1;
+    end else if (wr_accept) begin
+      if (wr_ptr_wrap) wr_ptr <= 'd0;
+      else wr_ptr <= wr_ptr + 1'b1;
     end
   end
-
-  // ============================================================================
-  // FIFO 内存写入
-  // ============================================================================
   always @(posedge clk) begin
-    if (wr_en && !fifo_full) begin
-      fifo_mem[wr_ptr[ADDR_WIDTH-1:0]] <= din;
-    end
+    if (wr_accept) mem[wr_ptr] <= din;
   end
 
-  // ============================================================================
-  // 读指针更新
-  // ============================================================================
+  // 读取
+  assign rd_accept   = rd_en && !empty && !rst;
+  assign rd_ptr_wrap = rd_ptr == (Depth - 1);
   always @(posedge clk) begin
     if (rst) begin
       rd_ptr <= 'd0;
-    end else if (rd_en && !fifo_empty) begin
-      rd_ptr <= rd_ptr + 1'b1;
+    end else if (rd_accept) begin
+      if (rd_ptr_wrap) rd_ptr <= 'd0;
+      else rd_ptr <= rd_ptr + 1'b1;
     end
   end
-
-  generate
-    if (DATA_MEMORY_TYPE == "distributed") begin : g_distributed
-      assign dout = fifo_mem[rd_ptr[ADDR_WIDTH-1:0]];
-    end else if (DATA_MEMORY_TYPE == "block") begin : g_block
-      if (BRAM_DO_REG == 1) begin
-        reg [DATA_WIDTH-1:0] dout_reg;
-        // ========================================================================
-        // 块 RAM 注册输出
-        // ========================================================================
-        always @(posedge clk) begin
-          if (rd_en && !fifo_empty) begin
-            dout_reg <= fifo_mem[rd_ptr[ADDR_WIDTH-1:0]];
-          end
-        end
-        assign dout = dout_reg;
-      end
-      else if (BRAM_DO_REG == 2) begin
-        reg [DATA_WIDTH-1:0] dout_direct_reg;
-        reg [DATA_WIDTH-1:0] dout_reg;
-        reg rd_valid_d1;
-        always @(posedge clk) begin
-          if (rst) begin
-            rd_valid_d1 <= 'd0;
-          end else begin
-            rd_valid_d1 <= rd_en && !fifo_empty;
-          end
-        end
-
-        // ========================================================================
-        // 块 RAM 注册输出
-        // ========================================================================
-        always @(posedge clk) begin
-          if (rd_en && !fifo_empty) begin
-            dout_direct_reg <= fifo_mem[rd_ptr[ADDR_WIDTH-1:0]];
-          end
-        end
-
-        always @(posedge clk) begin
-          if (rst) begin
-            dout_reg <= 'd0;
-          end else if (rd_valid_d1) begin
-            dout_reg <= dout_direct_reg;
-          end
-        end
-        assign dout = dout_reg;
+  if (MemoryType == "distributed") begin : gen_distributed
+    assign dout = mem[rd_ptr];
+  end else begin : gen_block
+    reg [Width-1:0] p1_dout, p2_dout;
+    reg rd_accept_d1;
+    always @(posedge clk) begin
+      if (rst) begin
+        rd_accept_d1 <= 'd0;
+      end else begin
+        rd_accept_d1 <= rd_accept;
       end
     end
-  endgenerate
+    always @(posedge clk) begin
+      p1_dout <= mem[rd_ptr];
+      if (rst) p2_dout <= 'd0;
+      else if (rd_accept_d1) p2_dout <= p1_dout;
+    end
+    assign dout = p2_dout;
+  end
+
+  // 数据计数与状态更新
+  always @(posedge clk) begin
+    if (rst) begin
+      data_count <= 'd0;
+    end else begin
+      case ({
+        wr_accept, rd_accept
+      })
+        2'b10: begin
+          data_count <= data_count + 1'b1;
+        end
+        2'b01: begin
+          data_count <= data_count - 1'b1;
+        end
+        default: begin
+          data_count <= data_count;
+        end
+      endcase
+    end
+  end
+  always @(posedge clk) begin
+    if (rst) begin
+      full_reg       <= 1'b0;
+      empty_reg      <= 1'b1;
+      prog_full_reg  <= {CountWidth{1'b0}} >= ProgFullThresh;
+      prog_empty_reg <= {CountWidth{1'b0}} <= ProgEmptyThresh;
+    end else begin
+      case ({
+        wr_accept, rd_accept
+      })
+        2'b10: begin
+          full_reg       <= data_count == (Depth - 1);
+          empty_reg      <= 1'b0;
+          prog_full_reg  <= prog_full_reg || (data_count == (ProgFullThresh - 1));
+          prog_empty_reg <= data_count < ProgEmptyThresh;
+        end
+        2'b01: begin
+          full_reg       <= 1'b0;
+          empty_reg      <= data_count == 1;
+          prog_full_reg  <= data_count > ProgFullThresh;
+          prog_empty_reg <= prog_empty_reg || (data_count == (ProgEmptyThresh + 1));
+        end
+        default: begin
+          full_reg       <= full_reg;
+          empty_reg      <= empty_reg;
+          prog_full_reg  <= prog_full_reg;
+          prog_empty_reg <= prog_empty_reg;
+        end
+      endcase
+    end
+  end
+  assign full            = full_reg;
+  assign empty           = empty_reg;
+  assign prog_empty      = prog_empty_reg;
+  assign prog_full       = prog_full_reg;
+  assign stat_data_count = data_count;
 
 endmodule
 `resetall

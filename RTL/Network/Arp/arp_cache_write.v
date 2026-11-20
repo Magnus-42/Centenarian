@@ -1,319 +1,219 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : arp_cache_write.v
 // Module Name : arp_cache_write
 // Author      : LiXintao
-// Date        : 2026-09-16
-// Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : 支持流水线 
-// Note        : 写表在第 s5+1 拍落地，但影子表的读在第 s1+1 拍发起，若出现两拍哈希碰撞的
-//               临近IP，则后一拍会覆盖前一拍IP，低概率事件，重新请求ARP后可以解决。
-// 
-// ============================================================================
+// Created     : 2026-09-16
+// Version     : 1.0
+// -----------------------------------------------------------------------------
+// Description : ARP缓存流水线写入，通过影子表选择更新、空位插入或轮转替换
+// Note        : p1发起影子表读取，p4输出写请求，下一拍主表/影子表同步落地；
+//               相邻请求发生哈希碰撞时，后写入的IP可能覆盖前一个IP，需要重新请求ARP
+// -----------------------------------------------------------------------------
 
-module arp_cache_write#(
-  parameter  ITEM_WIDTH= 81, // valid+mac+ip(81bit)
-  parameter  CACHE_DEEP= 1024,
-  localparam  CACHE_ADDR_WIDTH= CACHE_DEEP == 1? 1 : $clog2(CACHE_DEEP),
-  parameter  HASH_WAY_CNT= 4 
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  input  wire                                          write_valid_pulse,
-  input  wire          [                  31: 0]       write_ip        ,
-  input  wire          [                  47: 0]       write_mac       ,
+module arp_cache_write #(
+    localparam integer ItemWidth = 81,  // 有效位、IP和MAC，共81位
+    parameter integer CacheDepth = 1024,
+    localparam integer CacheAddrWidth = CacheDepth == 1 ? 1 : $clog2(CacheDepth),
+    parameter integer HashWayCount = 4
+) (
+    input wire clk,
+    input wire rst,
 
-  output wire          [      HASH_WAY_CNT-1: 0]       write_we        ,
-  output wire          [CACHE_ADDR_WIDTH*HASH_WAY_CNT-1: 0]write_addr      ,
-  output wire          [ITEM_WIDTH*HASH_WAY_CNT-1: 0]  write_din       ,
+    input wire        write_valid_pulse,
+    input wire [31:0] write_ip,
+    input wire [47:0] write_mac,
 
-  input  wire                                          cfg_clear       ,
+    output wire [               HashWayCount-1:0] write_we,
+    output wire [CacheAddrWidth*HashWayCount-1:0] write_addr,
+    output wire [     ItemWidth*HashWayCount-1:0] write_din,
 
-  output wire                                          stat_clear_finish 
+    input wire cfg_clear,
+
+    output wire stat_clear_finish
 );
-  localparam HASH_WAY_CNT_WIDTH= HASH_WAY_CNT == 1 ? 1 : $clog2(HASH_WAY_CNT);
 
-  wire                 [                  31: 0]       ip_hash            ;
-  reg                  [  CACHE_ADDR_WIDTH-1: 0]       ip_hash_s1,      ip_hash_s2,ip_hash_s3,ip_hash_s4,ip_hash_s5;
-  reg                                                  write_valid_pulse_s1,write_valid_pulse_s2,write_valid_pulse_s3,write_valid_pulse_s4,write_valid_pulse_s5  ;
-  reg                  [                  31: 0]       write_ip_s1,     write_ip_s2,write_ip_s3,write_ip_s4,write_ip_s5;
-  reg                  [                  47: 0]       write_mac_s1,    write_mac_s2,write_mac_s3,write_mac_s4,write_mac_s5;
+  // p1读取影子表，p2/p3对齐返回数据，p4寄存写请求。
+  // 清表期间按地址扫描，主表与影子表同步写入。
 
-  reg                  [      HASH_WAY_CNT-1: 0]       write_we_full_reg  ;
-  reg                  [      HASH_WAY_CNT-1: 0]       write_we_full_reg_random  ;
-  reg                  [  CACHE_ADDR_WIDTH-1: 0]       write_addr_reg     ;
-  reg                  [        ITEM_WIDTH-1: 0]       write_din_reg      ;
-  reg                                                  read_re_reg        ;
-  reg                  [  CACHE_ADDR_WIDTH-1: 0]       read_addr_reg      ;
-  wire                 [   33*HASH_WAY_CNT-1: 0]       read_dout          ;
-  reg                  [                  32: 0]       write_shadow_din_reg  ;
+  // 参数范围检查
+  initial begin
+    if (CacheDepth < 2 || (CacheDepth & (CacheDepth - 1)) != 0 || HashWayCount < 1) begin
+      $display(
+          "错误：arp_cache_write：CacheDepth必须为不小于2的2次幂，HashWayCount必须不小于1");
+      $finish;
+    end
+  end
 
-  reg                                                  match_comb         ;
-  reg                  [HASH_WAY_CNT_WIDTH-1: 0]       match_way_index_comb  ;
-  reg                                                  empty_comb         ;
-  reg                  [HASH_WAY_CNT_WIDTH-1: 0]       empty_way_index_comb  ;
+  // 内部常量
+  localparam integer HashWayIndexWidth = HashWayCount == 1 ? 1 : $clog2(HashWayCount);
+  localparam integer WriteDelay = 3;
 
-  reg                                                  clear_finish       ;
-  reg                  [  CACHE_ADDR_WIDTH-1: 0]       clear_addr_reg     ;
+  // 写入流水
+  wire    [                         31:0] ip_hash;
+  reg     [               WriteDelay-1:0] write_valid_shift;
+  reg     [            32*WriteDelay-1:0] write_ip_shift;
+  reg     [            48*WriteDelay-1:0] write_mac_shift;
+  reg     [CacheAddrWidth*WriteDelay-1:0] write_addr_shift;
 
-  // clear_addr_reg
+  // p4 写请求
+  reg     [             HashWayCount-1:0] p4_write_we;
+  reg     [           CacheAddrWidth-1:0] p4_write_addr;
+  reg     [                ItemWidth-1:0] p4_write_din;
+  reg     [                         32:0] p4_shadow_din;
+
+  // 匹配与替换选择
+  reg     [             HashWayCount-1:0] replace_way_onehot;
+  reg                                     has_match;
+  reg                                     has_empty_way;
+  reg     [        HashWayIndexWidth-1:0] matched_way_index;
+  reg     [        HashWayIndexWidth-1:0] empty_way_index;
+  reg     [             HashWayCount-1:0] way_onehot;
+  integer                                 way_index;
+
+  // 影子表读接口
+  reg                                     p1_shadow_re;
+  reg     [           CacheAddrWidth-1:0] p1_shadow_addr;
+  wire    [          33*HashWayCount-1:0] shadow_dout;
+
+  // 清表扫描
+  reg                                     clear_finish;
+  reg     [           CacheAddrWidth-1:0] clear_addr;
+
+  // 生成循环
+  genvar g_way_index;
+
+  // 清表扫描
   always @(posedge clk) begin
-    if (cfg_clear || rst) begin
-      clear_addr_reg <= 'd0;
-    end
-    else begin
-      clear_addr_reg <= clear_addr_reg + 1'b1;
-    end
+    if (rst || cfg_clear) clear_addr <= 'd0;
+    else clear_addr <= clear_addr + 1'b1;
+    if (rst || cfg_clear) clear_finish <= 'd0;
+    else if (clear_addr == {CacheAddrWidth{1'b1}}) clear_finish <= 1'b1;
   end
 
-  // clear_finish
-  always @(posedge clk)begin
-    if (rst || cfg_clear) begin
-      clear_finish <= 'd0;
-    end
-    else begin
-      if (clear_addr_reg == {CACHE_ADDR_WIDTH{1'b1}}) begin
-        clear_finish <= 1'b1;
-      end
-    end
-  end
-
-  // 流水线
-  always @(posedge clk)begin
-    if (rst || !clear_finish) begin
-      {write_valid_pulse_s5,write_valid_pulse_s4,write_valid_pulse_s3,write_valid_pulse_s2} <= 'd0;
-    end
-    else begin
-      if (clear_finish) begin
-        {write_valid_pulse_s5,write_valid_pulse_s4,write_valid_pulse_s3,write_valid_pulse_s2} <= {write_valid_pulse_s4,write_valid_pulse_s3,write_valid_pulse_s2,write_valid_pulse_s1};
-      end
-    end
-
-    if (clear_finish) begin
-      {ip_hash_s5,ip_hash_s4,ip_hash_s3,ip_hash_s2} <= {ip_hash_s4,ip_hash_s3,ip_hash_s2,ip_hash_s1};
-      {write_ip_s5,write_ip_s4,write_ip_s3,write_ip_s2} <= {write_ip_s4,write_ip_s3,write_ip_s2,write_ip_s1};
-      {write_mac_s5,write_mac_s4,write_mac_s3,write_mac_s2} <= {write_mac_s4,write_mac_s3,write_mac_s2,write_mac_s1};
-    end
-  end
-
-  // 第一级，对哈希结果打拍，原始输入进行缓存
-  // ip_hash_s1
-  always @(posedge clk)begin
-    if (write_valid_pulse) begin
-      ip_hash_s1 <= ip_hash[CACHE_ADDR_WIDTH-1:0];
-    end
-  end
-  
-  // write_valid_pulse_s1
-  always @(posedge clk)begin
-    if (rst) begin
-      write_valid_pulse_s1 <= 'd0;
-    end
-    else begin
-      if (write_valid_pulse && clear_finish) begin
-        write_valid_pulse_s1 <= write_valid_pulse;
-      end
-      else begin
-        write_valid_pulse_s1 <= 'd0;
-      end
-    end
-  end
-
-  // write_ip_s1 write_mac_s1
-  always @(posedge clk)begin
-    if (write_valid_pulse && clear_finish) begin
-      write_ip_s1 <= write_ip;
-      write_mac_s1 <= write_mac;
-    end
-  end
-
-  // 第二级，读取影子RAM中的数据 s1
-  // read_re_reg
-  always @(posedge clk)begin
-    if(rst)begin
-      read_re_reg <= 'd0;
-    end
-    else begin
-      if (write_valid_pulse_s1) begin
-        read_re_reg <= 1'b1;
-      end
-      else begin
-        read_re_reg <= 1'b0;
-      end
-    end
-  end
-
-  // read_addr_reg
-  always @(posedge clk)begin
-    if(write_valid_pulse_s1)begin
-      read_addr_reg <= ip_hash_s1;
-    end
-  end
-
-  // 第三级，等待 s2
-  // 第四级，等待 s3
-  // 第五级，计算判断 s4 
-  // 第六级，匹配、分配空位，更新/插入 s5
-
-  // 静态优先级编码器
-  integer                                              way_index          ;
-
-  reg [ HASH_WAY_CNT-1: 0]  is_match_onehot;
-  reg [ HASH_WAY_CNT-1: 0]  is_empty_onehot;
-
-  always @(posedge clk)begin
-    if(rst)begin
-      is_match_onehot <= 'd0;
-      is_empty_onehot <= 'd0;
-    end
-    else begin
-      for (way_index = 0; way_index < HASH_WAY_CNT; way_index = way_index + 1) begin
-        is_match_onehot[way_index] <= read_dout[way_index*33 +: 33] == {1'b1,write_ip_s4};
-        is_empty_onehot[way_index] <= read_dout[way_index*33+33-1] == 1'b0;
-      end
-    end
-  end
-
-
-  always @(*) begin
-    match_comb = 1'b0;
-    match_way_index_comb = 'd0;
-    empty_comb = 1'b0;
-    empty_way_index_comb = 'd0;
-
-    for (way_index = 0; way_index < HASH_WAY_CNT; way_index = way_index + 1) begin
-      if (is_match_onehot[way_index]) begin// valid+ip
-        match_comb = 1'b1;
-        match_way_index_comb = way_index;
-      end
-      if (is_empty_onehot[way_index]) begin               // // valid
-        empty_comb = 1'b1;
-        empty_way_index_comb = way_index;
-      end
-    end
-  end
-
-  // write_we_full_reg_random
+  // 写入载荷与有效位延迟
   always @(posedge clk) begin
-    if (rst) begin
-      write_we_full_reg_random <= 'd1;
-    end
-    else begin
-      write_we_full_reg_random <= {write_we_full_reg_random[HASH_WAY_CNT-2:0],write_we_full_reg_random[HASH_WAY_CNT-1]};
+    write_ip_shift <= {write_ip_shift[32*(WriteDelay-1)-1:0], write_ip};
+    write_mac_shift <= {write_mac_shift[48*(WriteDelay-1)-1:0], write_mac};
+    write_addr_shift <= {
+      write_addr_shift[CacheAddrWidth*(WriteDelay-1)-1:0], ip_hash[CacheAddrWidth-1:0]
+    };
+  end
+  always @(posedge clk) begin
+    if (rst || cfg_clear || !clear_finish) begin
+      write_valid_shift <= 'd0;
+    end else begin
+      write_valid_shift <= {write_valid_shift[WriteDelay-2:0], write_valid_pulse};
     end
   end
 
-  // write_we_full_reg
-  always @(posedge clk)begin
-    if(rst)begin
-      write_we_full_reg <= 'd0;
-    end
-    else begin
-      if (write_valid_pulse_s5 && clear_finish) begin
-        if (match_comb) begin
-          write_we_full_reg <= 'b1 << match_way_index_comb;         // 更新
-        end
-        else if (empty_comb) begin
-          write_we_full_reg <= 'b1 << empty_way_index_comb;         // 插入
-        end
-        else begin
-          write_we_full_reg <= write_we_full_reg_random;            // 随机插入
-        end
-      end
-      else if (clear_finish) begin
-        write_we_full_reg <= 'd0;
-      end
-      else begin
-        write_we_full_reg <= {HASH_WAY_CNT{1'b1}};
-      end
-    end
-  end
-
-  // write_addr_reg
-  always @(posedge clk)begin
-    if(write_valid_pulse_s5 && clear_finish)begin
-      write_addr_reg <= ip_hash_s5;
-    end
-    else begin
-      write_addr_reg <= clear_addr_reg;
-    end
-  end
-
-  // write_din_reg
-  always @(posedge clk)begin
-    if(write_valid_pulse_s5 && clear_finish)begin
-      write_din_reg <= {1'b1,write_ip_s5,write_mac_s5};
-    end
-    else begin
-      write_din_reg <= 'd0;
-    end
-  end
-
-  // write_shadow_din_reg
-  always @(posedge clk)begin
-    if(write_valid_pulse_s5 && clear_finish)begin
-      write_shadow_din_reg <= {1'b1,write_ip_s5};
-    end
-    else begin
-      write_shadow_din_reg <= 'd0;
-    end
-  end
-
-  lfsr#(
-    .LFSR_WIDTH       (32               ),
-    .LFSR_POLY        (32'h4c11db7      ),
-    .LFSR_CONFIG      ("GALOIS"         ),
-    .REVERSE          (1                ),
-    .DATA_WIDTH       (32               ),
-    .STYLE            ("AUTO"           ) 
-  )
-  u_lfsr(
-    .data_in          (write_ip         ),// (input)
-    .state_in         (32'hFFFFFFFF     ),// (input)
-    .data_out         (                 ),// (output)// 加扰后输出
-    .state_out        (ip_hash          ) // (output)
+  // p1 影子表读请求
+  //// 计算哈希
+  crc32_d32 crc32_d32_inst (
+      .crc     (32'hFFFFFFFF),
+      .data    (write_ip),
+      .crc_next(ip_hash)
   );
+  always @(posedge clk) begin
+    if (rst || cfg_clear || !clear_finish) begin
+      p1_shadow_re <= 1'b0;
+    end else begin
+      p1_shadow_re <= write_valid_pulse;
+    end
+  end
+  always @(posedge clk) begin
+    if (write_valid_pulse) p1_shadow_addr <= ip_hash[CacheAddrWidth-1:0];
+  end
 
-genvar g_way_index;
-generate
-  for (g_way_index = 0; g_way_index < HASH_WAY_CNT; g_way_index = g_way_index + 1) begin : gen_shadow_bram
-    sdp_bram#(
-    .DATA_WIDTH       (33               ),// valid+ip
-    .DEEP             (CACHE_DEEP       ),
-    .DO_REG           (1                ),
-    .INIT_EN          (1                ),
-    .INIT_USE_FILE    (0                ),
-    .BYPASS_EN        (1                ) 
-    ) u_sdp_bram(
-    // --- 存储参数 ---
-    // --- 输出与初始化参数 ---
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    // ============================================================================
-    // A 写端口
-    // ============================================================================
-    .a_we             (write_we_full_reg[g_way_index]),// (input)
-    .a_addr           (write_addr_reg   ),// (input)
-    .a_din            (write_shadow_din_reg),// (input)
-    // ============================================================================
-    // B 读端口
-    // ============================================================================
-    .b_re             (read_re_reg      ),// (input)
-    .b_addr           (read_addr_reg    ),// (input)
-    .b_dout           (read_dout[g_way_index*33 +: 33]) // (output)
+  // 输出
+  //// 替换候选每拍轮转
+  if (HashWayCount == 1) begin : gen_single_way
+    always @(posedge clk) begin
+      replace_way_onehot <= 1'b1;
+    end
+  end else begin : gen_multi_way
+    always @(posedge clk) begin
+      if (rst) begin
+        replace_way_onehot <= {{(HashWayCount - 1) {1'b0}}, 1'b1};
+      end else begin
+        replace_way_onehot <= {
+          replace_way_onehot[HashWayCount-2:0], replace_way_onehot[HashWayCount-1]
+        };
+      end
+    end
+  end
+  //// p3 选择写入路，匹配和空位均优先选择较大索引
+  always @(*) begin
+    has_match         = 1'b0;
+    has_empty_way     = 1'b0;
+    matched_way_index = 'd0;
+    empty_way_index   = 'd0;
+    for (way_index = 0; way_index < HashWayCount; way_index = way_index + 1) begin
+      if (shadow_dout[way_index*33+:33] == {1'b1, write_ip_shift[32*(WriteDelay-1)+:32]}) begin
+        has_match         = 1'b1;
+        matched_way_index = way_index;
+      end
+      if (!shadow_dout[way_index*33+32]) begin
+        has_empty_way   = 1'b1;
+        empty_way_index = way_index;
+      end
+    end
+    way_onehot = replace_way_onehot;
+    if (has_match) begin
+      way_onehot = {{(HashWayCount - 1) {1'b0}}, 1'b1} << matched_way_index;
+    end else if (has_empty_way) begin
+      way_onehot = {{(HashWayCount - 1) {1'b0}}, 1'b1} << empty_way_index;
+    end
+  end
+  //// p4 写请求
+  always @(posedge clk) begin
+    if (rst) p4_write_we <= 'd0;
+    else if (!clear_finish) p4_write_we <= {HashWayCount{1'b1}};
+    else if (cfg_clear) p4_write_we <= 'd0;
+    else if (write_valid_shift[WriteDelay-1]) p4_write_we <= way_onehot;
+    else p4_write_we <= 'd0;
+  end
+  always @(posedge clk) begin
+    if (write_valid_shift[WriteDelay-1] && clear_finish && !cfg_clear && !rst) begin
+      p4_write_addr <= write_addr_shift[CacheAddrWidth*(WriteDelay-1)+:CacheAddrWidth];
+      p4_write_din <= {
+        1'b1, write_ip_shift[32*(WriteDelay-1)+:32], write_mac_shift[48*(WriteDelay-1)+:48]
+      };
+      p4_shadow_din <= {1'b1, write_ip_shift[32*(WriteDelay-1)+:32]};
+    end else begin
+      p4_write_addr <= clear_addr;
+      p4_write_din  <= 'd0;
+      p4_shadow_din <= 'd0;
+    end
+  end
+
+  for (g_way_index = 0; g_way_index < HashWayCount; g_way_index = g_way_index + 1) begin : gen_way
+    sdp_bram #(
+        .DataWidth  (33),          // valid+ip
+        .Depth      (CacheDepth),
+        .DoReg      (1),
+        .InitEn     (1),
+        .InitUseFile(0),
+        .BypassEn   (1)
+    ) sdp_bram_inst (
+        .clk   (clk),
+        .rst   (rst),
+        .a_we  (p4_write_we[g_way_index]),
+        .a_addr(p4_write_addr),
+        .a_din (p4_shadow_din),
+        .b_re  (p1_shadow_re),
+        .b_addr(p1_shadow_addr),
+        .b_dout(shadow_dout[g_way_index*33+:33])
     );
   end
-endgenerate
 
-  assign  write_we         = write_we_full_reg;
-  assign  write_addr       = {HASH_WAY_CNT{write_addr_reg}};
-  assign  write_din        = {HASH_WAY_CNT{write_din_reg}};
-  assign  stat_clear_finish= clear_finish     ;
+  assign write_we          = p4_write_we;
+  assign write_addr        = {HashWayCount{p4_write_addr}};
+  assign write_din         = {HashWayCount{p4_write_din}};
+  assign stat_clear_finish = clear_finish;
+
 endmodule
 `resetall

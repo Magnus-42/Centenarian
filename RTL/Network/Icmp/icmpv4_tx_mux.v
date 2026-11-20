@@ -1,81 +1,75 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : icmpv4_tx_mux.v
 // Module Name : icmpv4_tx_mux
 // Author      : LiXintao
-// Date        : 2026-10-19
+// Created     : 2026-10-19
 // Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : ICMPv4 发送汇聚: N 路(用户 ICMP + 内部 echo 应答)仲裁复用到 1 路
-// Note        : 1. 各路按 usr 低 ARBITER_VAL_WIDTH 位作仲裁值(0=禁用/无请求)
-//               2. 包级锁定, 同值轮询; 与 udp_ipv4_tx_mux / ipv4_tx_mux 同构
-// ============================================================================
+// -----------------------------------------------------------------------------
+// Description : ICMPv4发送仲裁，将用户报文与回显应答合并。
+// Note        : usr低ReqWidth位大值优先，0为无效；同优先级按编号递增轮询，帧内保持选择。
+//               有效请求的优先级须非零；0不参与仲裁，不作为自动丢包标志。
+// -----------------------------------------------------------------------------
 
-module icmpv4_tx_mux#(
-  parameter  PORT_NUM= 2 ,
-  parameter  AXIS_USER_WIDTH= 4 ,
-  parameter  ARBITER_VAL_WIDTH= 4 ,
-  localparam IDX_WIDTH= (PORT_NUM <= 1) ? 1 : $clog2(PORT_NUM)
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  // ---- 入口: N 路 ----
-  input  wire          [      512*PORT_NUM-1:0]        icmp_axis_sdata ,
-  input  wire          [       64*PORT_NUM-1:0]        icmp_axis_skeep ,
-  input  wire          [          PORT_NUM-1:0]        icmp_axis_slast ,
-  input  wire          [          PORT_NUM-1:0]        icmp_axis_svalid,
-  input  wire          [AXIS_USER_WIDTH*PORT_NUM-1:0]  icmp_axis_susr  ,
-  output wire          [          PORT_NUM-1:0]        icmp_axis_sready,
+module icmpv4_tx_mux #(
+    parameter  integer PortCount = 2,
+    parameter  integer ReqWidth  = 4,
+    localparam integer UsrWidth  = ReqWidth
+) (
+    input wire clk,
+    input wire rst,
 
-  // ---- 出口: 1 路 -> IPv4 TX 的 icmp 档 ----
-  output wire          [                 511:0]        icmp_axis_mdata ,
-  output wire          [                  63:0]        icmp_axis_mkeep ,
-  output wire                                          icmp_axis_mlast ,
-  output wire                                          icmp_axis_mvalid,
-  output wire          [   AXIS_USER_WIDTH-1:0]        icmp_axis_musr  ,
-  input  wire                                          icmp_axis_mready,
+    input  wire [     512*PortCount-1:0] axis_sdata,
+    input  wire [      64*PortCount-1:0] axis_skeep,
+    input  wire [UsrWidth*PortCount-1:0] axis_susr,
+    input  wire [         PortCount-1:0] axis_svalid,
+    input  wire [         PortCount-1:0] axis_slast,
+    output wire [         PortCount-1:0] axis_sready,
 
-  // ---- 状态 ----
-  output wire          [             IDX_WIDTH-1:0]    stat_active_port,
-  output wire                                          stat_idle
+    output wire [       511:0] axis_mdata,
+    output wire [        63:0] axis_mkeep,
+    output wire [UsrWidth-1:0] axis_musr,
+    output wire                axis_mvalid,
+    output wire                axis_mlast,
+    input  wire                axis_mready
 );
 
-  axis_n_to_1_by_val#(
-    .NUM_PORTS        (PORT_NUM         ),
-    .AXIS_WIDTH       (512              ),
-    .AXIS_ID_WIDTH    (1                ),
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ),
-    .ARBITER_VAL_WIDTH(ARBITER_VAL_WIDTH),
-    .LOW_FIRST        (0                ),
-    .UPDATE_TID       (0                )
-  )
-  u_axis_n_to_1_by_val(
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    // --- N 路 Slave 输入 (Packed Array) ---
-    .axis_sdata       (icmp_axis_sdata  ),// (input)
-    .axis_skeep       (icmp_axis_skeep  ),// (input)
-    .axis_sid         ('d0              ),// (input)
-    .axis_susr        (icmp_axis_susr   ),// (input)
-    .axis_svalid      (icmp_axis_svalid ),// (input)
-    .axis_slast       (icmp_axis_slast  ),// (input)
-    .axis_sready      (icmp_axis_sready ),// (output)
-    // --- 1 路 Master 输出 ---
-    .axis_mdata       (icmp_axis_mdata  ),// (output)
-    .axis_mkeep       (icmp_axis_mkeep  ),// (output)
-    .axis_mid         (                 ),// (output)
-    .axis_musr        (icmp_axis_musr   ),// (output)
-    .axis_mvalid      (icmp_axis_mvalid ),// (output)
-    .axis_mlast       (icmp_axis_mlast  ),// (output)
-    .axis_mready      (icmp_axis_mready ),// (input)
-    // --- 状态 / 调试 ---
-    .stat_active_port (stat_active_port ),// (output)
-    .stat_idle        (stat_idle        ) // (output)
+  // 用户报文与回显应答按数值优先级和帧边界仲裁。
+
+  // 参数范围检查
+  initial begin
+    if (PortCount < 1 || UsrWidth < 1 || ReqWidth < 1 || ReqWidth > UsrWidth) begin
+      $display("错误：icmpv4_tx_mux：不支持的参数配置。");
+      $finish;
+    end
+  end
+
+  // 数值优先级仲裁
+  axis_value_rr_arbiter #(
+      .RequesterCount(PortCount),
+      .DataWidth     (512),
+      .UsrWidth      (UsrWidth),
+      .ReqWidth      (ReqWidth),
+      .LowReqFirst   (0),
+      .LowFirst      (1)
+  ) axis_value_rr_arbiter_inst (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sdata (axis_sdata),
+      .axis_skeep (axis_skeep),
+      .axis_susr  (axis_susr),
+      .axis_svalid(axis_svalid),
+      .axis_slast (axis_slast),
+      .axis_sready(axis_sready),
+      .axis_mdata (axis_mdata),
+      .axis_mkeep (axis_mkeep),
+      .axis_musr  (axis_musr),
+      .axis_mvalid(axis_mvalid),
+      .axis_mlast (axis_mlast),
+      .axis_mready(axis_mready)
   );
 
 endmodule

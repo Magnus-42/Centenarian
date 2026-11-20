@@ -1,87 +1,95 @@
-`resetall
-`default_nettype none
-`timescale 1ns / 100ps
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : skid_buffer.v
 // Module Name : skid_buffer
 // Author      : LiXintao
-// Date        : 2026-09-20
-// Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : skid_buffer 阻断下游ready信号传递
-// ============================================================================
+// Created     : 2026-09-20
+// Version     : 1.0
+// -----------------------------------------------------------------------------
+// Description : skid缓冲，阻断下游ready的组合传递。
+// Note        : 上游ready由skid有效位产生，最小传输延迟为1拍。
+// -----------------------------------------------------------------------------
 
-module skid_buffer#(
-  parameter  DATA_WIDTH= 1 
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  output wire                                          sready          ,
-  input  wire          [        DATA_WIDTH-1: 0]       sdata           ,
-  input  wire                                          svalid          ,
+module skid_buffer #(
+    parameter integer DataWidth = 1
+) (
+    input wire clk,
+    input wire rst,
 
-  input  wire                                          mready          ,
-  output wire          [        DATA_WIDTH-1: 0]       mdata           ,
-  output wire                                          mvalid           
+    output wire                 sready,
+    input  wire [DataWidth-1:0] sdata,
+    input  wire                 svalid,
+
+    input  wire                 mready,
+    output wire [DataWidth-1:0] mdata,
+    output wire                 mvalid
 );
 
-  reg                  [        DATA_WIDTH-1: 0]       mdata_reg          ;
-  reg                                                  mvalid_reg         ;
+  // p1寄存输出，skid在下游阻塞时暂存一拍。
 
-  reg                  [        DATA_WIDTH-1: 0]       mdata_skid         ;
-  reg                                                  mvalid_skid        ;
-  wire                                                 mready_skid        ;
+  // 参数范围检查
+  initial begin
+    if (DataWidth < 1) begin
+      $display("错误：skid_buffer：不支持的参数配置。");
+      $finish;
+    end
+  end
 
-  wire                                                 s_handshake      =svalid&&sready;
-  wire                                                 m_handshake      =mready&&mvalid;
-  assign  sready           = !mvalid_skid     ;
+  // p1 输出缓存
+  reg  [DataWidth-1:0] p1_mdata;
+  reg                  p1_mvalid;
+  wire                 p1_can_take;
 
-  wire                                                 reg_can_take     =!mvalid_reg||m_handshake;
-  wire                                                 skid_to_reg      =mvalid_skid&&reg_can_take;// skid 顶上
-  wire                                                 s_to_reg         =s_handshake&&reg_can_take;// s7 直入 reg
-  wire                                                 s_to_skid        =s_handshake&&!reg_can_take;// s7 存入 skid
+  // skid暂存
+  reg  [DataWidth-1:0] mdata_skid;
+  reg                  mvalid_skid;
+  wire                 s_to_skid;
 
+  // 握手与转移控制
+  wire                 s_handshake;
+  wire                 m_handshake;
+  wire                 skid_to_p1;
+  wire                 s_to_p1;
+
+  // 握手与转移控制
+  assign s_handshake = svalid && sready;
+  assign m_handshake = mready && mvalid;
+  assign sready      = !mvalid_skid;
+
+  assign p1_can_take = !p1_mvalid || m_handshake;
+  assign skid_to_p1  = mvalid_skid && p1_can_take;
+  assign s_to_p1     = s_handshake && p1_can_take;
+  assign s_to_skid   = s_handshake && !p1_can_take;
+
+  // 有效位
   always @(posedge clk) begin
     if (rst) begin
-      mvalid_reg <= 'd0;
+      p1_mvalid   <= 'd0;
       mvalid_skid <= 'd0;
-    end
-    else begin
-      if (s_to_reg || skid_to_reg) begin
-        mvalid_reg <= 1'b1;
-      end
-      else if (m_handshake) begin
-        mvalid_reg <= 1'b0;
-      end
+    end else begin
+      if (s_to_p1 || skid_to_p1) p1_mvalid <= 1'b1;
+      else if (m_handshake) p1_mvalid <= 1'b0;
 
-      if (s_to_skid) begin
-        mvalid_skid <= 1'b1;
-      end
-      else if (skid_to_reg) begin
-        mvalid_skid <= 1'b0;
-      end
+      if (s_to_skid) mvalid_skid <= 1'b1;
+      else if (skid_to_p1) mvalid_skid <= 1'b0;
     end
   end
 
+  // 数据位
   always @(posedge clk) begin
-    if (skid_to_reg) begin
-      mdata_reg <= mdata_skid;
-    end
-    else if (s_to_reg) begin
-      mdata_reg <= sdata;
-    end
+    if (skid_to_p1) p1_mdata <= mdata_skid;
+    else if (p1_can_take) p1_mdata <= sdata;
   end
-
   always @(posedge clk) begin
-    if (s_to_skid) begin
-      mdata_skid <= sdata;
-    end
+    if (sready && !p1_can_take) mdata_skid <= sdata;
   end
 
-  assign  mdata            = mdata_reg        ;
-  assign  mvalid           = mvalid_reg       ;
+  // 输出
+  assign mdata  = p1_mdata;
+  assign mvalid = p1_mvalid;
 
 endmodule
 `resetall

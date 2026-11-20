@@ -1,66 +1,69 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : arp_cache.v
 // Module Name : arp_cache
 // Author      : LiXintao
-// Date        : 2026-09-16
-// Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : 
-// 
-// ============================================================================
+// Created     : 2026-09-16
+// Version     : 1.0
+// -----------------------------------------------------------------------------
+// Description : 多路组相联ARP缓存存储阵列
+// Note        : 各路独立读写，默认表项包含有效位、IP和MAC
+// -----------------------------------------------------------------------------
 
-module arp_cache#(
-  parameter  ITEM_WIDTH= 81,
-  parameter  CACHE_DEEP= 1024,
-  localparam  CACHE_ADDR_WIDTH= CACHE_DEEP == 1? 1 : $clog2(CACHE_DEEP),
-  parameter  HASH_WAY_CNT= 4
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  input  wire          [      HASH_WAY_CNT-1: 0]            write_we          ,
-  input  wire          [CACHE_ADDR_WIDTH*HASH_WAY_CNT-1: 0] write_addr        ,
-  input  wire          [ITEM_WIDTH*HASH_WAY_CNT-1: 0]       write_din         ,
+module arp_cache #(
+    parameter integer ItemWidth = 81,
+    parameter integer CacheDepth = 1024,
+    localparam integer CacheAddrWidth = CacheDepth == 1 ? 1 : $clog2(CacheDepth),
+    parameter integer HashWayCount = 4
+) (
+    input wire clk,
+    input wire rst,
 
-  input  wire          [      HASH_WAY_CNT-1: 0]            lookup_re       ,
-  input  wire          [CACHE_ADDR_WIDTH*HASH_WAY_CNT-1: 0] lookup_addr     ,
-  output wire          [ITEM_WIDTH*HASH_WAY_CNT-1: 0]       lookup_dout
+    input wire [               HashWayCount-1:0] write_we,
+    input wire [CacheAddrWidth*HashWayCount-1:0] write_addr,
+    input wire [     ItemWidth*HashWayCount-1:0] write_din,
+
+    input  wire [               HashWayCount-1:0] lookup_re,
+    input  wire [CacheAddrWidth*HashWayCount-1:0] lookup_addr,
+    output wire [     ItemWidth*HashWayCount-1:0] lookup_dout
 );
-genvar g_way_index;
-generate
-  for (g_way_index = 0; g_way_index < HASH_WAY_CNT; g_way_index = g_way_index + 1) begin : gen_arp_cache_bram
-    sdp_bram#(
-      .DATA_WIDTH       (ITEM_WIDTH               ),// valid+ip
-      .DEEP             (CACHE_DEEP       ),
-      .DO_REG           (1                ),
-      .INIT_EN          (1                ),
-      .INIT_USE_FILE    (0                ),
-      .BYPASS_EN        (1                ) 
-      )
-      u_arp_cache_bram(
-      // --- 存储参数 ---
-      // --- 输出与初始化参数 ---
-      .clk              (clk              ),// (input)
-      .rst              (rst              ),// (input)
-      // ============================================================================
-      // A 写端口
-      // ============================================================================
-      .a_we             (write_we  [g_way_index]),// (input)
-      .a_addr           (write_addr[g_way_index*CACHE_ADDR_WIDTH +: CACHE_ADDR_WIDTH]),// (input)
-      .a_din            (write_din [g_way_index*ITEM_WIDTH +: ITEM_WIDTH]),// (input)
-      // ============================================================================
-      // B 读端口
-      // ============================================================================
-      .b_re             (lookup_re  [g_way_index]),// (input)
-      .b_addr           (lookup_addr[g_way_index*CACHE_ADDR_WIDTH +: CACHE_ADDR_WIDTH]),// (input)
-      .b_dout           (lookup_dout[g_way_index*ITEM_WIDTH +: ITEM_WIDTH]) // (output)
+
+  // 各路独立接收读写请求，通过带输出寄存的存储阵列返回表项。
+
+  // 参数范围检查
+  initial begin
+    if (ItemWidth < 1 || CacheDepth < 1 || HashWayCount < 1) begin
+      $display("错误：arp_cache：ItemWidth、CacheDepth和HashWayCount必须不小于1");
+      $finish;
+    end
+  end
+
+  // 生成循环
+  genvar g_way_index;
+
+  // 缓存存储阵列
+  for (g_way_index = 0; g_way_index < HashWayCount; g_way_index = g_way_index + 1) begin : gen_way
+    sdp_bram #(
+        .DataWidth  (ItemWidth),
+        .Depth      (CacheDepth),
+        .DoReg      (1),
+        .InitEn     (1),
+        .InitUseFile(0),
+        .BypassEn   (1)
+    ) sdp_bram_inst (
+        .clk   (clk),
+        .rst   (rst),
+        .a_we  (write_we[g_way_index]),
+        .a_addr(write_addr[g_way_index*CacheAddrWidth+:CacheAddrWidth]),
+        .a_din (write_din[g_way_index*ItemWidth+:ItemWidth]),
+        .b_re  (lookup_re[g_way_index]),
+        .b_addr(lookup_addr[g_way_index*CacheAddrWidth+:CacheAddrWidth]),
+        .b_dout(lookup_dout[g_way_index*ItemWidth+:ItemWidth])
     );
   end
-endgenerate
-                                              
-                                                                   
+
 endmodule
 `resetall

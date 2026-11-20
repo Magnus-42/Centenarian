@@ -1,459 +1,354 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : ipv4_arp_service.v
 // Module Name : ipv4_arp_service
 // Author      : LiXintao
-// Date        : 2026-09-18
+// Created     : 2026-09-18
 // Version     : v2.0
-// ----------------------------------------------------------------------------
-// Description : 支持流水线设计，输出查询ARP请求，接收ARP查询结果并输出数据流
-// 
-// ============================================================================
+// -----------------------------------------------------------------------------
+// Description : IPv4发送ARP查询服务，缓存查询结果并过滤未命中的帧。
+// Note        : 查询应答固定七拍、有序且每请求恰一次；MAC边带仅首拍有效。
+// -----------------------------------------------------------------------------
 
-module ipv4_arp_service#(
-  parameter  AXIS_USER_WIDTH= 4 
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  input  wire          [                 511:0]        ipv4_axis_sdata ,
-  input  wire          [                  63:0]        ipv4_axis_skeep ,
-  input  wire                                          ipv4_axis_slast ,
-  input  wire                                          ipv4_axis_svalid,
-  input  wire          [   AXIS_USER_WIDTH-1:0]        ipv4_axis_susr  ,
-  output wire                                          ipv4_axis_sready,
+module ipv4_arp_service #(
+    parameter  integer ReqWidth = 4,
+    localparam integer UsrWidth = ReqWidth
+) (
+    input wire clk,
+    input wire rst,
 
-  output wire          [                 511:0]        ipv4_axis_mdata ,
-  output wire          [                  63:0]        ipv4_axis_mkeep ,
-  output wire                                          ipv4_axis_mlast ,
-  output wire                                          ipv4_axis_mvalid,
-  output wire          [   AXIS_USER_WIDTH-1:0]        ipv4_axis_musr  ,
-  input  wire                                          ipv4_axis_mready,
+    input wire cfg_stat_clear,
 
-  output wire          [                  47:0]        dst_mac         ,// 仅首拍有效
-  output wire          [                  47:0]        src_mac         ,// 仅首拍有效
+    input  wire [       511:0] axis_sdata,
+    input  wire [        63:0] axis_skeep,
+    input  wire [UsrWidth-1:0] axis_susr,
+    input  wire                axis_svalid,
+    input  wire                axis_slast,
+    output wire                axis_sready,
 
-  output wire          [                  31:0]        query_dst_ip    ,
-  output wire          [                  31:0]        query_src_ip    ,
-  output wire                                          query_valid_pulse,
-  input  wire          [                  47:0]        arp_dst_mac     ,
-  input  wire          [                  47:0]        arp_src_mac     ,
-  input  wire                                          arp_miss        ,
-  input  wire                                          arp_valid        
+    output wire [       511:0] axis_mdata,
+    output wire [        63:0] axis_mkeep,
+    output wire [UsrWidth-1:0] axis_musr,
+    output wire                axis_mvalid,
+    output wire                axis_mlast,
+    input  wire                axis_mready,
+
+    output wire [47:0] dst_mac,  // 仅首拍有效
+    output wire [47:0] src_mac,  // 仅首拍有效
+
+    output wire [31:0] query_dst_ip,
+    output wire [31:0] query_src_ip,
+    output wire        query_valid_pulse,
+    input  wire [47:0] arp_dst_mac,
+    input  wire [47:0] arp_src_mac,
+    input  wire        arp_miss,
+    input  wire        arp_valid,
+
+    output wire stat_tx_drop
 );
 
-  // arp 结果缓存:
-  // 在飞最多 10 个包(10 级流水; 已进入输出寄存器的那个包其查表结果已被实时取走) => 最多缓存 10 条
-  localparam BUF_DEPTH= 16; // 必须是2的幂次，使用FIFO原理
-  localparam BUF_PTR_WIDTH= BUF_DEPTH <= 1 ? 1 :$clog2(BUF_DEPTH);
+  // 入口skid后的首拍发起ARP查询。
+  // p1至p7通过共享使能移位，暂存数据与边带。
+  // ARP应答由d1、FIFO及FIFO输出寄存缓存，p8对齐结果并过滤未命中帧。
+  // 出口skid同步缓存数据与MAC边带。
 
-  // 流水线
-  reg                  [                 511:0]        ipv4_axis_sdata_s1,ipv4_axis_sdata_s2,ipv4_axis_sdata_s3,ipv4_axis_sdata_s4;
-  reg                  [                 511:0]        ipv4_axis_sdata_s5,ipv4_axis_sdata_s6,ipv4_axis_sdata_s7,ipv4_axis_sdata_s8;
-  reg                  [                 511:0]        ipv4_axis_sdata_s9,ipv4_axis_sdata_s10;
-  reg                  [   AXIS_USER_WIDTH-1:0]        ipv4_axis_susr_s1,ipv4_axis_susr_s2,ipv4_axis_susr_s3,ipv4_axis_susr_s4;
-  reg                  [   AXIS_USER_WIDTH-1:0]        ipv4_axis_susr_s5,ipv4_axis_susr_s6,ipv4_axis_susr_s7,ipv4_axis_susr_s8;
-  reg                  [   AXIS_USER_WIDTH-1:0]        ipv4_axis_susr_s9,ipv4_axis_susr_s10;
-  reg                  [                  63:0]        ipv4_axis_skeep_s1,ipv4_axis_skeep_s2,ipv4_axis_skeep_s3,ipv4_axis_skeep_s4;
-  reg                  [                  63:0]        ipv4_axis_skeep_s5,ipv4_axis_skeep_s6,ipv4_axis_skeep_s7,ipv4_axis_skeep_s8;
-  reg                  [                  63:0]        ipv4_axis_skeep_s9,ipv4_axis_skeep_s10;
-  reg                                                  ipv4_axis_slast_s1,ipv4_axis_slast_s2,ipv4_axis_slast_s3,ipv4_axis_slast_s4;
-  reg                                                  ipv4_axis_slast_s5,ipv4_axis_slast_s6,ipv4_axis_slast_s7,ipv4_axis_slast_s8;
-  reg                                                  ipv4_axis_slast_s9,ipv4_axis_slast_s10;
-  reg                                                  ipv4_axis_svalid_s1,ipv4_axis_svalid_s2,ipv4_axis_svalid_s3,ipv4_axis_svalid_s4;
-  reg                                                  ipv4_axis_svalid_s5,ipv4_axis_svalid_s6,ipv4_axis_svalid_s7,ipv4_axis_svalid_s8;
-  reg                                                  ipv4_axis_svalid_s9,ipv4_axis_svalid_s10;
-
-  reg                                                  is_first_beat_s1 ,is_first_beat_s2,is_first_beat_s3,is_first_beat_s4;
-  reg                                                  is_first_beat_s5 ,is_first_beat_s6,is_first_beat_s7,is_first_beat_s8;
-  reg                                                  is_first_beat_s9 ,is_first_beat_s10;
-
-  // 输出寄存器
-  reg                  [                 511:0]        ipv4_axis_mdata_reg;
-  reg                  [                  63:0]        ipv4_axis_mkeep_reg;
-  reg                                                  ipv4_axis_mlast_reg;
-  reg                                                  ipv4_axis_mvalid_reg;
-  reg                  [   AXIS_USER_WIDTH-1:0]        ipv4_axis_musr_reg;
-
-  reg                  [                  47:0]        dst_mac_reg      ;
-  reg                  [                  47:0]        src_mac_reg      ;
-
-  // arp输出缓存
-  reg                  [     BUF_PTR_WIDTH-1:0]        arp_buf_wr_ptr   ;
-  reg                  [     BUF_PTR_WIDTH-1:0]        arp_buf_rd_ptr   ;
-  reg                                                  arp_miss_buf[BUF_DEPTH-1:0];
-  reg                  [                  47:0]        dst_mac_buf[BUF_DEPTH-1:0];
-  reg                  [                  47:0]        src_mac_buf[BUF_DEPTH-1:0];
-
-
-  reg                                                  is_first_beat    ;
-  reg                                                  is_drop_other_beat;// 第二拍及其之后需要丢弃
-
-  // skid_buffer
-  reg                  [                 511:0]        ipv4_axis_mdata_skid;
-  reg                  [                  63:0]        ipv4_axis_mkeep_skid;
-  reg                                                  ipv4_axis_mlast_skid;
-  reg                                                  ipv4_axis_mvalid_skid;
-  reg                  [   AXIS_USER_WIDTH-1:0]        ipv4_axis_musr_skid;
-  reg                  [                  47:0]        dst_mac_skid     ;
-  reg                  [                  47:0]        src_mac_skid     ;
-
-  // 握手
-  wire                                                 s_handshake       = ipv4_axis_svalid&&ipv4_axis_sready                     ;
-  wire                                                 m_handshake       = ipv4_axis_mvalid_reg&&ipv4_axis_mready                 ;
-  wire                                                 s10_ready         = !ipv4_axis_mvalid_skid                                 ;
-  wire                                                 s9_ready          = !ipv4_axis_svalid_s10||s10_ready                       ;
-  wire                                                 s8_ready          = !ipv4_axis_svalid_s9||s9_ready                         ;
-  wire                                                 s7_ready          = !ipv4_axis_svalid_s8||s8_ready                         ;
-  wire                                                 s6_ready          = !ipv4_axis_svalid_s7||s7_ready                         ;
-  wire                                                 s5_ready          = !ipv4_axis_svalid_s6||s6_ready                         ;
-  wire                                                 s4_ready          = !ipv4_axis_svalid_s5||s5_ready                         ;
-  wire                                                 s3_ready          = !ipv4_axis_svalid_s4||s4_ready                         ;
-  wire                                                 s2_ready          = !ipv4_axis_svalid_s3||s3_ready                         ;
-  wire                                                 s1_ready          = !ipv4_axis_svalid_s2||s2_ready                         ;
-  assign  ipv4_axis_sready = !ipv4_axis_svalid_s1 || s1_ready;
-  wire                                                 s10_handshake     = s10_ready&&ipv4_axis_svalid_s10                        ;
-  wire                                                 s9_handshake      = s9_ready&&ipv4_axis_svalid_s9                          ;
-  wire                                                 s8_handshake      = s8_ready&&ipv4_axis_svalid_s8                          ;
-  wire                                                 s7_handshake      = s7_ready&&ipv4_axis_svalid_s7                          ;
-  wire                                                 s6_handshake      = s6_ready&&ipv4_axis_svalid_s6                          ;
-  wire                                                 s5_handshake      = s5_ready&&ipv4_axis_svalid_s5                          ;
-  wire                                                 s4_handshake      = s4_ready&&ipv4_axis_svalid_s4                          ;
-  wire                                                 s3_handshake      = s3_ready&&ipv4_axis_svalid_s3                          ;
-  wire                                                 s2_handshake      = s2_ready&&ipv4_axis_svalid_s2                          ;
-  wire                                                 s1_handshake      = s1_ready&&ipv4_axis_svalid_s1                          ;
-
-  wire                                                 arp_buf_empty     = arp_buf_wr_ptr==arp_buf_rd_ptr                         ;
-  wire                                                 current_miss      = arp_buf_empty?arp_miss : arp_miss_buf[arp_buf_rd_ptr]  ;
-  wire                 [                  47:0]        current_dst_mac   = arp_buf_empty?arp_dst_mac : dst_mac_buf[arp_buf_rd_ptr];
-  wire                 [                  47:0]        current_src_mac   = arp_buf_empty?arp_src_mac : src_mac_buf[arp_buf_rd_ptr];
-  wire                                                 is_drop           = is_first_beat_s10?current_miss : is_drop_other_beat    ;
-  wire                                                 arp_buf_take_live = s10_handshake&&is_first_beat_s10&& arp_buf_empty       ;
-  wire                                                 arp_buf_wr_en     = arp_valid&& !arp_buf_take_live                         ;
-
-  assign  query_src_ip     = ipv4_axis_sdata[127:96];// src ip 字段
-  assign  query_dst_ip     = ipv4_axis_sdata[159:128];// des ip 字段
-  assign  query_valid_pulse= s_handshake && is_first_beat;// 第一拍握手则开始查询
-
-  ////////////////////// 水线缓存
-  // ipv4_axis_s*_s1: data usr keep last
-  always @(posedge clk) begin
-    if (s_handshake) begin
-      ipv4_axis_sdata_s1 <= ipv4_axis_sdata;
-      ipv4_axis_susr_s1 <= ipv4_axis_susr;
-      ipv4_axis_skeep_s1 <= ipv4_axis_skeep;
-      ipv4_axis_slast_s1 <= ipv4_axis_slast;
+  // 参数范围检查
+  initial begin
+    if (ReqWidth < 1) begin
+      $display("错误：ipv4_arp_service：ReqWidth必须不小于1。");
+      $finish;
     end
   end
 
-  // ipv4_axis_svalid_s1
+  // 内部常量
+  localparam integer BufDepth = 8;
+  localparam integer PipelineDepth = 8;
+  localparam integer ShiftDepth = PipelineDepth - 1;
+
+  // 入口skid接口
+  wire [         511:0] axis_sdata_skid;
+  wire [          63:0] axis_skeep_skid;
+  wire [  UsrWidth-1:0] axis_susr_skid;
+  wire                  axis_slast_skid;
+  wire                  axis_svalid_skid;
+  wire                  axis_sready_skid;
+
+  // 输入首拍与握手
+  reg                   is_first_beat;
+  wire                  s_handshake_skid;
+
+  // p1至p7 暂存
+  reg  [         511:0] data_shift          [0:ShiftDepth-1];
+  reg  [          63:0] keep_shift          [0:ShiftDepth-1];
+  reg  [  UsrWidth-1:0] usr_shift           [0:ShiftDepth-1];
+  reg  [ShiftDepth-1:0] last_shift;
+  reg  [ShiftDepth-1:0] first_shift;
+  reg  [ShiftDepth-1:0] valid_shift;
+
+  // p8 数据与控制
+  (* shreg_extract = "no" *)reg  [         511:0] p8_axis_sdata;
+  (* shreg_extract = "no" *)reg  [          63:0] p8_axis_skeep;
+  (* shreg_extract = "no" *)reg  [  UsrWidth-1:0] p8_axis_susr;
+  (* shreg_extract = "no" *)reg                   p8_axis_slast;
+  (* shreg_extract = "no" *)reg                   p8_axis_svalid;
+  (* shreg_extract = "no" *)reg                   p8_is_first_beat;
+  wire [          47:0] p8_dst_mac;
+  wire [          47:0] p8_src_mac;
+  wire                  p8_axis_svalid_skid;
+  wire                  p8_ready;
+  wire                  p8_handshake;
+  wire                  axis_mready_skid;
+
+  // ARP应答寄存
+  reg                   arp_valid_d1;
+  reg                   arp_miss_d1;
+  reg  [          47:0] arp_dst_mac_d1;
+  reg  [          47:0] arp_src_mac_d1;
+  wire                  arp_d1_take;
+  wire                  arp_d1_can_take;
+  wire                  arp_d1_load;
+
+  // ARP应答FIFO与输出寄存
+  wire                  arp_buf_rd_en;
+  wire                  arp_buf_wr_en;
+  wire [          96:0] arp_buf_dout;
+  wire                  arp_buf_empty;
+  reg                   arp_buf_valid;
+  reg                   arp_buf_miss;
+  reg  [          47:0] arp_buf_dst_mac;
+  reg  [          47:0] arp_buf_src_mac;
+  wire                  arp_buf_take;
+  wire                  arp_buf_can_take;
+
+  // 应答选择与帧过滤
+  wire                  current_miss;
+  wire [          47:0] current_dst_mac;
+  wire [          47:0] current_src_mac;
+  wire                  is_drop;
+  reg                   is_drop_other_beat;
+
+  // 状态清除配置
+  reg                   cfg_stat_clear_d1;
+
+  // 丢包锁存状态
+  reg                   drop_seen;
+
+  // 状态清除配置寄存
   always @(posedge clk) begin
     if (rst) begin
-      ipv4_axis_svalid_s1 <= 1'b0;
+      cfg_stat_clear_d1 <= 1'b0;
+    end else begin
+      cfg_stat_clear_d1 <= cfg_stat_clear;
     end
-    else begin
-      if (s_handshake) begin
-        ipv4_axis_svalid_s1 <= 1'b1;
+  end
+
+  // 入口skid
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (UsrWidth)
+  ) axis_skid_buffer_in (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(axis_sready),
+      .axis_sdata (axis_sdata),
+      .axis_skeep (axis_skeep),
+      .axis_susr  (axis_susr),
+      .axis_slast (axis_slast),
+      .axis_svalid(axis_svalid),
+      .axis_mready(axis_sready_skid),
+      .axis_mdata (axis_sdata_skid),
+      .axis_mkeep (axis_skeep_skid),
+      .axis_musr  (axis_susr_skid),
+      .axis_mlast (axis_slast_skid),
+      .axis_mvalid(axis_svalid_skid)
+  );
+
+  // 流水控制
+  assign p8_ready          = axis_mready_skid;
+  assign p8_handshake      = p8_ready && p8_axis_svalid;
+  assign axis_sready_skid  = !p8_axis_svalid || p8_ready;
+  assign s_handshake_skid  = axis_svalid_skid && axis_sready_skid;
+
+  // 首拍查询
+  assign query_src_ip      = axis_sdata_skid[127:96];
+  assign query_dst_ip      = axis_sdata_skid[159:128];
+  assign query_valid_pulse = s_handshake_skid && is_first_beat;
+
+  // 输入首拍标志
+  always @(posedge clk) begin
+    if (rst) is_first_beat <= 1'b1;
+    else if (s_handshake_skid) is_first_beat <= axis_slast_skid;
+  end
+
+  // p1至p7 暂存
+  //// 数据与边带
+  always @(posedge clk) begin : shift_payload
+    integer stage_index;
+    if (axis_sready_skid) begin
+      data_shift[0] <= axis_sdata_skid;
+      keep_shift[0] <= axis_skeep_skid;
+      usr_shift[0]  <= axis_susr_skid;
+      for (stage_index = 1; stage_index < ShiftDepth; stage_index = stage_index + 1) begin
+        data_shift[stage_index] <= data_shift[stage_index-1];
+        keep_shift[stage_index] <= keep_shift[stage_index-1];
+        usr_shift[stage_index]  <= usr_shift[stage_index-1];
       end
-      else if(s1_handshake) begin
-        ipv4_axis_svalid_s1 <= 1'b0;
-      end
+      last_shift  <= {last_shift[ShiftDepth-2:0], axis_slast_skid};
+      first_shift <= {first_shift[ShiftDepth-2:0], is_first_beat};
     end
   end
-
-  // is_first_beat_s1
-  always @(posedge clk) begin
-    if (s_handshake) begin
-      is_first_beat_s1 <= is_first_beat;
-    end
-  end
-
-  // ============================================================================
-  // 第二级 ~ 第七级打拍
-  // ============================================================================
-  // s2
-  always @(posedge clk) begin
-    if (s1_handshake) begin
-      ipv4_axis_sdata_s2 <= ipv4_axis_sdata_s1;
-      ipv4_axis_susr_s2 <= ipv4_axis_susr_s1;
-      ipv4_axis_skeep_s2 <= ipv4_axis_skeep_s1;
-      ipv4_axis_slast_s2 <= ipv4_axis_slast_s1;
-      is_first_beat_s2    <= is_first_beat_s1 ;
-    end
-  end
-  always @(posedge clk) begin
-    if (rst)               begin ipv4_axis_svalid_s2 <= 1'b0; end
-    else if (s1_handshake) begin ipv4_axis_svalid_s2 <= 1'b1; end
-    else if (s2_handshake) begin ipv4_axis_svalid_s2 <= 1'b0; end
-  end
-
-  // s3
-  always @(posedge clk) begin
-    if (s2_handshake) begin
-      ipv4_axis_sdata_s3 <= ipv4_axis_sdata_s2;
-      ipv4_axis_susr_s3 <= ipv4_axis_susr_s2;
-      ipv4_axis_skeep_s3 <= ipv4_axis_skeep_s2;
-      ipv4_axis_slast_s3 <= ipv4_axis_slast_s2;
-      is_first_beat_s3    <= is_first_beat_s2 ;
-    end
-  end
-  always @(posedge clk) begin
-    if (rst)               begin ipv4_axis_svalid_s3 <= 1'b0; end
-    else if (s2_handshake) begin ipv4_axis_svalid_s3 <= 1'b1; end
-    else if (s3_handshake) begin ipv4_axis_svalid_s3 <= 1'b0; end
-  end
-
-  // s4
-  always @(posedge clk) begin
-    if (s3_handshake) begin
-      ipv4_axis_sdata_s4 <= ipv4_axis_sdata_s3;
-      ipv4_axis_susr_s4 <= ipv4_axis_susr_s3;
-      ipv4_axis_skeep_s4 <= ipv4_axis_skeep_s3;
-      ipv4_axis_slast_s4 <= ipv4_axis_slast_s3;
-      is_first_beat_s4    <= is_first_beat_s3 ;
-    end
-  end
-  always @(posedge clk) begin
-    if (rst)               begin ipv4_axis_svalid_s4 <= 1'b0; end
-    else if (s3_handshake) begin ipv4_axis_svalid_s4 <= 1'b1; end
-    else if (s4_handshake) begin ipv4_axis_svalid_s4 <= 1'b0; end
-  end
-
-  // s5
-  always @(posedge clk) begin
-    if (s4_handshake) begin
-      ipv4_axis_sdata_s5 <= ipv4_axis_sdata_s4;
-      ipv4_axis_susr_s5 <= ipv4_axis_susr_s4;
-      ipv4_axis_skeep_s5 <= ipv4_axis_skeep_s4;
-      ipv4_axis_slast_s5 <= ipv4_axis_slast_s4;
-      is_first_beat_s5    <= is_first_beat_s4 ;
-    end
-  end
-  always @(posedge clk) begin
-    if (rst)               begin ipv4_axis_svalid_s5 <= 1'b0; end
-    else if (s4_handshake) begin ipv4_axis_svalid_s5 <= 1'b1; end
-    else if (s5_handshake) begin ipv4_axis_svalid_s5 <= 1'b0; end
-  end
-
-  // s6
-  always @(posedge clk) begin
-    if (s5_handshake) begin
-      ipv4_axis_sdata_s6 <= ipv4_axis_sdata_s5;
-      ipv4_axis_susr_s6 <= ipv4_axis_susr_s5;
-      ipv4_axis_skeep_s6 <= ipv4_axis_skeep_s5;
-      ipv4_axis_slast_s6 <= ipv4_axis_slast_s5;
-      is_first_beat_s6    <= is_first_beat_s5 ;
-    end
-  end
-  always @(posedge clk) begin
-    if (rst)               begin ipv4_axis_svalid_s6 <= 1'b0; end
-    else if (s5_handshake) begin ipv4_axis_svalid_s6 <= 1'b1; end
-    else if (s6_handshake) begin ipv4_axis_svalid_s6 <= 1'b0; end
-  end
-
-  // s7
-  always @(posedge clk) begin
-    if (s6_handshake) begin
-      ipv4_axis_sdata_s7 <= ipv4_axis_sdata_s6;
-      ipv4_axis_susr_s7 <= ipv4_axis_susr_s6;
-      ipv4_axis_skeep_s7 <= ipv4_axis_skeep_s6;
-      ipv4_axis_slast_s7 <= ipv4_axis_slast_s6;
-      is_first_beat_s7    <= is_first_beat_s6 ;
-    end
-  end
-  always @(posedge clk) begin
-    if (rst)               begin ipv4_axis_svalid_s7 <= 1'b0; end
-    else if (s6_handshake) begin ipv4_axis_svalid_s7 <= 1'b1; end
-    else if (s7_handshake) begin ipv4_axis_svalid_s7 <= 1'b0; end
-  end
-
-  // s8
-  always @(posedge clk) begin
-    if (s7_handshake) begin
-      ipv4_axis_sdata_s8 <= ipv4_axis_sdata_s7;
-      ipv4_axis_susr_s8 <= ipv4_axis_susr_s7;
-      ipv4_axis_skeep_s8 <= ipv4_axis_skeep_s7;
-      ipv4_axis_slast_s8 <= ipv4_axis_slast_s7;
-      is_first_beat_s8    <= is_first_beat_s7 ;
-    end
-  end
-  always @(posedge clk) begin
-    if (rst)               begin ipv4_axis_svalid_s8 <= 1'b0; end
-    else if (s7_handshake) begin ipv4_axis_svalid_s8 <= 1'b1; end
-    else if (s8_handshake) begin ipv4_axis_svalid_s8 <= 1'b0; end
-  end
-
-  // s9
-  always @(posedge clk) begin
-    if (s8_handshake) begin
-      ipv4_axis_sdata_s9 <= ipv4_axis_sdata_s8;
-      ipv4_axis_susr_s9 <= ipv4_axis_susr_s8;
-      ipv4_axis_skeep_s9 <= ipv4_axis_skeep_s8;
-      ipv4_axis_slast_s9 <= ipv4_axis_slast_s8;
-      is_first_beat_s9    <= is_first_beat_s8 ;
-    end
-  end
-  always @(posedge clk) begin
-    if (rst)               begin ipv4_axis_svalid_s9 <= 1'b0; end
-    else if (s8_handshake) begin ipv4_axis_svalid_s9 <= 1'b1; end
-    else if (s9_handshake) begin ipv4_axis_svalid_s9 <= 1'b0; end
-  end
-
-  // s10
-  always @(posedge clk) begin
-    if (s9_handshake) begin
-      ipv4_axis_sdata_s10 <= ipv4_axis_sdata_s9;
-      ipv4_axis_susr_s10 <= ipv4_axis_susr_s9;
-      ipv4_axis_skeep_s10 <= ipv4_axis_skeep_s9;
-      ipv4_axis_slast_s10 <= ipv4_axis_slast_s9;
-      is_first_beat_s10    <= is_first_beat_s9 ;
-    end
-  end
-  always @(posedge clk) begin
-    if (rst)               begin ipv4_axis_svalid_s10 <= 1'b0; end
-    else if (s9_handshake) begin ipv4_axis_svalid_s10 <= 1'b1; end
-    else if (s10_handshake) begin ipv4_axis_svalid_s10 <= 1'b0; end
-  end
-
-  //////////////////////标志位
-  // is_first_beat
+  //// 有效位
   always @(posedge clk) begin
     if (rst) begin
-      is_first_beat <= 1'b1;                                        // 复位后第一拍视为首拍
-    end
-    else begin
-      if (s_handshake) begin
-        is_first_beat <= ipv4_axis_slast;                           // 本拍收的是本包最后一拍 -> 下一拍即新包首拍
+      valid_shift <= 'd0;
+    end else begin
+      if (axis_sready_skid) begin
+        valid_shift <= {valid_shift[ShiftDepth-2:0], axis_svalid_skid};
       end
     end
   end
-
-  // is_drop_other_beat
+  // p8 暂存
+  //// 数据与边带
+  always @(posedge clk) begin
+    if (axis_sready_skid) begin
+      p8_axis_sdata    <= data_shift[ShiftDepth-1];
+      p8_axis_skeep    <= keep_shift[ShiftDepth-1];
+      p8_axis_susr     <= usr_shift[ShiftDepth-1];
+      p8_axis_slast    <= last_shift[ShiftDepth-1];
+      p8_is_first_beat <= first_shift[ShiftDepth-1];
+    end
+  end
+  //// 有效位
   always @(posedge clk) begin
     if (rst) begin
-      is_drop_other_beat <= 'd0;
-    end
-    else begin
-      if (ipv4_axis_slast_s10) begin
-        is_drop_other_beat <= 1'b0;
-      end
-      else if (s10_handshake && is_first_beat_s10) begin
-        is_drop_other_beat <= current_miss;                         // 命中->0(正常转发), 未命中->1(丢弃本包其余拍)
-      end
+      p8_axis_svalid <= 1'b0;
+    end else if (axis_sready_skid) begin
+      p8_axis_svalid <= valid_shift[ShiftDepth-1];
     end
   end
 
-  //////////////////////ARP 流水线缓存FIFO，设计逻辑保证不会写满，只需要判空
-  // arp_buf_wr_ptr
+  // p8 应答选择与帧过滤
+  //// 应答选择
+  assign current_miss        = arp_valid_d1 ? arp_miss_d1 : arp_buf_miss;
+  assign current_dst_mac     = arp_valid_d1 ? arp_dst_mac_d1 : arp_buf_dst_mac;
+  assign current_src_mac     = arp_valid_d1 ? arp_src_mac_d1 : arp_buf_src_mac;
+  //// MAC地址
+  assign p8_dst_mac          = p8_is_first_beat ? current_dst_mac : 48'd0;
+  assign p8_src_mac          = p8_is_first_beat ? current_src_mac : 48'd0;
+  //// 帧过滤
+  assign is_drop             = p8_is_first_beat ? current_miss : is_drop_other_beat;
+  assign p8_axis_svalid_skid = p8_axis_svalid && !is_drop;
   always @(posedge clk) begin
     if (rst) begin
-      arp_buf_wr_ptr <= 'd0;
-    end
-    else begin
-      if (arp_buf_wr_en) begin
-        arp_buf_wr_ptr <= arp_buf_wr_ptr + 1'b1;                    // 塞入缓存
-      end
+      is_drop_other_beat <= 1'b0;
+    end else if (p8_handshake) begin
+      if (p8_axis_slast) is_drop_other_beat <= 1'b0;
+      else if (p8_is_first_beat) is_drop_other_beat <= current_miss;
     end
   end
 
-  // arp_buf_rd_ptr
+  // 丢包锁存状态
+  assign stat_tx_drop = drop_seen;
+  always @(posedge clk) begin
+    if (rst || cfg_stat_clear_d1) begin
+      drop_seen <= 1'b0;
+    end else if (p8_handshake && p8_is_first_beat && current_miss) begin
+      drop_seen <= 1'b1;
+    end
+  end
+
+  // ARP应答缓存
+  //// 释放与接收条件
+  assign arp_d1_take = p8_handshake && p8_axis_slast && arp_valid_d1;
+  assign arp_buf_take = p8_handshake && p8_axis_slast && !arp_valid_d1 && arp_buf_valid;
+  assign arp_d1_can_take = !arp_valid_d1 || arp_d1_take;
+  assign arp_buf_can_take = !arp_buf_valid || arp_buf_take;
+  //// 应答路由
+  assign arp_d1_load = arp_valid && arp_buf_empty && arp_d1_can_take &&
+      arp_buf_can_take;  // arp_buf_can_take:需要保证buf中的数据被消费
+  assign arp_buf_wr_en = arp_valid && !arp_d1_load;
+  assign arp_buf_rd_en = !arp_buf_empty && arp_buf_can_take;
+  //// FIFO
+  // 待消费请求最多8项，另有d1和FIFO输出寄存器。
+  fifo_sync #(
+      .Depth          (BufDepth),
+      .Width          (97),
+      .MemoryType     ("distributed"),
+      .ProgEmptyThresh(0),
+      .ProgFullThresh (0)
+  ) fifo_sync_arp_buf (
+      .clk            (clk),
+      .rst            (rst),
+      .wr_en          (arp_buf_wr_en),
+      .din            ({arp_miss, arp_src_mac, arp_dst_mac}),
+      .rd_en          (arp_buf_rd_en),
+      .dout           (arp_buf_dout),
+      .full           (),
+      .empty          (arp_buf_empty),
+      .prog_full      (),
+      .prog_empty     (),
+      .stat_data_count()
+  );
+  //// FIFO输出寄存
   always @(posedge clk) begin
     if (rst) begin
-      arp_buf_rd_ptr <= 'd0;
-    end
-    else begin
-      if (!arp_buf_empty && s10_handshake && is_first_beat_s10) begin
-        arp_buf_rd_ptr <= arp_buf_rd_ptr + 1'b1;                    // 取出缓存
+      arp_buf_valid <= 'd0;
+    end else begin
+      if (arp_buf_rd_en) begin
+        arp_buf_valid <= 1'b1;
+      end else if (arp_buf_take) begin
+        arp_buf_valid <= 1'b0;
       end
     end
   end
-  
-  // arp_miss_buf
   always @(posedge clk) begin
-    if (arp_buf_wr_en) begin
-      arp_miss_buf[arp_buf_wr_ptr] <= arp_miss;                     // 塞入缓存
+    if (arp_buf_rd_en) begin
+      {arp_buf_miss, arp_buf_src_mac, arp_buf_dst_mac} <= arp_buf_dout;
+    end
+  end
+  //// 应答寄存
+  always @(posedge clk) begin
+    if (rst) begin
+      arp_valid_d1 <= 'd0;
+    end else begin
+      if (arp_d1_load) begin
+        arp_valid_d1 <= 1'b1;
+      end else if (arp_d1_take) begin
+        arp_valid_d1 <= 1'b0;
+      end
+    end
+  end
+  always @(posedge clk) begin
+    if (arp_d1_load) begin
+      arp_miss_d1    <= arp_miss;
+      arp_src_mac_d1 <= arp_src_mac;
+      arp_dst_mac_d1 <= arp_dst_mac;
     end
   end
 
-  // dst_mac_buf
-  always @(posedge clk) begin
-    if (arp_buf_wr_en) begin
-      dst_mac_buf[arp_buf_wr_ptr] <= arp_dst_mac;                   // 塞入缓存
-    end
-  end
-
-  // src_mac_buf
-  always @(posedge clk) begin
-    if (arp_buf_wr_en) begin
-      src_mac_buf[arp_buf_wr_ptr] <= arp_src_mac;                   // 塞入缓存
-    end
-  end
-
-  // skid
-  wire                                                 reg_can_take      = !ipv4_axis_mvalid_reg || m_handshake                   ;
-  wire                                                 skid_to_reg       = ipv4_axis_mvalid_skid && reg_can_take                  ;// skid 顶上
-  wire                                                 s10_to_reg        = s10_handshake && reg_can_take                          ;// s10 直入 reg
-  wire                                                 s10_to_skid       = s10_handshake && !reg_can_take                         ;// s10 存入 skid
-  wire                 [                  47:0]        s10_dst_mac       = is_first_beat_s10 ? current_dst_mac : 48'd0            ;
-  wire                 [                  47:0]        s10_src_mac       = is_first_beat_s10 ? current_src_mac : 48'd0            ;
-
-  // 输出寄存器: data / keep / last / dst
-  always @(posedge clk) begin
-    if (skid_to_reg) begin
-      ipv4_axis_mdata_reg <= ipv4_axis_mdata_skid;
-      ipv4_axis_mkeep_reg <= ipv4_axis_mkeep_skid;
-      ipv4_axis_mlast_reg <= ipv4_axis_mlast_skid;
-      ipv4_axis_musr_reg <= ipv4_axis_musr_skid;
-      dst_mac_reg         <= dst_mac_skid;
-    end
-    else if (s10_to_reg) begin
-      ipv4_axis_mdata_reg <= ipv4_axis_sdata_s10;
-      ipv4_axis_mkeep_reg <= ipv4_axis_skeep_s10;
-      ipv4_axis_mlast_reg <= ipv4_axis_slast_s10;
-      ipv4_axis_musr_reg <= ipv4_axis_susr_s10;
-      dst_mac_reg         <= s10_dst_mac;
-      src_mac_reg         <= s10_src_mac;
-    end
-  end
-
-  // 输出寄存器 valid
-  always @(posedge clk) begin
-    if (rst)              ipv4_axis_mvalid_reg <= 1'b0;
-    else if (skid_to_reg) ipv4_axis_mvalid_reg <= 1'b1;             // skid 只存有效拍
-    else if (s10_to_reg)  ipv4_axis_mvalid_reg <= ~is_drop;         // 未命中 => 丢弃
-    else if (m_handshake) ipv4_axis_mvalid_reg <= 1'b0;
-  end
-
-  // skid: data / keep / last / dst
-  always @(posedge clk) begin
-    if (s10_to_skid) begin
-      ipv4_axis_mdata_skid <= ipv4_axis_sdata_s10;
-      ipv4_axis_mkeep_skid <= ipv4_axis_skeep_s10;
-      ipv4_axis_mlast_skid <= ipv4_axis_slast_s10;
-      ipv4_axis_musr_skid <= ipv4_axis_susr_s10;
-      dst_mac_skid         <= s10_dst_mac;
-      src_mac_skid         <= s10_src_mac;
-    end
-  end
-
-  // skid valid
-  always @(posedge clk) begin
-    if (rst)              ipv4_axis_mvalid_skid <= 1'b0;
-    else if (s10_to_skid) ipv4_axis_mvalid_skid <= ~is_drop;
-    else if (skid_to_reg) ipv4_axis_mvalid_skid <= 1'b0;            // 顶上后清空
-  end
-
-  assign  ipv4_axis_mdata  = ipv4_axis_mdata_reg;
-  assign  ipv4_axis_mkeep  = ipv4_axis_mkeep_reg;
-  assign  ipv4_axis_mlast  = ipv4_axis_mlast_reg;
-  assign  ipv4_axis_mvalid = ipv4_axis_mvalid_reg;
-  assign  ipv4_axis_musr   = ipv4_axis_musr_reg;
-  assign  dst_mac          = dst_mac_reg      ;
-  assign  src_mac          = src_mac_reg      ;
+  // 出口skid，MAC与usr同步缓存
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (UsrWidth + 96)
+  ) axis_skid_buffer_out (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(axis_mready_skid),
+      .axis_sdata (p8_axis_sdata),
+      .axis_skeep (p8_axis_skeep),
+      .axis_susr  ({p8_src_mac, p8_dst_mac, p8_axis_susr}),
+      .axis_slast (p8_axis_slast),
+      .axis_svalid(p8_axis_svalid_skid),
+      .axis_mready(axis_mready),
+      .axis_mdata (axis_mdata),
+      .axis_mkeep (axis_mkeep),
+      .axis_musr  ({src_mac, dst_mac, axis_musr}),
+      .axis_mlast (axis_mlast),
+      .axis_mvalid(axis_mvalid)
+  );
 
 endmodule
 `resetall

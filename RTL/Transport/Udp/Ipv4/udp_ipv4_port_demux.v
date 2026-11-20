@@ -1,208 +1,228 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : udp_ipv4_port_demux.v
 // Module Name : udp_ipv4_port_demux
 // Author      : LiXintao
-// Date        : 2026-09-29
+// Created     : 2026-09-29
 // Version     : v1.0
-// ----------------------------------------------------------------------------
+
 // Description : 支持流水线设计，根据端口将数据分流
-// NOTE        : 1. 端口 i(i<PORT_NUM)的匹配区间 = DST_PORT_RANGE 第 i 个 word：
+// Note        : 1. 端口 i(i<PortCount)的匹配区间 = cfg_dst_port_range 第 i 个 word：
 //                 [15:0]下界、[31:16]上界；重叠取索引小者，空洞落末路
-//               2. PORT_NUM ≥ 0
+//               2. PortCount ≥ 0
 //               3. 只匹配目的端口
-// 
-// ============================================================================
+//
+// -----------------------------------------------------------------------------
 
-module udp_ipv4_port_demux#(
-  parameter  PORT_NUM= 3 , // 最小配置为1
-  localparam PORT_NUM_EFF = (PORT_NUM > 0) ? PORT_NUM : 1,  // 字典占位项数(>=1；PORT_NUM=0 时为 1 项占位，内容不被读取)
-  parameter  AXIS_USER_WIDTH= 241 ,
-  parameter  USR_DPORT_LSB= AXIS_USER_WIDTH - 48
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  input  wire          [PORT_NUM_EFF*32-1:0]           dst_port_range  ,
+module udp_ipv4_port_demux #(
+    parameter integer PortCount = 3,
+    localparam integer EffectivePortCount = (PortCount > 0) ? PortCount : 1,
+    localparam integer UsrWidth = 241,
+    localparam integer UsrDstPortLsb = 193
+) (
+    input wire clk,
+    input wire rst,
 
-  input  wire          [                 511:0]        udp_axis_sdata  ,
-  input  wire          [                  63:0]        udp_axis_skeep  ,
-  input  wire                                          udp_axis_slast  ,
-  input  wire                                          udp_axis_svalid ,
-  input  wire          [AXIS_USER_WIDTH-1:0]           udp_axis_susr   ,
-  output wire                                          udp_axis_sready ,
+    input wire [EffectivePortCount*32-1:0] cfg_dst_port_range,
 
-  output wire          [  512*(PORT_NUM+1)-1:0]        udp_axis_mdata  ,
-  output wire          [   64*(PORT_NUM+1)-1:0]        udp_axis_mkeep  ,
-  output wire          [            PORT_NUM:0]        udp_axis_mlast  ,
-  output wire          [            PORT_NUM:0]        udp_axis_mvalid ,
-  output wire          [AXIS_USER_WIDTH*(PORT_NUM+1)-1:0]        udp_axis_musr   ,
-  input  wire          [            PORT_NUM:0]        udp_axis_mready  
+    input  wire [       511:0] axis_sdata,
+    input  wire [        63:0] axis_skeep,
+    input  wire                axis_slast,
+    input  wire                axis_svalid,
+    input  wire [UsrWidth-1:0] axis_susr,
+    output wire                axis_sready,
+
+    output wire [     512*(PortCount+1)-1:0] axis_mdata,
+    output wire [      64*(PortCount+1)-1:0] axis_mkeep,
+    output wire [               PortCount:0] axis_mlast,
+    output wire [               PortCount:0] axis_mvalid,
+    output wire [UsrWidth*(PortCount+1)-1:0] axis_musr,
+    input  wire [               PortCount:0] axis_mready
 );
 
-  reg                                                  is_first_beat    ;
+  // 入口skid缓存数据与usr
+  // p1缓存数据并锁定首个命中区间，出口skid按通道独立保持。
 
-  reg                  [                 511:0]        udp_axis_sdata_s1;
-  reg                  [                  63:0]        udp_axis_skeep_s1;
-  reg                                                  udp_axis_slast_s1;
-  reg                                                  udp_axis_svalid_s1;
-  reg                  [AXIS_USER_WIDTH-1:0]           udp_axis_susr_s1 ;
-
-  reg                  [  512*(PORT_NUM+1)-1:0]        udp_axis_mdata_reg;
-  reg                  [   64*(PORT_NUM+1)-1:0]        udp_axis_mkeep_reg;
-  reg                  [            PORT_NUM:0]        udp_axis_mlast_reg;
-  reg                  [            PORT_NUM:0]        udp_axis_mvalid_reg;
-  reg                  [AXIS_USER_WIDTH*(PORT_NUM+1)-1:0]        udp_axis_musr_reg;
-
-  reg                  [  512*(PORT_NUM+1)-1:0]        udp_axis_mdata_skid;
-  reg                  [   64*(PORT_NUM+1)-1:0]        udp_axis_mkeep_skid;
-  reg                  [            PORT_NUM:0]        udp_axis_mlast_skid;
-  reg                  [            PORT_NUM:0]        udp_axis_mvalid_skid;
-  reg                  [AXIS_USER_WIDTH*(PORT_NUM+1)-1:0]        udp_axis_musr_skid;
-
-  wire                 [            PORT_NUM:0]        port_compare     ;
-  wire                 [            PORT_NUM:0]        port_hit         ;
-
-  reg                  [            PORT_NUM:0]        sel_type_one_hot_s1;
-  wire                                                 s_handshake       = udp_axis_svalid&&udp_axis_sready                                ;
-  wire                                                 s1_ready          = |(sel_type_one_hot_s1&(~udp_axis_mvalid_skid))                  ;
-  wire                                                 s1_handshake      = s1_ready&&udp_axis_svalid_s1                                    ;
-  assign  udp_axis_sready  = !udp_axis_svalid_s1 || s1_ready;
-
-  // s1: data keep last
-  always @(posedge clk) begin
-    if (s_handshake) begin
-      udp_axis_sdata_s1 <= udp_axis_sdata;
-      udp_axis_skeep_s1 <= udp_axis_skeep;
-      udp_axis_slast_s1 <= udp_axis_slast;
-      udp_axis_susr_s1  <= udp_axis_susr;
-    end
-  end
-  // s1: valid
-  always @(posedge clk) begin
-    if (rst) begin
-      udp_axis_svalid_s1 <= 1'd0;
-    end
-    else begin
-      if (s_handshake) begin
-        udp_axis_svalid_s1 <= 1'b1;
-      end
-      else if (s1_handshake) begin
-        udp_axis_svalid_s1 <= 1'b0;
-      end
+  // 参数范围检查
+  initial begin
+    if (PortCount < 0) begin
+      $display("错误：udp_ipv4_port_demux：不支持的参数配置。");
+      $finish;
     end
   end
 
+  // 区间配置
+  reg  [EffectivePortCount*32-1:0] cfg_dst_port_range_d1;
+
+  // 入口skid接口
+  wire [                    511:0] axis_sdata_skid;
+  wire [                     63:0] axis_skeep_skid;
+  wire [             UsrWidth-1:0] axis_susr_skid;
+  wire                             axis_slast_skid;
+  wire                             axis_svalid_skid;
+  wire                             axis_sready_skid;
+  wire                             s_handshake_skid;
+
+  // 出口skid接口
+  wire [              PortCount:0] axis_mready_skid;
+
+  // 首拍标志
+  reg                              is_first_beat;
+
+  // p1 数据与边带
+  reg  [                    511:0] p1_axis_sdata;
+  reg  [                     63:0] p1_axis_skeep;
+  reg                              p1_axis_slast;
+  reg                              p1_axis_svalid;
+  reg  [             UsrWidth-1:0] p1_axis_susr;
+
+  // 区间匹配与帧路由
+  wire [              PortCount:0] matched_channel_onehot;
+  wire [              PortCount:0] port_match;
+  reg  [              PortCount:0] channel_onehot_locked;
+
+  // 流水控制
+  wire                             p1_ready;
+  wire                             p1_handshake;
+
+  // 循环变量
   genvar port_index;
-  generate
-    for (port_index = 0; port_index <= PORT_NUM; port_index=port_index+1) begin:gen_port
-  wire                                                 m_handshake   = udp_axis_mvalid_reg[port_index]&udp_axis_mready[port_index]     ;
-  wire                                                 reg_can_take  = m_handshake||!udp_axis_mvalid_reg[port_index]               ;
-  wire                                                 skid_to_reg   = udp_axis_mvalid_skid[port_index]&&reg_can_take              ;
-  wire                                                 s1_to_skid    = s1_handshake&&sel_type_one_hot_s1[port_index]&&!reg_can_take;
-  wire                                                 s1_to_reg     = s1_handshake&&sel_type_one_hot_s1[port_index]&&reg_can_take ;
 
-      if (port_index == PORT_NUM) begin : gen_default_port
-  assign  port_hit[port_index]= 1'b0             ;
-        // other(兜底)档命中逻辑：PORT_NUM=0 ⇒ 无用户档，所有帧全部落 other
-        if (PORT_NUM == 0) begin:gen_no_user_port
-  assign  port_compare[port_index]= 1'b1 ;
-        end
-        else begin:gen_has_user_port
-  assign  port_compare[port_index]= ~(|port_hit[PORT_NUM-1:0]) ;
-        end
-      end
-      else begin : gen_range_port
- 
-  wire [15:0]                                          usr_dport_msb   = {udp_axis_susr[USR_DPORT_LSB    +: 8], udp_axis_susr[USR_DPORT_LSB + 8+: 8]};
-  wire                                                 is_low_port_bound = dst_port_range[port_index*32+:16]<=usr_dport_msb  ;
-  wire                                                 is_high_port_bound = dst_port_range[port_index*32+16+:16]>=usr_dport_msb ;
-  assign  port_hit[port_index]= is_low_port_bound && is_high_port_bound;
-  assign  port_compare[port_index]= port_hit[port_index] && ~(|port_index == 0 ? 1'b0 : port_hit[port_index-1:0]);
-      end
+  // 区间配置寄存
+  always @(posedge clk) begin
+    if (rst) cfg_dst_port_range_d1 <= 'd0;
+    else cfg_dst_port_range_d1 <= cfg_dst_port_range;
+  end
 
-      // udp
-      always @(posedge clk) begin
-        if (rst) begin
-          udp_axis_mvalid_reg[port_index] <= 'd0;
-          udp_axis_mvalid_skid[port_index] <= 'd0;
-        end
-        else begin
-          if (skid_to_reg || s1_to_reg) begin
-            udp_axis_mvalid_reg[port_index] <= 1'b1;
-          end
-          else if (m_handshake) begin
-            udp_axis_mvalid_reg[port_index] <= 1'b0;
-          end
+  // 入口skid
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (UsrWidth)
+  ) axis_skid_buffer_in (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(axis_sready),
+      .axis_sdata (axis_sdata),
+      .axis_skeep (axis_skeep),
+      .axis_susr  (axis_susr),
+      .axis_slast (axis_slast),
+      .axis_svalid(axis_svalid),
+      .axis_mready(axis_sready_skid),
+      .axis_mdata (axis_sdata_skid),
+      .axis_mkeep (axis_skeep_skid),
+      .axis_musr  (axis_susr_skid),
+      .axis_mlast (axis_slast_skid),
+      .axis_mvalid(axis_svalid_skid)
+  );
 
-          if (s1_to_skid) begin
-            udp_axis_mvalid_skid[port_index] <= 1'b1;
-          end
-          else if (skid_to_reg) begin
-            udp_axis_mvalid_skid[port_index] <= 1'b0;
-          end
-        end
-      end
-
-      always @(posedge clk) begin
-        if (skid_to_reg) begin
-          udp_axis_mdata_reg[port_index*512+:512] <= udp_axis_mdata_skid[port_index*512+:512];
-          udp_axis_mkeep_reg[port_index*64+:64] <= udp_axis_mkeep_skid[port_index*64+:64];
-          udp_axis_mlast_reg[port_index] <= udp_axis_mlast_skid[port_index];
-          udp_axis_musr_reg[port_index*AXIS_USER_WIDTH+:AXIS_USER_WIDTH] <= udp_axis_musr_skid[port_index*AXIS_USER_WIDTH+:AXIS_USER_WIDTH];
-        end
-        else if (s1_to_reg) begin
-          udp_axis_mdata_reg[port_index*512+:512] <= udp_axis_sdata_s1;
-          udp_axis_mkeep_reg[port_index*64+:64] <= udp_axis_skeep_s1;
-          udp_axis_mlast_reg[port_index] <= udp_axis_slast_s1;
-          udp_axis_musr_reg[port_index*AXIS_USER_WIDTH+:AXIS_USER_WIDTH] <= udp_axis_susr_s1;
-        end
-      end
-
-      always @(posedge clk) begin
-        if (s1_to_skid) begin
-          udp_axis_mdata_skid[port_index*512+:512] <= udp_axis_sdata_s1;
-          udp_axis_mkeep_skid[port_index*64+:64] <= udp_axis_skeep_s1;
-          udp_axis_mlast_skid[port_index] <= udp_axis_slast_s1;
-          udp_axis_musr_skid[port_index*AXIS_USER_WIDTH+:AXIS_USER_WIDTH] <= udp_axis_susr_s1;
-        end
-      end
+  // 流水控制
+  assign s_handshake_skid = axis_svalid_skid && axis_sready_skid;
+  assign p1_ready         = |(channel_onehot_locked & axis_mready_skid);
+  assign p1_handshake     = p1_ready && p1_axis_svalid;
+  assign axis_sready_skid = !p1_axis_svalid || p1_ready;
+  // p1 输入缓存
+  //// 数据与边带
+  always @(posedge clk) begin
+    if (s_handshake_skid) begin
+      p1_axis_sdata <= axis_sdata_skid;
+      p1_axis_skeep <= axis_skeep_skid;
+      p1_axis_slast <= axis_slast_skid;
+      p1_axis_susr  <= axis_susr_skid;
     end
-  endgenerate
-
-  // sel_type_one_hot_s1
+  end
+  //// 有效位
   always @(posedge clk) begin
     if (rst) begin
-      sel_type_one_hot_s1 <= 'd0;
-    end
-    else begin
-      if (s_handshake && is_first_beat) begin
-        sel_type_one_hot_s1 <= port_compare;
+      p1_axis_svalid <= 1'd0;
+    end else begin
+      if (s_handshake_skid) begin
+        p1_axis_svalid <= 1'b1;
+      end else if (p1_handshake) begin
+        p1_axis_svalid <= 1'b0;
       end
     end
   end
 
-  // is_first_beat
+  // 区间匹配与独立出口skid
+  for (port_index = 0; port_index <= PortCount; port_index = port_index + 1) begin : gen_port
+    if (port_index == PortCount) begin : gen_default_port
+      assign port_match[port_index] = 1'b0;
+      // other(兜底)档命中逻辑：PortCount=0 ⇒ 无用户档，所有帧全部落 other
+      if (PortCount == 0) begin : gen_no_user_port
+        assign matched_channel_onehot[port_index] = 1'b1;
+      end else begin : gen_has_user_port
+        assign matched_channel_onehot[port_index] = ~(|port_match[PortCount-1:0]);
+      end
+    end else begin : gen_range_port
+
+      wire [15:0] dst_port_value;
+      wire is_low_port_bound;
+      wire is_high_port_bound;
+
+      assign dst_port_value = {
+        axis_susr_skid[UsrDstPortLsb+:8], axis_susr_skid[UsrDstPortLsb+8+:8]
+      };
+      assign is_low_port_bound =
+        ({cfg_dst_port_range_d1[port_index*32+:8],cfg_dst_port_range_d1[port_index*32+8+:8]}
+          <= dst_port_value);
+      assign is_high_port_bound =
+      ({cfg_dst_port_range_d1[port_index*32+16+:8],cfg_dst_port_range_d1[port_index*32+24+:8]}
+          >= dst_port_value);
+      assign port_match[port_index] = is_low_port_bound && is_high_port_bound;
+      if (port_index == 0) begin : gen_first_match
+        assign matched_channel_onehot[port_index] = port_match[port_index];
+      end else begin : gen_later_match
+        assign matched_channel_onehot[port_index] = port_match[port_index] &&
+            !(|port_match[port_index-1:0]);
+      end
+    end
+
+    // 各通道独立出口skid
+    axis_skid_buffer #(
+        .DataWidth(512),
+        .UsrWidth (UsrWidth)
+    ) axis_skid_buffer_out (
+        .clk        (clk),
+        .rst        (rst),
+        .axis_sdata (p1_axis_sdata),
+        .axis_skeep (p1_axis_skeep),
+        .axis_susr  (p1_axis_susr),
+        .axis_slast (p1_axis_slast),
+        .axis_svalid(p1_axis_svalid && channel_onehot_locked[port_index]),
+        .axis_sready(axis_mready_skid[port_index]),
+        .axis_mdata (axis_mdata[port_index*512+:512]),
+        .axis_mkeep (axis_mkeep[port_index*64+:64]),
+        .axis_musr  (axis_musr[port_index*UsrWidth+:UsrWidth]),
+        .axis_mlast (axis_mlast[port_index]),
+        .axis_mvalid(axis_mvalid[port_index]),
+        .axis_mready(axis_mready[port_index])
+    );
+  end
+
+  // 首拍路由锁定
   always @(posedge clk) begin
     if (rst) begin
-      is_first_beat <= 1'b1;                                        // 复位后第一拍视为首拍
-    end
-    else begin
-      if (s_handshake) begin
-        is_first_beat <= udp_axis_slast;                            // 本拍收的是本包最后一拍 -> 下一拍即新包首拍
+      channel_onehot_locked <= 'd0;
+    end else begin
+      if (s_handshake_skid && is_first_beat) begin
+        channel_onehot_locked <= matched_channel_onehot;
       end
     end
   end
 
-  assign  udp_axis_mdata   = udp_axis_mdata_reg;
-  assign  udp_axis_mkeep   = udp_axis_mkeep_reg;
-  assign  udp_axis_mlast   = udp_axis_mlast_reg;
-  assign  udp_axis_mvalid  = udp_axis_mvalid_reg;
-  assign  udp_axis_musr    = udp_axis_musr_reg;
+  // 输入首拍标志
+  always @(posedge clk) begin
+    if (rst) begin
+      is_first_beat <= 1'b1;
+    end else begin
+      if (s_handshake_skid) begin
+        is_first_beat <= axis_slast_skid;
+      end
+    end
+  end
 
 endmodule
 `resetall

@@ -1,261 +1,210 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : icmpv4_type_demux.v
 // Module Name : icmpv4_type_demux
 // Author      : LiXintao
-// Date        : 2026-10-17
+// Created     : 2026-10-17
 // Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : ICMP 档内两路分流: Echo Request 与其它
-// Note        : 1. 首拍同时满足下列条件才判为 echo:
-//                  - IPv4 version=4 且 IHL=5
-//                  - 非分片(MF=0 且 frag_off=0)
-//                  - 首拍至少 24 字节有效(keep[23:0] 全 1)
-//                  - ICMP type/code = 8/0
-//               2. 任一不满足即归 other(含畸形帧、分片帧)
-//               3. 两路各自 reg + skid, 可独立反压
-// ============================================================================
+// -----------------------------------------------------------------------------
+// Description : ICMPv4类型分流，区分回显请求与其他报文。
+// Note        : 上游保证IPv4版本为4、IHL=5且首拍至少24字节有效；本模块检查分片与type/code。
+// -----------------------------------------------------------------------------
 
-module icmpv4_type_demux#(
-  parameter  AXIS_USER_WIDTH= 97
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  input  wire          [                 511:0]        ipv4_icmp_axis_sdata ,
-  input  wire          [                  63:0]        ipv4_icmp_axis_skeep ,
-  input  wire                                          ipv4_icmp_axis_slast ,
-  input  wire                                          ipv4_icmp_axis_svalid,
-  input  wire          [   AXIS_USER_WIDTH-1:0]        ipv4_icmp_axis_susr  ,
-  output wire                                          ipv4_icmp_axis_sready,
+module icmpv4_type_demux #(
+    localparam integer UsrWidth = 97
+) (
+    input wire clk,
+    input wire rst,
 
-  output wire          [                 511:0]        ipv4_echo_axis_mdata ,
-  output wire          [                  63:0]        ipv4_echo_axis_mkeep ,
-  output wire                                          ipv4_echo_axis_mlast ,
-  output wire                                          ipv4_echo_axis_mvalid,
-  output wire          [   AXIS_USER_WIDTH-1:0]        ipv4_echo_axis_musr  ,
-  input  wire                                          ipv4_echo_axis_mready,
+    input  wire [       511:0] axis_sdata,
+    input  wire [        63:0] axis_skeep,
+    input  wire [UsrWidth-1:0] axis_susr,
+    input  wire                axis_svalid,
+    input  wire                axis_slast,
+    output wire                axis_sready,
 
-  output wire          [                 511:0]        ipv4_other_axis_mdata ,
-  output wire          [                  63:0]        ipv4_other_axis_mkeep ,
-  output wire                                          ipv4_other_axis_mlast ,
-  output wire                                          ipv4_other_axis_mvalid,
-  output wire          [   AXIS_USER_WIDTH-1:0]        ipv4_other_axis_musr  ,
-  input  wire                                          ipv4_other_axis_mready
+    output wire [       511:0] echo_axis_mdata,
+    output wire [        63:0] echo_axis_mkeep,
+    output wire [UsrWidth-1:0] echo_axis_musr,
+    output wire                echo_axis_mvalid,
+    output wire                echo_axis_mlast,
+    input  wire                echo_axis_mready,
+
+    output wire [       511:0] other_axis_mdata,
+    output wire [        63:0] other_axis_mkeep,
+    output wire [UsrWidth-1:0] other_axis_musr,
+    output wire                other_axis_mvalid,
+    output wire                other_axis_mlast,
+    input  wire                other_axis_mready
 );
 
-  reg                                                  is_first_beat    ;
+  // 入口skid后匹配type/code与分片字段。
+  // p1缓存输入并锁定帧路由，各通道skid独立缓存输出。
 
-  reg                  [                 511:0]        ipv4_icmp_axis_sdata_s1;
-  reg                  [                  63:0]        ipv4_icmp_axis_skeep_s1;
-  reg                                                  ipv4_icmp_axis_slast_s1;
-  reg                                                  ipv4_icmp_axis_svalid_s1;
-  reg                  [   AXIS_USER_WIDTH-1:0]        ipv4_icmp_axis_susr_s1;
+  // 参数范围检查
+  initial begin
+    if (UsrWidth < 1) begin
+      $display("错误：icmpv4_type_demux：不支持的参数配置。");
+      $finish;
+    end
+  end
 
-  // echo 通道
-  reg                  [                 511:0]        echo_mdata_reg   ;
-  reg                  [                  63:0]        echo_mkeep_reg   ;
-  reg                                                  echo_mlast_reg   ;
-  reg                                                  echo_mvalid_reg  ;
-  reg                  [   AXIS_USER_WIDTH-1:0]        echo_musr_reg    ;
-  reg                  [                 511:0]        echo_mdata_skid  ;
-  reg                  [                  63:0]        echo_mkeep_skid  ;
-  reg                                                  echo_mlast_skid  ;
-  reg                                                  echo_mvalid_skid ;
-  reg                  [   AXIS_USER_WIDTH-1:0]        echo_musr_skid   ;
+  // 入口skid接口
+  wire [       511:0] axis_sdata_skid;
+  wire [        63:0] axis_skeep_skid;
+  wire                axis_slast_skid;
+  wire                axis_svalid_skid;
+  wire                axis_sready_skid;
+  wire [UsrWidth-1:0] axis_susr_skid;
+  wire                s_handshake_skid;
 
-  // other 通道
-  reg                  [                 511:0]        other_mdata_reg  ;
-  reg                  [                  63:0]        other_mkeep_reg  ;
-  reg                                                  other_mlast_reg  ;
-  reg                                                  other_mvalid_reg ;
-  reg                  [   AXIS_USER_WIDTH-1:0]        other_musr_reg   ;
-  reg                  [                 511:0]        other_mdata_skid ;
-  reg                  [                  63:0]        other_mkeep_skid ;
-  reg                                                  other_mlast_skid ;
-  reg                                                  other_mvalid_skid;
-  reg                  [   AXIS_USER_WIDTH-1:0]        other_musr_skid  ;
+  // p1 输入缓存
+  reg  [       511:0] p1_axis_sdata;
+  reg  [        63:0] p1_axis_skeep;
+  reg                 p1_axis_slast;
+  reg                 p1_axis_svalid;
+  reg  [UsrWidth-1:0] p1_axis_susr;
 
-  wire                                                 is_non_frag      = !ipv4_icmp_axis_sdata[53] && (ipv4_icmp_axis_sdata[52:48]==5'd0) && (ipv4_icmp_axis_sdata[63:56]==8'd0);
-  wire                                                 is_echo_type     = (ipv4_icmp_axis_sdata[175:160]==16'h0008);
-  wire                                                 sel_echo         = is_non_frag && is_echo_type;
-  reg                                                  sel_echo_s1      ;
+  // 首拍标志
+  reg                 is_first_beat;
 
-  wire                                                 s_handshake      = ipv4_icmp_axis_svalid && ipv4_icmp_axis_sready;
-  wire                                                 s1_ready         = (sel_echo_s1  && !echo_mvalid_skid) || (!sel_echo_s1 && !other_mvalid_skid);
-  wire                                                 s1_handshake     = s1_ready && ipv4_icmp_axis_svalid_s1;
-  assign  ipv4_icmp_axis_sready= !ipv4_icmp_axis_svalid_s1 || s1_ready;
+  // 协议匹配与帧路由
+  wire                is_unfragmented;
+  wire                is_echo_request;
+  wire                matches_echo;
+  reg                 echo_selected_locked;
 
-  // sel_echo_s1
+  // 流水控制
+  wire                p1_ready;
+  wire                p1_handshake;
+
+  // 出口skid接口
+  wire                echo_axis_mready_skid;
+  wire                other_axis_mready_skid;
+
+  // 协议匹配
+  assign is_unfragmented = !axis_sdata_skid[53] && (axis_sdata_skid[52:48] == 5'd0) &&
+      (axis_sdata_skid[63:56] == 8'd0);
+  assign is_echo_request = (axis_sdata_skid[175:160] == 16'h0008);
+  assign matches_echo = is_unfragmented && is_echo_request;
+
+  // 流水控制
+  assign s_handshake_skid = axis_svalid_skid && axis_sready_skid;
+  assign p1_ready = (echo_selected_locked && echo_axis_mready_skid) ||
+      (!echo_selected_locked && other_axis_mready_skid);
+  assign p1_handshake = p1_ready && p1_axis_svalid;
+  assign axis_sready_skid = !p1_axis_svalid || p1_ready;
+
+  // 入口skid
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (UsrWidth)
+  ) axis_skid_buffer_in (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(axis_sready),
+      .axis_sdata (axis_sdata),
+      .axis_skeep (axis_skeep),
+      .axis_susr  (axis_susr),
+      .axis_slast (axis_slast),
+      .axis_svalid(axis_svalid),
+      .axis_mready(axis_sready_skid),
+      .axis_mdata (axis_sdata_skid),
+      .axis_mkeep (axis_skeep_skid),
+      .axis_musr  (axis_susr_skid),
+      .axis_mlast (axis_slast_skid),
+      .axis_mvalid(axis_svalid_skid)
+  );
+
+  // 帧路由锁定
   always @(posedge clk) begin
     if (rst) begin
-      sel_echo_s1 <= 1'b0;
-    end
-    else begin
-      if (s_handshake && is_first_beat) begin
-        sel_echo_s1 <= sel_echo;
+      echo_selected_locked <= 1'b0;
+    end else begin
+      if (s_handshake_skid && is_first_beat) begin
+        echo_selected_locked <= matches_echo;
       end
     end
   end
 
-  // is_first_beat
+  // 首拍标志
   always @(posedge clk) begin
     if (rst) begin
       is_first_beat <= 1'b1;
-    end
-    else begin
-      if (s_handshake) begin
-        is_first_beat <= ipv4_icmp_axis_slast;
+    end else begin
+      if (s_handshake_skid) begin
+        is_first_beat <= axis_slast_skid;
       end
     end
   end
 
-  // s1: data keep last
+  // p1 输入缓存
+  //// 数据与边带
   always @(posedge clk) begin
-    if (s_handshake) begin
-      ipv4_icmp_axis_sdata_s1 <= ipv4_icmp_axis_sdata;
-      ipv4_icmp_axis_skeep_s1 <= ipv4_icmp_axis_skeep;
-      ipv4_icmp_axis_slast_s1 <= ipv4_icmp_axis_slast;
-      ipv4_icmp_axis_susr_s1  <= ipv4_icmp_axis_susr;
+    if (s_handshake_skid) begin
+      p1_axis_sdata <= axis_sdata_skid;
+      p1_axis_skeep <= axis_skeep_skid;
+      p1_axis_slast <= axis_slast_skid;
+      p1_axis_susr  <= axis_susr_skid;
     end
   end
-
-  // s1: valid
-  always @(posedge clk) begin
-    if (rst) begin
-      ipv4_icmp_axis_svalid_s1 <= 1'b0;
-    end
-    else begin
-      if (s_handshake) begin
-        ipv4_icmp_axis_svalid_s1 <= 1'b1;
-      end
-      else if (s1_handshake) begin
-        ipv4_icmp_axis_svalid_s1 <= 1'b0;
-      end
-    end
-  end
-
-  // --------------------------------------------------------------------------
-  // echo 通道
-  // --------------------------------------------------------------------------
-  wire                                                 echo_m_handshake  = echo_mvalid_reg && ipv4_echo_axis_mready;
-  wire                                                 echo_reg_can_take = !echo_mvalid_reg || echo_m_handshake;
-  wire                                                 echo_skid_to_reg  = echo_mvalid_skid && echo_reg_can_take;
-  wire                                                 echo_s1_to_reg    = s1_handshake && sel_echo_s1 && echo_reg_can_take;
-  wire                                                 echo_s1_to_skid   = s1_handshake && sel_echo_s1 && !echo_reg_can_take;
-
+  //// 有效位
   always @(posedge clk) begin
     if (rst) begin
-      echo_mvalid_reg  <= 1'b0;
-      echo_mvalid_skid <= 1'b0;
-    end
-    else begin
-      if (echo_skid_to_reg || echo_s1_to_reg) begin
-        echo_mvalid_reg <= 1'b1;
-      end
-      else if (echo_m_handshake) begin
-        echo_mvalid_reg <= 1'b0;
-      end
-
-      if (echo_s1_to_skid) begin
-        echo_mvalid_skid <= 1'b1;
-      end
-      else if (echo_skid_to_reg) begin
-        echo_mvalid_skid <= 1'b0;
+      p1_axis_svalid <= 1'b0;
+    end else begin
+      if (s_handshake_skid) begin
+        p1_axis_svalid <= 1'b1;
+      end else if (p1_handshake) begin
+        p1_axis_svalid <= 1'b0;
       end
     end
   end
 
-  always @(posedge clk) begin
-    if (echo_skid_to_reg) begin
-      echo_mdata_reg <= echo_mdata_skid;
-      echo_mkeep_reg <= echo_mkeep_skid;
-      echo_mlast_reg <= echo_mlast_skid;
-      echo_musr_reg  <= echo_musr_skid;
-    end
-    else if (echo_s1_to_reg) begin
-      echo_mdata_reg <= ipv4_icmp_axis_sdata_s1;
-      echo_mkeep_reg <= ipv4_icmp_axis_skeep_s1;
-      echo_mlast_reg <= ipv4_icmp_axis_slast_s1;
-      echo_musr_reg  <= ipv4_icmp_axis_susr_s1;
-    end
+  // 回显通道
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (UsrWidth)
+  ) axis_skid_buffer_echo (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(echo_axis_mready_skid),
+      .axis_sdata (p1_axis_sdata),
+      .axis_skeep (p1_axis_skeep),
+      .axis_susr  (p1_axis_susr),
+      .axis_slast (p1_axis_slast),
+      .axis_svalid(p1_axis_svalid && echo_selected_locked),
+      .axis_mready(echo_axis_mready),
+      .axis_mdata (echo_axis_mdata),
+      .axis_mkeep (echo_axis_mkeep),
+      .axis_musr  (echo_axis_musr),
+      .axis_mlast (echo_axis_mlast),
+      .axis_mvalid(echo_axis_mvalid)
+  );
 
-    if (echo_s1_to_skid) begin
-      echo_mdata_skid <= ipv4_icmp_axis_sdata_s1;
-      echo_mkeep_skid <= ipv4_icmp_axis_skeep_s1;
-      echo_mlast_skid <= ipv4_icmp_axis_slast_s1;
-      echo_musr_skid  <= ipv4_icmp_axis_susr_s1;
-    end
-  end
-
-  // --------------------------------------------------------------------------
-  // other 通道
-  // --------------------------------------------------------------------------
-  wire                                                 other_m_handshake = other_mvalid_reg && ipv4_other_axis_mready;
-  wire                                                 other_reg_can_take= !other_mvalid_reg || other_m_handshake;
-  wire                                                 other_skid_to_reg = other_mvalid_skid && other_reg_can_take;
-  wire                                                 other_s1_to_reg   = s1_handshake && !sel_echo_s1 && other_reg_can_take;
-  wire                                                 other_s1_to_skid  = s1_handshake && !sel_echo_s1 && !other_reg_can_take;
-
-  always @(posedge clk) begin
-    if (rst) begin
-      other_mvalid_reg  <= 1'b0;
-      other_mvalid_skid <= 1'b0;
-    end
-    else begin
-      if (other_skid_to_reg || other_s1_to_reg) begin
-        other_mvalid_reg <= 1'b1;
-      end
-      else if (other_m_handshake) begin
-        other_mvalid_reg <= 1'b0;
-      end
-
-      if (other_s1_to_skid) begin
-        other_mvalid_skid <= 1'b1;
-      end
-      else if (other_skid_to_reg) begin
-        other_mvalid_skid <= 1'b0;
-      end
-    end
-  end
-
-  always @(posedge clk) begin
-    if (other_skid_to_reg) begin
-      other_mdata_reg <= other_mdata_skid;
-      other_mkeep_reg <= other_mkeep_skid;
-      other_mlast_reg <= other_mlast_skid;
-      other_musr_reg  <= other_musr_skid;
-    end
-    else if (other_s1_to_reg) begin
-      other_mdata_reg <= ipv4_icmp_axis_sdata_s1;
-      other_mkeep_reg <= ipv4_icmp_axis_skeep_s1;
-      other_mlast_reg <= ipv4_icmp_axis_slast_s1;
-      other_musr_reg  <= ipv4_icmp_axis_susr_s1;
-    end
-
-    if (other_s1_to_skid) begin
-      other_mdata_skid <= ipv4_icmp_axis_sdata_s1;
-      other_mkeep_skid <= ipv4_icmp_axis_skeep_s1;
-      other_mlast_skid <= ipv4_icmp_axis_slast_s1;
-      other_musr_skid  <= ipv4_icmp_axis_susr_s1;
-    end
-  end
-
-  assign  ipv4_echo_axis_mdata  = echo_mdata_reg ;
-  assign  ipv4_echo_axis_mkeep  = echo_mkeep_reg ;
-  assign  ipv4_echo_axis_mlast  = echo_mlast_reg ;
-  assign  ipv4_echo_axis_mvalid = echo_mvalid_reg;
-  assign  ipv4_echo_axis_musr   = echo_musr_reg  ;
-
-  assign  ipv4_other_axis_mdata = other_mdata_reg ;
-  assign  ipv4_other_axis_mkeep = other_mkeep_reg ;
-  assign  ipv4_other_axis_mlast = other_mlast_reg ;
-  assign  ipv4_other_axis_mvalid= other_mvalid_reg;
-  assign  ipv4_other_axis_musr  = other_musr_reg  ;
+  // 其他通道
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (UsrWidth)
+  ) axis_skid_buffer_other (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(other_axis_mready_skid),
+      .axis_sdata (p1_axis_sdata),
+      .axis_skeep (p1_axis_skeep),
+      .axis_susr  (p1_axis_susr),
+      .axis_slast (p1_axis_slast),
+      .axis_svalid(p1_axis_svalid && !echo_selected_locked),
+      .axis_mready(other_axis_mready),
+      .axis_mdata (other_axis_mdata),
+      .axis_mkeep (other_axis_mkeep),
+      .axis_musr  (other_axis_musr),
+      .axis_mlast (other_axis_mlast),
+      .axis_mvalid(other_axis_mvalid)
+  );
 
 endmodule
 `resetall

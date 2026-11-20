@@ -1,82 +1,75 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : eth_tx_mux.v
 // Module Name : eth_tx_mux
 // Author      : LiXintao
-// Date        : 2026-09-24
-// Version     : v2.0
-// ----------------------------------------------------------------------------
-// Description : 以太网出口复用: 以太帧仲裁复用到一路
-// Note        : 优先级：低位优先
-// ============================================================================
+// Created     : 2026-09-24
+// Version     : 2.1
+// -----------------------------------------------------------------------------
+// Description : 将多路以太网发送帧仲裁复用到一路
+// Note        : usr数值越大越优先，同优先级按帧轮询；usr=0为无效请求
+// -----------------------------------------------------------------------------
 
-module eth_tx_mux#(
-  parameter  TYPE_NUM= 4 ,
-  parameter  AXIS_USER_WIDTH= 4 ,
-  localparam  IDX_WIDTH= (TYPE_NUM <= 1) ? 1 : $clog2(TYPE_NUM)
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  // ---- 入口 ----
-  input  wire          [      512*TYPE_NUM-1:0]        eth_axis_sdata  ,
-  input  wire          [       64*TYPE_NUM-1:0]        eth_axis_skeep  ,
-  input  wire          [          TYPE_NUM-1:0]        eth_axis_slast  ,
-  input  wire          [          TYPE_NUM-1:0]        eth_axis_svalid ,
-  input  wire          [AXIS_USER_WIDTH*TYPE_NUM-1:0]  eth_axis_susr   ,
-  output wire          [          TYPE_NUM-1:0]        eth_axis_sready ,
+module eth_tx_mux #(
+    parameter  integer ChannelCount = 4,
+    parameter  integer TxReqWidth   = 4,
+    localparam integer TxUsrWidth   = TxReqWidth
+) (
+    input wire clk,
+    input wire rst,
 
-  // ---- 出口 ----
-  output wire          [                 511:0]        eth_axis_mdata  ,
-  output wire          [                  63:0]        eth_axis_mkeep  ,
-  output wire                                          eth_axis_mlast  ,
-  output wire                                          eth_axis_mvalid ,
-  output wire          [   AXIS_USER_WIDTH-1:0]        eth_axis_musr   ,
-  input  wire                                          eth_axis_mready ,
+    input  wire [       512*ChannelCount-1:0] axis_sdata,
+    input  wire [        64*ChannelCount-1:0] axis_skeep,
+    input  wire [           ChannelCount-1:0] axis_slast,
+    input  wire [           ChannelCount-1:0] axis_svalid,
+    input  wire [TxUsrWidth*ChannelCount-1:0] axis_susr,
+    output wire [           ChannelCount-1:0] axis_sready,
 
-  // ---- 状态 ----
-  output wire          [             IDX_WIDTH-1:0]        stat_active_port,
-  output wire                                          stat_idle        
+    output wire [         511:0] axis_mdata,
+    output wire [          63:0] axis_mkeep,
+    output wire                  axis_mlast,
+    output wire                  axis_mvalid,
+    output wire [TxUsrWidth-1:0] axis_musr,
+    input  wire                  axis_mready
 );
 
-  axis_n_to_1_by_val#(
-    .NUM_PORTS        (TYPE_NUM         ),
-    .AXIS_WIDTH       (512              ),
-    .AXIS_ID_WIDTH    (1                ),
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ),
-    .ARBITER_VAL_WIDTH(AXIS_USER_WIDTH  ),
-    .LOW_FIRST        (0                ),
-    .UPDATE_TID       (0                ) 
-)
- u_axis_n_to_1_by_val(
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    // --- N 路 Slave 输入 (Packed Array) ---
-    // 数据通道
-    .axis_sdata       (eth_axis_sdata   ),// (input)
-    .axis_skeep       (eth_axis_skeep   ),// (input)
-    .axis_sid         ('d0              ),// (input)
-    .axis_susr        (eth_axis_susr    ),// (input)
-    .axis_svalid      (eth_axis_svalid  ),// (input)
-    .axis_slast       (eth_axis_slast   ),// (input)
-    .axis_sready      (eth_axis_sready  ),// (output)
-// --- 1 路 Master 输出 ---
-    .axis_mdata       (eth_axis_mdata   ),// (output)
-    .axis_mkeep       (eth_axis_mkeep   ),// (output)
-    .axis_mid         (                 ),// (output)
-    .axis_musr        (eth_axis_musr    ),// (output)
-    .axis_mvalid      (eth_axis_mvalid  ),// (output)
-    .axis_mlast       (eth_axis_mlast   ),// (output)
-    .axis_mready      (eth_axis_mready  ),// (input)
-// --- 状态 / 调试 ---
-    .stat_active_port (stat_active_port ),// (output)// 当前正在传输的端口号
-    .stat_idle        (stat_idle        ) // (output)// 空闲状态指示
-);
+  // 多路发送帧按usr数值优先级仲裁，同优先级按帧轮询。
 
+  // 参数范围检查
+  initial begin
+    if (ChannelCount < 1 || TxUsrWidth < 1) begin
+      $display("错误：eth_tx_mux：ChannelCount和UsrWidth必须不小于1");
+      $finish;
+    end
+  end
+
+  // 发送帧仲裁
+  axis_value_rr_arbiter #(
+      .RequesterCount(ChannelCount),
+      .DataWidth     (512),
+      .UsrWidth      (TxUsrWidth),
+      .ReqWidth      (TxReqWidth),
+      .LowReqFirst   (0),
+      .LowFirst      (1)
+  ) axis_value_rr_arbiter_inst (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sdata (axis_sdata),
+      .axis_skeep (axis_skeep),
+      .axis_susr  (axis_susr),
+      .axis_svalid(axis_svalid),
+      .axis_slast (axis_slast),
+      .axis_sready(axis_sready),
+      .axis_mdata (axis_mdata),
+      .axis_mkeep (axis_mkeep),
+      .axis_musr  (axis_musr),
+      .axis_mvalid(axis_mvalid),
+      .axis_mlast (axis_mlast),
+      .axis_mready(axis_mready)
+  );
 
 endmodule
 `resetall

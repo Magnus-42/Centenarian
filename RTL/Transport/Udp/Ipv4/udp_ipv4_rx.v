@@ -1,202 +1,258 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : udp_ipv4_rx.v
 // Module Name : udp_ipv4_rx
 // Author      : LiXintao
-// Date        : 2026-10-8
+// Created     : 2026-10-8
 // Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : 支持流水线设计，剥离ipv4头部
-// 
-// ============================================================================
 
-module udp_ipv4_rx#(
-  parameter  AXIS_USER_WIDTH= 97 // usr 每通道位宽(来自 IPv4 层)
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+// Description : 剥离固定20字节IPv4头，输出UDP报文与头字段。
+// Note        : 输入须为已筛选的无选项IPv4报文；字段保留总线字节序。
+//               stat_is_df为最近已解析首拍的DF位，仅在解析后有效。
+//
+// -----------------------------------------------------------------------------
 
-  input  wire          [                 511:0]        ipv4_axis_sdata ,
-  input  wire          [                  63:0]        ipv4_axis_skeep ,
-  input  wire                                          ipv4_axis_slast ,
-  input  wire                                          ipv4_axis_svalid,
-  input  wire          [AXIS_USER_WIDTH-1:0]           ipv4_axis_susr  ,
-  output wire                                          ipv4_axis_sready,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  output wire          [                 511:0]        udp_axis_mdata  ,
-  output wire          [                  63:0]        udp_axis_mkeep  ,
-  output wire                                          udp_axis_mlast  ,
-  output wire                                          udp_axis_mvalid ,
-  output wire          [AXIS_USER_WIDTH-1:0]           udp_axis_musr   ,
-  input  wire                                          udp_axis_mready ,
+module udp_ipv4_rx #(
+    localparam integer UsrWidth = 97
+) (
+    input wire clk,
+    input wire rst,
 
-  output wire          [                   7:0]        protocol        ,
-  output wire          [                  15:0]        total_len       ,
-  output wire          [                   7:0]        ttl             ,
-  output wire          [                  31:0]        src_ip          ,
-  output wire          [                  31:0]        dest_ip         ,
+    input  wire [       511:0] axis_sdata,
+    input  wire [        63:0] axis_skeep,
+    input  wire                axis_slast,
+    input  wire                axis_svalid,
+    input  wire [UsrWidth-1:0] axis_susr,
+    output wire                axis_sready,
 
-  output wire                                          stat_is_df       // 禁止分片
+    output wire [       511:0] axis_mdata,
+    output wire [        63:0] axis_mkeep,
+    output wire                axis_mlast,
+    output wire                axis_mvalid,
+    output wire [UsrWidth-1:0] axis_musr,
+    input  wire                axis_mready,
+
+    output wire [ 7:0] protocol,
+    output wire [15:0] total_len,
+    output wire [ 7:0] ttl,
+    output wire [31:0] src_ip,
+    output wire [31:0] dst_ip,
+
+    output wire stat_is_df  // 禁止分片
 );
 
-  reg                  [                 511:0]        ipv4_axis_sdata_s1;
-  reg                  [                  63:0]        ipv4_axis_skeep_s1;
-  reg                                                  ipv4_axis_slast_s1;
-  reg                                                  ipv4_axis_svalid_s1;
-  reg                  [AXIS_USER_WIDTH-1:0]           ipv4_axis_susr_s1;
+  // 入口skid同步缓存IPv4报文与usr。
+  // p1缓存输入及首拍标志。
+  // p2剥离20字节IPv4头，跨拍拼接并保存头字段。
+  // 出口skid同步缓存UDP报文、usr及96位IPv4字段。
 
-  reg                  [                 511:0]        udp_axis_mdata_reg;
-  reg                  [                  63:0]        udp_axis_mkeep_reg;
-  reg                                                  udp_axis_mlast_reg;
-  reg                                                  udp_axis_mvalid_reg;
-  reg                  [AXIS_USER_WIDTH-1:0]           udp_axis_musr_reg;
+  // 入口skid接口
+  wire [       511:0] axis_sdata_skid;
+  wire [        63:0] axis_skeep_skid;
+  wire [UsrWidth-1:0] axis_susr_skid;
+  wire                axis_slast_skid;
+  wire                axis_svalid_skid;
+  wire                axis_sready_skid;
+  wire                s_handshake_skid;
 
-  reg                  [                   7:0]        protocol_reg     ;
-  reg                  [                  15:0]        total_len_reg    ;
-  reg                  [                   7:0]        ttl_reg          ;
-  reg                  [                  31:0]        src_ip_reg       ;
-  reg                  [                  31:0]        dest_ip_reg      ;
+  // 出口skid接口
+  wire                axis_mready_skid;
+  wire                m_handshake_skid;
 
-  reg                                                  is_df_reg        ;// 禁止分片
+  // p1 数据与边带
+  reg  [       511:0] p1_axis_sdata;
+  reg  [        63:0] p1_axis_skeep;
+  reg                 p1_axis_slast;
+  reg                 p1_axis_svalid;
+  reg  [UsrWidth-1:0] p1_axis_susr;
 
-  reg                                                  is_first_beat    , is_first_beat_s1;
+  // p2 数据与边带
+  reg  [       511:0] p2_axis_mdata;
+  reg  [        63:0] p2_axis_mkeep;
+  reg                 p2_axis_mlast;
+  reg                 p2_axis_mvalid;
+  reg  [UsrWidth-1:0] p2_axis_musr;
 
-  wire                                                 reg_ready         = !udp_axis_mvalid_reg||udp_axis_mready                              ;
-  wire                                                 s1_ready          = !udp_axis_mvalid_reg||reg_ready                                    ;
-  assign  ipv4_axis_sready = !ipv4_axis_svalid_s1 || s1_ready;
+  // p2 首拍字段
+  reg  [         7:0] p2_protocol;
+  reg  [        15:0] p2_total_len;
+  reg  [         7:0] p2_ttl;
+  reg  [        31:0] p2_src_ip;
+  reg  [        31:0] p2_dst_ip;
 
-  wire                                                 tail_has_data     = ipv4_axis_slast_s1&&(ipv4_axis_skeep_s1[20]!= 1'b0)                ;
-  wire                                                 tail_no_data      = ipv4_axis_slast_s1&&(ipv4_axis_skeep_s1[20]== 1'b0)                ;
-  wire                                                 s1_handshake      = s1_ready&&ipv4_axis_svalid_s1&& (tail_has_data || ipv4_axis_svalid);// 同时监听第一拍存在数据
-  wire                                                 s_handshake       = ipv4_axis_sready&&ipv4_axis_svalid                                 ;
-  wire                                                 m_handshake       = udp_axis_mready&&udp_axis_mvalid                                   ;
+  // DF状态
+  reg                 is_df_reg;
 
-  // ipv4_axis_svalid_s1
+  // 首拍标志
+  reg                 is_first_beat;
+  reg                 p1_is_first_beat;
+
+  // 流水控制
+  wire                p2_ready;
+  wire                p1_ready;
+  wire                p1_tail_has_data;
+  wire                p1_tail_no_data;
+  wire                p1_handshake;
+
+  // 入口skid
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (UsrWidth)
+  ) axis_skid_buffer_in (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(axis_sready),
+      .axis_sdata (axis_sdata),
+      .axis_skeep (axis_skeep),
+      .axis_susr  (axis_susr),
+      .axis_slast (axis_slast),
+      .axis_svalid(axis_svalid),
+      .axis_mready(axis_sready_skid),
+      .axis_mdata (axis_sdata_skid),
+      .axis_mkeep (axis_skeep_skid),
+      .axis_musr  (axis_susr_skid),
+      .axis_mlast (axis_slast_skid),
+      .axis_mvalid(axis_svalid_skid)
+  );
+
+  // 流水控制
+  assign p2_ready = !p2_axis_mvalid || axis_mready_skid;
+  assign p1_ready = p2_ready;
+  assign axis_sready_skid = !p1_axis_svalid || p1_ready;
+  assign p1_tail_has_data = p1_axis_slast && (p1_axis_skeep[20] != 1'b0);
+  assign p1_tail_no_data = p1_axis_slast && (p1_axis_skeep[20] == 1'b0);
+  assign p1_handshake = p1_ready && p1_axis_svalid &&
+      (p1_tail_has_data || axis_svalid_skid);  // 非末拍需要下一拍参与拼接
+
+  assign s_handshake_skid = axis_sready_skid && axis_svalid_skid;
+  assign m_handshake_skid = axis_mready_skid && p2_axis_mvalid;
+  // p1 输入缓存
+  //// 数据与边带
+  always @(posedge clk) begin
+    if (s_handshake_skid) begin
+      p1_axis_sdata <= axis_sdata_skid;
+      p1_axis_skeep <= axis_skeep_skid;
+      p1_axis_slast <= axis_slast_skid;
+      p1_axis_susr  <= axis_susr_skid;
+    end
+  end
+
+  //// 有效位
   always @(posedge clk) begin
     if (rst) begin
-      ipv4_axis_svalid_s1 <= 'd0;
-    end
-    else begin
-      if (s_handshake) begin
-        ipv4_axis_svalid_s1 <= 1'b1;
-      end
-      else if (s1_handshake) begin
-        ipv4_axis_svalid_s1 <= 1'b0;
+      p1_axis_svalid <= 'd0;
+    end else begin
+      if (s_handshake_skid) begin
+        p1_axis_svalid <= 1'b1;
+      end else if (p1_handshake) begin
+        p1_axis_svalid <= 1'b0;
       end
     end
   end
 
-  // s1: data keep last
+  // p2 剥头与跨拍拼接
+  //// 数据与边带
   always @(posedge clk) begin
-    if (s_handshake) begin
-      ipv4_axis_sdata_s1  <= ipv4_axis_sdata;
-      ipv4_axis_skeep_s1  <= ipv4_axis_skeep;
-      ipv4_axis_slast_s1  <= ipv4_axis_slast;
-      ipv4_axis_susr_s1   <= ipv4_axis_susr;
-    end
-  end
-
-  // reg: data keep last
-  always @(posedge clk) begin
-    if (s1_handshake) begin
-      if (ipv4_axis_svalid && ipv4_axis_slast && ipv4_axis_skeep[20] == 0) begin// 提前最后一拍
-        udp_axis_mdata_reg <= {ipv4_axis_sdata[159:0],ipv4_axis_sdata_s1[511:160]};
-        udp_axis_mkeep_reg <= {ipv4_axis_skeep[19:0],ipv4_axis_skeep_s1[63:20]};
-        udp_axis_mlast_reg <= 1'b1;
-        udp_axis_musr_reg  <= ipv4_axis_susr_s1;
-      end
-      else if(tail_has_data) begin                                  // 最后一拍
-        udp_axis_mdata_reg <= {160'd0,ipv4_axis_sdata_s1[511:160]};
-        udp_axis_mkeep_reg <= {20'd0,ipv4_axis_skeep_s1[63:20]};
-        udp_axis_mlast_reg <= 1'b1;
-        udp_axis_musr_reg  <= ipv4_axis_susr_s1;
-      end
-      else begin
-        udp_axis_mdata_reg <= {ipv4_axis_sdata[159:0],ipv4_axis_sdata_s1[511:160]};
-        udp_axis_mkeep_reg <= {ipv4_axis_skeep[19:0],ipv4_axis_skeep_s1[63:20]};
-        udp_axis_mlast_reg <= 1'b0;
-        udp_axis_musr_reg  <= ipv4_axis_susr_s1;
+    if (p1_handshake) begin
+      if (!p1_axis_slast && axis_svalid_skid && axis_slast_skid && !axis_skeep_skid[20]) begin
+        p2_axis_mdata <= {axis_sdata_skid[159:0], p1_axis_sdata[511:160]};
+        p2_axis_mkeep <= {axis_skeep_skid[19:0], p1_axis_skeep[63:20]};
+        p2_axis_mlast <= 1'b1;
+        p2_axis_musr  <= p1_axis_susr;
+      end else if (p1_tail_has_data) begin  // 最后一拍
+        p2_axis_mdata <= {160'd0, p1_axis_sdata[511:160]};
+        p2_axis_mkeep <= {20'd0, p1_axis_skeep[63:20]};
+        p2_axis_mlast <= 1'b1;
+        p2_axis_musr  <= p1_axis_susr;
+      end else begin
+        p2_axis_mdata <= {axis_sdata_skid[159:0], p1_axis_sdata[511:160]};
+        p2_axis_mkeep <= {axis_skeep_skid[19:0], p1_axis_skeep[63:20]};
+        p2_axis_mlast <= 1'b0;
+        p2_axis_musr  <= p1_axis_susr;
       end
     end
   end
 
-  // reg: valid
+  //// 有效位
   always @(posedge clk) begin
     if (rst) begin
-      udp_axis_mvalid_reg <= 1'b0;
-    end
-    else begin
-      if (s1_handshake) begin
-        if (tail_no_data) begin
-          udp_axis_mvalid_reg <= 1'b0;                              // 末拍无载荷 => 本拍不产生输出
+      p2_axis_mvalid <= 1'b0;
+    end else begin
+      if (p1_handshake) begin
+        if (p1_tail_no_data) begin
+          p2_axis_mvalid <= 1'b0;  // 末拍无载荷 => 本拍不产生输出
+        end else begin
+          p2_axis_mvalid <= 1'b1;
         end
-        else begin
-          udp_axis_mvalid_reg <= 1'b1;
-        end
-      end
-      else if (m_handshake) begin
-        udp_axis_mvalid_reg <= 1'b0;
+      end else if (m_handshake_skid) begin
+        p2_axis_mvalid <= 1'b0;
       end
     end
   end
 
-  // protocol_reg total_len_reg ttl_reg src_ip_reg dest_ip_reg
+  //// IPv4字段
   always @(posedge clk) begin
-    if (s1_handshake) begin
-      if (is_first_beat_s1) begin                                   // 提前最后一拍
-        protocol_reg <= ipv4_axis_sdata_s1[79:72];
-        total_len_reg <= ipv4_axis_sdata_s1[31:16];
-        ttl_reg <= ipv4_axis_sdata_s1[71:64];
-        src_ip_reg <= ipv4_axis_sdata_s1[127:96];
-        dest_ip_reg <= ipv4_axis_sdata_s1[159:128];
+    if (p1_handshake) begin
+      if (p1_is_first_beat) begin  // 首拍保存IPv4字段
+        p2_protocol <= p1_axis_sdata[79:72];
+        p2_total_len <= p1_axis_sdata[31:16];
+        p2_ttl <= p1_axis_sdata[71:64];
+        p2_src_ip <= p1_axis_sdata[127:96];
+        p2_dst_ip <= p1_axis_sdata[159:128];
       end
     end
   end
 
-  // is_df_reg
+  // DF位
   always @(posedge clk) begin
-    if (s1_handshake) begin
-      if (is_first_beat_s1) begin                                   // 提前最后一拍
-        is_df_reg <= ipv4_axis_sdata_s1[54];
+    if (p1_handshake) begin
+      if (p1_is_first_beat) begin  // 首拍保存IPv4字段
+        is_df_reg <= p1_axis_sdata[54];
       end
     end
   end
 
-  // is_first_beat
+  // 输入首拍标志
   always @(posedge clk) begin
     if (rst) begin
-      is_first_beat <= 1'b1;                                        // 复位后第一拍视为首拍
-    end
-    else begin
-      if (s_handshake) begin
-        is_first_beat <= ipv4_axis_slast;                           // 本拍收的是本包最后一拍 -> 下一拍即新包首拍
+      is_first_beat <= 1'b1;
+    end else begin
+      if (s_handshake_skid) begin
+        is_first_beat <= axis_slast_skid;
       end
     end
   end
-
-  // is_first_beat_s1
   always @(posedge clk) begin
-    if (s_handshake) begin
-      is_first_beat_s1 <= is_first_beat;
+    if (s_handshake_skid) begin
+      p1_is_first_beat <= is_first_beat;
     end
   end
 
-  assign  udp_axis_mdata   = udp_axis_mdata_reg;
-  assign  udp_axis_mkeep   = udp_axis_mkeep_reg;
-  assign  udp_axis_mlast   = udp_axis_mlast_reg;
-  assign  udp_axis_mvalid  = udp_axis_mvalid_reg;
-  assign  udp_axis_musr    = udp_axis_musr_reg;
-   
-  assign  protocol         = protocol_reg     ;
-  assign  total_len        = total_len_reg    ;
-  assign  ttl              = ttl_reg          ;
-  assign  src_ip           = src_ip_reg       ;
-  assign  dest_ip          = dest_ip_reg      ;
-  assign  stat_is_df       = is_df_reg        ;
+  // 出口skid
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (UsrWidth + 96)
+  ) axis_skid_buffer_out (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(axis_mready_skid),
+      .axis_sdata (p2_axis_mdata),
+      .axis_skeep (p2_axis_mkeep),
+      .axis_susr  ({p2_dst_ip, p2_src_ip, p2_ttl, p2_total_len, p2_protocol, p2_axis_musr}),
+      .axis_slast (p2_axis_mlast),
+      .axis_svalid(p2_axis_mvalid),
+      .axis_mready(axis_mready),
+      .axis_mdata (axis_mdata),
+      .axis_mkeep (axis_mkeep),
+      .axis_musr  ({dst_ip, src_ip, ttl, total_len, protocol, axis_musr}),
+      .axis_mlast (axis_mlast),
+      .axis_mvalid(axis_mvalid)
+  );
 
+  // 最近已解析首拍的DF状态，保持原解析阶段更新语义。
+  assign stat_is_df = is_df_reg;
 endmodule
 `resetall

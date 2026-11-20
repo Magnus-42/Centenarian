@@ -1,81 +1,77 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : ipv4_tx_mux.v
 // Module Name : ipv4_tx_mux
 // Author      : LiXintao
-// Date        : 2026-09-29
+// Created     : 2026-09-29
 // Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : IPV4出口复用: IPV4帧仲裁复用到一路
-// Note        : 优先级：高位优先
-// ============================================================================
+// -----------------------------------------------------------------------------
+// Description : IPv4发送仲裁，将多路IPv4帧合并到一路。
+// Note        : usr低ReqWidth位为优先级，大值优先，0无效，同优先级按编号递增轮询。
+// -----------------------------------------------------------------------------
 
-module ipv4_tx_mux#(
-  parameter  TYPE_NUM= 4 ,
-  parameter  AXIS_USER_WIDTH= 4 ,
-  localparam  IDX_WIDTH= (TYPE_NUM <= 1) ? 1 : $clog2(TYPE_NUM)
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  // ---- 入口 ----
-  input  wire          [      512*TYPE_NUM-1:0]        ipv4_axis_sdata ,
-  input  wire          [       64*TYPE_NUM-1:0]        ipv4_axis_skeep ,
-  input  wire          [          TYPE_NUM-1:0]        ipv4_axis_slast ,
-  input  wire          [          TYPE_NUM-1:0]        ipv4_axis_svalid,
-  input  wire          [AXIS_USER_WIDTH*TYPE_NUM-1:0]  ipv4_axis_susr  ,
-  output wire          [          TYPE_NUM-1:0]        ipv4_axis_sready,
+module ipv4_tx_mux #(
+    parameter integer TxChannelCount = 4,
+    parameter integer ReqWidth = 4,
+    localparam integer UsrWidth = ReqWidth
+) (
+    input wire clk,
+    input wire rst,
 
-  // ---- 出口 ----
-  output wire          [                 511:0]        ipv4_axis_mdata ,
-  output wire          [                  63:0]        ipv4_axis_mkeep ,
-  output wire                                          ipv4_axis_mlast ,
-  output wire                                          ipv4_axis_mvalid,
-  output wire          [   AXIS_USER_WIDTH-1:0]        ipv4_axis_musr  ,
-  input  wire                                          ipv4_axis_mready,
+    // 入口
+    input  wire [     512*TxChannelCount-1:0] axis_sdata,
+    input  wire [      64*TxChannelCount-1:0] axis_skeep,
+    input  wire [UsrWidth*TxChannelCount-1:0] axis_susr,
+    input  wire [         TxChannelCount-1:0] axis_svalid,
+    input  wire [         TxChannelCount-1:0] axis_slast,
+    output wire [         TxChannelCount-1:0] axis_sready,
 
-  // ---- 状态 ----
-  output wire          [             IDX_WIDTH-1:0]        stat_active_port,
-  output wire                                          stat_idle        
+    // 出口
+    output wire [       511:0] axis_mdata,
+    output wire [        63:0] axis_mkeep,
+    output wire [UsrWidth-1:0] axis_musr,
+    output wire                axis_mvalid,
+    output wire                axis_mlast,
+    input  wire                axis_mready
 );
 
-axis_n_to_1_by_val#(
-    .NUM_PORTS        (TYPE_NUM         ),
-    .AXIS_WIDTH       (512              ),
-    .AXIS_ID_WIDTH    (1                ),
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ),
-    .ARBITER_VAL_WIDTH(AXIS_USER_WIDTH  ),
-    .LOW_FIRST        (0                ),
-    .UPDATE_TID       (0                ) 
-)
- u_axis_n_to_1_by_val(
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    // --- N 路 Slave 输入 (Packed Array) ---
-    // 数据通道
-    .axis_sdata       (ipv4_axis_sdata  ),// (input)
-    .axis_skeep       (ipv4_axis_skeep  ),// (input)
-    .axis_sid         ('d0              ),// (input)
-    .axis_susr        (ipv4_axis_susr   ),// (input)
-    .axis_svalid      (ipv4_axis_svalid ),// (input)
-    .axis_slast       (ipv4_axis_slast  ),// (input)
-    .axis_sready      (ipv4_axis_sready ),// (output)
-// --- 1 路 Master 输出 ---
-    .axis_mdata       (ipv4_axis_mdata  ),// (output)
-    .axis_mkeep       (ipv4_axis_mkeep  ),// (output)
-    .axis_mid         (                 ),// (output)
-    .axis_musr        (ipv4_axis_musr   ),// (output)
-    .axis_mvalid      (ipv4_axis_mvalid ),// (output)
-    .axis_mlast       (ipv4_axis_mlast  ),// (output)
-    .axis_mready      (ipv4_axis_mready ),// (input)
-// --- 状态 / 调试 ---
-    .stat_active_port (stat_active_port ),// (output)// 当前正在传输的端口号
-    .stat_idle        (stat_idle        ) // (output)// 空闲状态指示
-);
+  // 多路输入按数值优先级和帧边界仲裁，合并为一路输出。
+
+  // 参数范围检查
+  initial begin
+    if (TxChannelCount < 1 || ReqWidth < 1) begin
+      $display("错误：ipv4_tx_mux：TxChannelCount和ReqWidth必须不小于1。");
+      $finish;
+    end
+  end
+
+  // 数值优先级仲裁
+  axis_value_rr_arbiter #(
+      .RequesterCount(TxChannelCount),
+      .DataWidth     (512),
+      .UsrWidth      (UsrWidth),
+      .ReqWidth      (ReqWidth),
+      .LowReqFirst   (0),
+      .LowFirst      (1)
+  ) axis_value_rr_arbiter_inst (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sdata (axis_sdata),
+      .axis_skeep (axis_skeep),
+      .axis_susr  (axis_susr),
+      .axis_svalid(axis_svalid),
+      .axis_slast (axis_slast),
+      .axis_sready(axis_sready),
+      .axis_mdata (axis_mdata),
+      .axis_mkeep (axis_mkeep),
+      .axis_musr  (axis_musr),
+      .axis_mvalid(axis_mvalid),
+      .axis_mlast (axis_mlast),
+      .axis_mready(axis_mready)
+  );
 
 endmodule
 `resetall

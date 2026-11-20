@@ -1,137 +1,117 @@
-`resetall
-`default_nettype none
-`timescale 1ns / 100ps
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : axis_skid_buffer.v
 // Module Name : axis_skid_buffer
 // Author      : LiXintao
-// Date        : 2026-09-20
-// Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : axis_skid_buffer 阻断下游ready信号传递
-// ============================================================================
+// Created     : 2026-09-20
+// Version     : 1.1
+// -----------------------------------------------------------------------------
+// Description : AXIS skid缓冲，阻断下游ready的组合传递。
+// Note        : 上游ready由skid有效位产生，最小传输延迟为1拍。
+// -----------------------------------------------------------------------------
 
-module axis_skid_buffer#(
-  parameter  AXIS_DATA_WIDTH= 1 ,
-  parameter  AXIS_USER_WIDTH= 1 ,
-  parameter  AXIS_ID_WIDTH= 1 ,
-  parameter  AXIS_DEST_WIDTH= 1 
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  output wire                                          axis_sready     ,
-  input  wire          [   AXIS_DATA_WIDTH-1:0]        axis_sdata      ,
-  input  wire          [ AXIS_DATA_WIDTH/8-1:0]        axis_skeep      ,
-  input  wire          [   AXIS_USER_WIDTH-1:0]        axis_susr       ,
-  input  wire          [     AXIS_ID_WIDTH-1:0]        axis_sid        ,
-  input  wire          [   AXIS_DEST_WIDTH-1:0]        axis_sdest      ,
-  input  wire          [ AXIS_DATA_WIDTH/8-1:0]        axis_sstrb      ,
-  input  wire                                          axis_slast      ,
-  input  wire                                          axis_svalid     ,
+module axis_skid_buffer #(
+    parameter  integer DataWidth = 8,
+    parameter  integer UsrWidth  = 1,
+    localparam integer KeepWidth = DataWidth / 8
+) (
+    input wire clk,
+    input wire rst,
 
-  input  wire                                          axis_mready     ,
-  output wire          [   AXIS_DATA_WIDTH-1:0]        axis_mdata      ,
-  output wire          [ AXIS_DATA_WIDTH/8-1:0]        axis_mkeep      ,
-  output wire          [   AXIS_USER_WIDTH-1:0]        axis_musr       ,
-  output wire          [     AXIS_ID_WIDTH-1:0]        axis_mid        ,
-  output wire          [   AXIS_DEST_WIDTH-1:0]        axis_mdest      ,
-  output wire          [ AXIS_DATA_WIDTH/8-1:0]        axis_mstrb      ,
-  output wire                                          axis_mlast      ,
-  output wire                                          axis_mvalid      
+    output wire                 axis_sready,
+    input  wire [DataWidth-1:0] axis_sdata,
+    input  wire [KeepWidth-1:0] axis_skeep,
+    input  wire [ UsrWidth-1:0] axis_susr,
+    input  wire                 axis_slast,
+    input  wire                 axis_svalid,
+
+    input  wire                 axis_mready,
+    output wire [DataWidth-1:0] axis_mdata,
+    output wire [KeepWidth-1:0] axis_mkeep,
+    output wire [ UsrWidth-1:0] axis_musr,
+    output wire                 axis_mlast,
+    output wire                 axis_mvalid
 );
 
-  reg                  [   AXIS_DATA_WIDTH-1:0]        axis_mdata_reg   ;
-  reg                  [ AXIS_DATA_WIDTH/8-1:0]        axis_mkeep_reg   ;
-  reg                  [   AXIS_USER_WIDTH-1:0]        axis_musr_reg    ;
-  reg                  [     AXIS_ID_WIDTH-1:0]        axis_mid_reg     ;
-  reg                  [   AXIS_DEST_WIDTH-1:0]        axis_mdest_reg   ;
-  reg                  [ AXIS_DATA_WIDTH/8-1:0]        axis_mstrb_reg   ;
-  reg                                                  axis_mlast_reg   ;
-  reg                                                  axis_mvalid_reg  ;
+  // p1寄存AXIS输出，skid在下游阻塞时暂存一拍。
 
-  reg                  [   AXIS_DATA_WIDTH-1:0]        axis_mdata_skid  ;
-  reg                  [ AXIS_DATA_WIDTH/8-1:0]        axis_mkeep_skid  ;
-  reg                  [   AXIS_USER_WIDTH-1:0]        axis_musr_skid   ;
-  reg                  [     AXIS_ID_WIDTH-1:0]        axis_mid_skid    ;
-  reg                  [   AXIS_DEST_WIDTH-1:0]        axis_mdest_skid  ;
-  reg                  [ AXIS_DATA_WIDTH/8-1:0]        axis_mstrb_skid  ;
-  reg                                                  axis_mlast_skid  ;
-  reg                                                  axis_mvalid_skid ;
+  // 参数范围检查
+  initial begin
+    if (DataWidth < 8 || DataWidth % 8 != 0 || UsrWidth < 1) begin
+      $display("错误：axis_skid_buffer：不支持的参数配置。");
+      $finish;
+    end
+  end
 
-  wire                                                 s_handshake       = axis_svalid&&axis_sready      ;
-  wire                                                 m_handshake       = axis_mready&&axis_mvalid      ;
-  assign  axis_sready      = !axis_mvalid_skid;
+  // p1 输出缓存
+  reg  [DataWidth-1:0] p1_axis_mdata;
+  reg  [KeepWidth-1:0] p1_axis_mkeep;
+  reg  [ UsrWidth-1:0] p1_axis_musr;
+  reg                  p1_axis_mlast;
+  reg                  p1_axis_mvalid;
+  wire                 p1_can_take;
 
-  wire                                                 reg_can_take      = !axis_mvalid_reg||m_handshake ;
-  wire                                                 skid_to_reg       = axis_mvalid_skid&&reg_can_take;// skid 顶上
-  wire                                                 s_to_reg          = s_handshake&&reg_can_take     ;// s7 直入 reg
-  wire                                                 s_to_skid         = s_handshake&&!reg_can_take    ;// s7 存入 skid
+  // skid暂存
+  reg  [DataWidth-1:0] axis_mdata_skid;
+  reg  [KeepWidth-1:0] axis_mkeep_skid;
+  reg  [ UsrWidth-1:0] axis_musr_skid;
+  reg                  axis_mlast_skid;
+  reg                  axis_mvalid_skid;
+  wire                 s_to_skid;
 
+  // 握手与转移控制
+  wire                 s_handshake;
+  wire                 m_handshake;
+  wire                 skid_to_p1;
+  wire                 s_to_p1;
+
+  // 握手与转移控制
+  assign s_handshake = axis_svalid && axis_sready;
+  assign m_handshake = axis_mready && axis_mvalid;
+  assign axis_sready = !axis_mvalid_skid;
+
+  assign p1_can_take = !p1_axis_mvalid || m_handshake;
+  assign skid_to_p1  = axis_mvalid_skid && p1_can_take;
+  assign s_to_p1     = s_handshake && p1_can_take;
+  assign s_to_skid   = s_handshake && !p1_can_take;
+
+  // 有效位与usr
   always @(posedge clk) begin
     if (rst) begin
-      axis_mvalid_reg <= 'd0;
+      p1_axis_musr     <= 'd0;
+      p1_axis_mvalid   <= 'd0;
+      axis_musr_skid   <= 'd0;
       axis_mvalid_skid <= 'd0;
-    end
-    else begin
-      if (s_to_reg || skid_to_reg) begin
-        axis_mvalid_reg <= 1'b1;
-      end
-      else if (m_handshake) begin
-        axis_mvalid_reg <= 1'b0;
-      end
-
-      if (s_to_skid) begin
-        axis_mvalid_skid <= 1'b1;
-      end
-      else if (skid_to_reg) begin
-        axis_mvalid_skid <= 1'b0;
-      end
+    end else begin
+      p1_axis_musr <= p1_can_take ? (axis_mvalid_skid ? axis_musr_skid : axis_susr) : p1_axis_musr;
+      p1_axis_mvalid <= (s_to_p1 || skid_to_p1) ? 1'b1 : (m_handshake ? 1'b0 : p1_axis_mvalid);
+      axis_musr_skid <= (axis_sready && !p1_can_take) ? axis_susr : axis_musr_skid;
+      axis_mvalid_skid <= s_to_skid ? 1'b1 : (skid_to_p1 ? 1'b0 : axis_mvalid_skid);
     end
   end
 
+  // 数据、keep与last
   always @(posedge clk) begin
-    if (skid_to_reg) begin
-      axis_mdata_reg <= axis_mdata_skid;
-      axis_mkeep_reg <= axis_mkeep_skid;
-      axis_musr_reg <= axis_musr_skid;
-      axis_mid_reg   <= axis_mid_skid  ;
-      axis_mdest_reg <= axis_mdest_skid;
-      axis_mstrb_reg <= axis_mstrb_skid;
-      axis_mlast_reg <= axis_mlast_skid;
-    end
-    else if (s_to_reg) begin
-      axis_mdata_reg <= axis_sdata;
-      axis_mkeep_reg <= axis_skeep;
-      axis_musr_reg <= axis_susr;
-      axis_mid_reg   <= axis_sid  ;
-      axis_mdest_reg <= axis_sdest;
-      axis_mstrb_reg <= axis_sstrb;
-      axis_mlast_reg <= axis_slast;
-    end
+    p1_axis_mdata <=
+       p1_can_take ? (axis_mvalid_skid ? axis_mdata_skid : axis_sdata) : p1_axis_mdata;
+    p1_axis_mkeep <=
+       p1_can_take ? (axis_mvalid_skid ? axis_mkeep_skid : axis_skeep) : p1_axis_mkeep;
+    p1_axis_mlast <=
+       p1_can_take ? (axis_mvalid_skid ? axis_mlast_skid : axis_slast) : p1_axis_mlast;
+
+    axis_mdata_skid <= (axis_sready && !p1_can_take) ? axis_sdata : axis_mdata_skid;
+    axis_mkeep_skid <= (axis_sready && !p1_can_take) ? axis_skeep : axis_mkeep_skid;
+    axis_mlast_skid <= (axis_sready && !p1_can_take) ? axis_slast : axis_mlast_skid;
   end
 
-  always @(posedge clk) begin
-    if (s_to_skid) begin
-      axis_mdata_skid <= axis_sdata;
-      axis_mkeep_skid <= axis_skeep;
-      axis_musr_skid <= axis_susr;
-      axis_mid_skid   <= axis_sid  ;
-      axis_mdest_skid <= axis_sdest;
-      axis_mstrb_skid <= axis_sstrb;
-      axis_mlast_skid <= axis_slast;
-    end
-  end
-
-  assign  axis_mdata       = axis_mdata_reg   ;
-  assign  axis_mkeep       = axis_mkeep_reg   ;
-  assign  axis_musr        = axis_musr_reg    ;
-  assign  axis_mid         = axis_mid_reg     ;
-  assign  axis_mdest       = axis_mdest_reg   ;
-  assign  axis_mstrb       = axis_mstrb_reg   ;
-  assign  axis_mlast       = axis_mlast_reg   ;
-  assign  axis_mvalid      = axis_mvalid_reg  ;
-
+  // 输出
+  assign axis_mdata  = p1_axis_mdata;
+  assign axis_mkeep  = p1_axis_mkeep;
+  assign axis_musr   = p1_axis_musr;
+  assign axis_mlast  = p1_axis_mlast;
+  assign axis_mvalid = p1_axis_mvalid;
 endmodule
 `resetall

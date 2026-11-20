@@ -1,236 +1,268 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : ipv6_eth_header_add.v
 // Module Name : ipv6_eth_header_add
 // Author      : LiXintao
-// Date        : 2026-09-18
+// Created     : 2026-09-18
 // Version     : v1.0
-// ----------------------------------------------------------------------------
-// Description : 支持流水线设计，添加头部信息 (EtherType = 0x86DD, IPv6)
-// Note        : 由 ipv6_eth_header_add 镜像改造
-//              1. 仅支持标准以太网最小帧长，故第一拍能直接插入完成
-// 
-// ============================================================================
+// -----------------------------------------------------------------------------
+// Description : IPv6发送封装，插入14字节以太网头。
+// Note        : 末拍高14字节含有效载荷时，增加一个尾拍。
+// -----------------------------------------------------------------------------
 
-module ipv6_eth_header_add#(
-  parameter  AXIS_USER_WIDTH= 4 
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
-  input  wire          [                 511:0]        ipv6_axis_sdata ,
-  input  wire          [                  63:0]        ipv6_axis_skeep ,
-  input  wire                                          ipv6_axis_slast ,
-  input  wire                                          ipv6_axis_svalid,
-  input  wire          [   AXIS_USER_WIDTH-1:0]        ipv6_axis_susr  ,// 优先级(透传)
-  output wire                                          ipv6_axis_sready,
+module ipv6_eth_header_add #(
+    parameter  integer ReqWidth = 4,
+    localparam integer UsrWidth = ReqWidth
+) (
+    input wire clk,
+    input wire rst,
 
-  input  wire          [                  47:0]        dst_mac         ,
-  input  wire          [                  47:0]        src_mac         ,
+    input  wire [       511:0] axis_sdata,
+    input  wire [        63:0] axis_skeep,
+    input  wire [UsrWidth-1:0] axis_susr,
+    input  wire                axis_svalid,
+    input  wire                axis_slast,
+    output wire                axis_sready,
 
-  output wire          [                 511:0]        eth_axis_mdata  ,
-  output wire          [                  63:0]        eth_axis_mkeep  ,
-  output wire                                          eth_axis_mlast  ,
-  output wire                                          eth_axis_mvalid ,
-  output wire          [   AXIS_USER_WIDTH-1:0]        eth_axis_musr   ,// 优先级(透传)
-  input  wire                                          eth_axis_mready  
+    input wire [47:0] dst_mac,
+    input wire [47:0] src_mac,
+
+    output wire [       511:0] axis_mdata,
+    output wire [        63:0] axis_mkeep,
+    output wire [UsrWidth-1:0] axis_musr,
+    output wire                axis_mvalid,
+    output wire                axis_mlast,
+    input  wire                axis_mready
 );
 
-  localparam ETH_HDR_BITS= 112;
-  
-  reg                  [                 511:0]        ipv6_axis_sdata_d0;
-  reg                  [                  63:0]        ipv6_axis_skeep_d0;
-  reg                                                  ipv6_axis_slast_d0;
-  reg                  [   AXIS_USER_WIDTH-1:0]        ipv6_axis_susr_d0;
-  reg                                                  ipv6_axis_svalid_d0;
+  // 入口skid同步缓存输入数据与MAC地址。
+  // p1缓存数据与MAC地址，记录末拍是否需要补发尾拍。
+  // p2插入以太网头并拼接跨拍数据，必要时补发尾拍。
+  // 出口skid缓存输出。
 
-  reg                  [                  47:0]        dst_mac_d0       ;
-  reg                  [                  47:0]        src_mac_d0       ;
-
-  reg                                                  is_first_beat    ;
-
-  reg                  [      ETH_HDR_BITS-1:0]        data_remain_reg  ;
-  reg                  [    ETH_HDR_BITS/8-1:0]        keep_remain_reg  ;
-  reg                  [   AXIS_USER_WIDTH-1:0]        usr_remain_reg   ;
-
-
-
-  reg                  [                 511:0]        eth_axis_mdata_reg;
-  reg                  [                  63:0]        eth_axis_mkeep_reg;
-  reg                                                  eth_axis_mlast_reg;
-  reg                                                  eth_axis_mvalid_reg;
-  reg                  [   AXIS_USER_WIDTH-1:0]        eth_axis_musr_reg;
-
-  reg                                                  is_insert_beat   , is_insert_beat_d0;// 末拍高 14 字节含有效数据 ⇒ 还需补发一个插入拍
-
-  
-  wire                                                 out_reg_free      = !eth_axis_mvalid_reg || eth_axis_mready                        ;
-  wire                                                 insert_en         = is_insert_beat_d0 && out_reg_free                              ;
-  wire                                                 ipv6_axis_sready_d0 = (!eth_axis_mvalid_reg || eth_axis_mready) && !is_insert_beat_d0;
-  wire                                                 m_handshake       = eth_axis_mvalid_reg && eth_axis_mready                         ;
-  wire                                                 s_handshake       = ipv6_axis_sready && ipv6_axis_svalid                           ;
-  wire                                                 d0_handshake      = ipv6_axis_sready_d0 && ipv6_axis_svalid_d0                     ;
-  assign  ipv6_axis_sready = (!ipv6_axis_svalid_d0 || ipv6_axis_sready_d0) && !is_insert_beat;
-
-  always @(posedge clk) begin
-    if (s_handshake) begin
-      ipv6_axis_sdata_d0 <= ipv6_axis_sdata;
-      ipv6_axis_skeep_d0 <= ipv6_axis_skeep;
-      ipv6_axis_slast_d0 <= ipv6_axis_slast;
-      ipv6_axis_susr_d0 <= ipv6_axis_susr;
-      dst_mac_d0 <= dst_mac;
-      src_mac_d0 <= src_mac;
-    end
-  end
-    
-  always @(posedge clk) begin
-    if (rst)               ipv6_axis_svalid_d0 <= 1'b0;
-    else if (s_handshake)  ipv6_axis_svalid_d0 <= 1'b1;
-    else if (d0_handshake) ipv6_axis_svalid_d0 <= 1'b0;
-  end
-
-
-  // is_insert_beat
-  always @(posedge clk) begin
-    if (rst) begin
-      is_insert_beat <= 'd0;
-    end
-    else begin
-      if (s_handshake) begin
-        is_insert_beat <= ipv6_axis_slast ? ipv6_axis_skeep[63-:ETH_HDR_BITS/8] != 'd0 : 'd0;
-      end
-      else if (d0_handshake) begin
-        is_insert_beat <= 'd0;
-      end
+  // 参数范围检查
+  initial begin
+    if (ReqWidth < 1) begin
+      $display("错误：ipv6_eth_header_add：ReqWidth必须不小于1。");
+      $finish;
     end
   end
 
-  // is_insert_beat_d0
-  always @(posedge clk) begin
-    if (rst) begin
-      is_insert_beat_d0 <= 'd0;
-    end
-    else begin
-      if (d0_handshake) begin
-        is_insert_beat_d0 <= is_insert_beat;
-      end
-      else if (insert_en) begin
-        is_insert_beat_d0 <= 'd0;
-      end
-    end
-  end
+  // 内部常量
+  localparam integer EthHeaderBits = 112;
 
-  // is_first_beat
-  always @(posedge clk) begin
-    if (rst) begin
-      is_first_beat <= 1'b1;                                        // 复位后第一拍视为首拍
-    end
-    else begin
-      if (d0_handshake) begin
-        is_first_beat <= ipv6_axis_slast_d0;                        // 本拍收的是本包最后一拍 -> 下一拍即新包首拍
-      end
-    end
-  end
+  // 入口skid接口
+  wire [              511:0] axis_sdata_skid;
+  wire [               63:0] axis_skeep_skid;
+  wire [       UsrWidth-1:0] axis_susr_skid;
+  wire                       axis_slast_skid;
+  wire                       axis_svalid_skid;
+  wire                       axis_sready_skid;
+  wire                       s_handshake_skid;
 
-  // data_remain_reg
-  always @(posedge clk) begin
-    if (d0_handshake) begin
-      data_remain_reg <= ipv6_axis_sdata_d0[511-:ETH_HDR_BITS];
-    end
-  end
+  // p1 输入缓存
+  reg  [              511:0] p1_axis_sdata;
+  reg  [               63:0] p1_axis_skeep;
+  reg                        p1_axis_slast;
+  reg                        p1_axis_svalid;
+  reg  [       UsrWidth-1:0] p1_axis_susr;
+  reg  [               47:0] p1_dst_mac;
+  reg  [               47:0] p1_src_mac;
 
-  // keep_remain_reg
-  always @(posedge clk) begin
-    if (d0_handshake) begin
-      keep_remain_reg <= ipv6_axis_skeep_d0[63-:ETH_HDR_BITS/8];
-    end
-  end
+  // 跨拍缓存
+  reg  [  EthHeaderBits-1:0] data_held;
+  reg  [EthHeaderBits/8-1:0] keep_held;
+  reg  [       UsrWidth-1:0] usr_held;
 
-  // usr_remain_reg (帧内保持值; insert 拍沿用)
-  always @(posedge clk) begin
-    if (d0_handshake) begin
-      usr_remain_reg <= ipv6_axis_susr_d0;
-    end
-  end
+  // p2 输出缓存
+  reg  [              511:0] p2_axis_mdata;
+  reg  [               63:0] p2_axis_mkeep;
+  reg                        p2_axis_mlast;
+  reg                        p2_axis_mvalid;
+  reg  [       UsrWidth-1:0] p2_axis_musr;
 
-  // eth_axis_mdata_reg
-  always @(posedge clk) begin
-    if (insert_en) begin
-      eth_axis_mdata_reg <= {{(512-ETH_HDR_BITS){1'b0}},data_remain_reg};
-    end
-    else if (d0_handshake && is_first_beat) begin
-      eth_axis_mdata_reg <= {ipv6_axis_sdata_d0[511-ETH_HDR_BITS:0],16'hDD86,src_mac_d0,dst_mac_d0};
-    end
-    else if (d0_handshake) begin
-      eth_axis_mdata_reg <= {ipv6_axis_sdata_d0[511-ETH_HDR_BITS:0],data_remain_reg};
-    end
-  end
+  // 首拍标志
+  reg                        is_first_beat;
 
-  // eth_axis_musr_reg
-  always @(posedge clk) begin
-    if (insert_en) begin
-      eth_axis_musr_reg <= usr_remain_reg;
-    end
-    else if (d0_handshake) begin
-      eth_axis_musr_reg <= ipv6_axis_susr_d0;
-    end
-  end
+  // 尾拍补发控制
+  reg                        tail_pending;
+  reg                        p2_tail_pending;
 
-  // eth_axis_mkeep_reg
-  always @(posedge clk) begin
-    if (insert_en) begin
-      eth_axis_mkeep_reg <= {{(64-ETH_HDR_BITS/8){1'b0}},keep_remain_reg};
-    end
-    else if (d0_handshake && is_first_beat) begin
-      eth_axis_mkeep_reg <= {ipv6_axis_skeep_d0[63-ETH_HDR_BITS/8:0],14'b1111_1111_1111_11};
-    end
-    else if (d0_handshake) begin
-      eth_axis_mkeep_reg <= {ipv6_axis_skeep_d0[63-ETH_HDR_BITS/8:0],keep_remain_reg};
-    end
-  end
+  // 流水控制
+  wire                       p2_can_take;
+  wire                       tail_to_p2;
+  wire                       p1_ready;
+  wire                       m_handshake_skid;
+  wire                       p1_handshake;
 
-  // eth_axis_mlast_reg
+  // 出口skid接口
+  wire [               47:0] src_mac_skid;
+  wire [               47:0] dst_mac_skid;
+  wire [              511:0] axis_mdata_skid;
+  wire [               63:0] axis_mkeep_skid;
+  wire [       UsrWidth-1:0] axis_musr_skid;
+  wire                       axis_mlast_skid;
+  wire                       axis_mvalid_skid;
+  wire                       axis_mready_skid;
+
+  // 入口skid
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (UsrWidth + 96)
+  ) axis_skid_buffer_in (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(axis_sready),
+      .axis_sdata (axis_sdata),
+      .axis_skeep (axis_skeep),
+      .axis_susr  ({src_mac, dst_mac, axis_susr}),
+      .axis_slast (axis_slast),
+      .axis_svalid(axis_svalid),
+      .axis_mready(axis_sready_skid),
+      .axis_mdata (axis_sdata_skid),
+      .axis_mkeep (axis_skeep_skid),
+      .axis_musr  ({src_mac_skid, dst_mac_skid, axis_susr_skid}),
+      .axis_mlast (axis_slast_skid),
+      .axis_mvalid(axis_svalid_skid)
+  );
+
+  // 流水控制
+  assign p2_can_take      = !p2_axis_mvalid || axis_mready_skid;
+  assign tail_to_p2       = p2_tail_pending && p2_can_take;
+  assign p1_ready         = (!p2_axis_mvalid || axis_mready_skid) && !p2_tail_pending;
+  assign m_handshake_skid = p2_axis_mvalid && axis_mready_skid;
+  assign s_handshake_skid = axis_sready_skid && axis_svalid_skid;
+  assign p1_handshake     = p1_ready && p1_axis_svalid;
+  assign axis_sready_skid = (!p1_axis_svalid || p1_ready) && !tail_pending;
+
+  // 首拍标志
   always @(posedge clk) begin
     if (rst) begin
-      eth_axis_mlast_reg <= 'd0;
-    end
-    else begin
-      if (insert_en) begin
-        eth_axis_mlast_reg <= 1'b1;
-      end
-      else if (d0_handshake && !is_insert_beat && ipv6_axis_slast_d0) begin
-        eth_axis_mlast_reg <= 1'b1;
-      end
-      else if(m_handshake) begin
-        eth_axis_mlast_reg <= 1'b0;
+      is_first_beat <= 1'b1;
+    end else begin
+      if (p1_handshake) begin
+        is_first_beat <= p1_axis_slast;
       end
     end
   end
 
-  // eth_axis_mvalid_reg
+  // p1 输入缓存
+  //// 数据与MAC地址
+  always @(posedge clk) begin
+    if (s_handshake_skid) begin
+      p1_axis_sdata <= axis_sdata_skid;
+      p1_axis_skeep <= axis_skeep_skid;
+      p1_axis_slast <= axis_slast_skid;
+      p1_axis_susr  <= axis_susr_skid;
+      p1_dst_mac    <= dst_mac_skid;
+      p1_src_mac    <= src_mac_skid;
+    end
+  end
+  //// 有效位
+  always @(posedge clk) begin
+    if (rst) p1_axis_svalid <= 1'b0;
+    else if (s_handshake_skid) p1_axis_svalid <= 1'b1;
+    else if (p1_handshake) p1_axis_svalid <= 1'b0;
+  end
+  //// 尾拍补发控制
   always @(posedge clk) begin
     if (rst) begin
-      eth_axis_mvalid_reg <= 'd0;
-    end
-    else begin
-      if (d0_handshake || is_insert_beat_d0) begin
-        eth_axis_mvalid_reg <= 1'b1;
-      end
-      else if (m_handshake) begin
-        eth_axis_mvalid_reg <= 1'b0;
+      tail_pending <= 'd0;
+    end else begin
+      if (s_handshake_skid) begin
+        tail_pending <= axis_slast_skid ?
+            axis_skeep_skid[63-:(EthHeaderBits/8)] != {(EthHeaderBits / 8) {1'b0}} : 'd0;
+      end else if (p1_handshake) begin
+        tail_pending <= 'd0;
       end
     end
   end
 
-  assign  eth_axis_mdata   = eth_axis_mdata_reg;
-  assign  eth_axis_mkeep   = eth_axis_mkeep_reg;
-  assign  eth_axis_mlast   = eth_axis_mlast_reg;
-  assign  eth_axis_mvalid  = eth_axis_mvalid_reg;
-  assign  eth_axis_musr    = eth_axis_musr_reg;
+  // p2 插入以太网头与补发尾拍
+  //// p2 待补发标志
+  always @(posedge clk) begin
+    if (rst) begin
+      p2_tail_pending <= 'd0;
+    end else begin
+      if (p1_handshake) begin
+        p2_tail_pending <= tail_pending;
+      end else if (tail_to_p2) begin
+        p2_tail_pending <= 'd0;
+      end
+    end
+  end
+  //// 跨拍缓存
+  always @(posedge clk) begin
+    if (p1_handshake) begin
+      data_held <= p1_axis_sdata[511-:EthHeaderBits];
+      keep_held <= p1_axis_skeep[63-:(EthHeaderBits/8)];
+      usr_held  <= p1_axis_susr;
+    end
+  end
+  //// 数据
+  always @(posedge clk) begin
+    if (tail_to_p2) begin
+      p2_axis_mdata <= {{(512 - EthHeaderBits) {1'b0}}, data_held};
+      p2_axis_musr  <= usr_held;
+      p2_axis_mkeep <= {{(64 - EthHeaderBits / 8) {1'b0}}, keep_held};
+      p2_axis_mlast <= 1'b1;
+    end else if (p1_handshake) begin
+      if (is_first_beat) begin
+        p2_axis_mdata <= {p1_axis_sdata[511-EthHeaderBits:0], 16'hDD86, p1_src_mac, p1_dst_mac};
+        p2_axis_mkeep <= {p1_axis_skeep[63-EthHeaderBits/8:0], 14'b1111_1111_1111_11};
+      end else begin
+        p2_axis_mdata <= {p1_axis_sdata[511-EthHeaderBits:0], data_held};
+        p2_axis_mkeep <= {p1_axis_skeep[63-EthHeaderBits/8:0], keep_held};
+      end
+      p2_axis_mlast <= !tail_pending && p1_axis_slast;
+      p2_axis_musr  <= p1_axis_susr;
+    end else if (m_handshake_skid) begin
+      p2_axis_mlast <= 1'b0;
+    end
+  end
+  //// 有效位
+  always @(posedge clk) begin
+    if (rst) begin
+      p2_axis_mvalid <= 'd0;
+    end else begin
+      if (p1_handshake || p2_tail_pending) begin
+        p2_axis_mvalid <= 1'b1;
+      end else if (m_handshake_skid) begin
+        p2_axis_mvalid <= 1'b0;
+      end
+    end
+  end
+
+  // 输出
+  assign axis_mdata_skid  = p2_axis_mdata;
+  assign axis_mkeep_skid  = p2_axis_mkeep;
+  assign axis_mlast_skid  = p2_axis_mlast;
+  assign axis_mvalid_skid = p2_axis_mvalid;
+  assign axis_musr_skid   = p2_axis_musr;
+
+  // 出口skid
+  axis_skid_buffer #(
+      .DataWidth(512),
+      .UsrWidth (UsrWidth)
+  ) axis_skid_buffer_out (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sready(axis_mready_skid),
+      .axis_sdata (axis_mdata_skid),
+      .axis_skeep (axis_mkeep_skid),
+      .axis_susr  (axis_musr_skid),
+      .axis_slast (axis_mlast_skid),
+      .axis_svalid(axis_mvalid_skid),
+      .axis_mready(axis_mready),
+      .axis_mdata (axis_mdata),
+      .axis_mkeep (axis_mkeep),
+      .axis_musr  (axis_musr),
+      .axis_mlast (axis_mlast),
+      .axis_mvalid(axis_mvalid)
+  );
 
 endmodule
 `resetall

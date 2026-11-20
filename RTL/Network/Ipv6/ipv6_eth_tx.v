@@ -1,111 +1,125 @@
-`resetall
-`default_nettype none
-`timescale 1ns/100ps
-
-// Language: Verilog 2001
-// ============================================================================
+// -----------------------------------------------------------------------------
 // File Name   : ipv6_eth_tx.v
 // Module Name : ipv6_eth_tx
 // Author      : LiXintao
-// Date        : 2026-10-11
+// Created     : 2026-10-11
 // Version     : v2.0
-// ----------------------------------------------------------------------------
-// Description : IPv6 发送链路: 纯 IPv6 包 -> 查表(多IP配MAC) -> 插以太头(EtherType 0x86DD)
-//               -> 完整以太帧
-// Note        : 1. 目的 MAC 由 dest 表(目的IP->对端MAC)、源 MAC 由 src 表(本机IP->本机MAC)
-//                  查得(上游统一配置, 无 NDP); 任一未命中 => lookup 级直接丢弃(不产生输出拍).
-//               2. u_ipv6_mac_lookup -> u_ipv6_eth_header_add 两级流水.
-// ============================================================================
+// -----------------------------------------------------------------------------
+// Description : IPv6发送通路，连接配置表查找与以太网头插入。
+// Note        : 任一地址未命中则丢弃整帧，不进行NDP查询。
+// -----------------------------------------------------------------------------
+
+`resetall
+`default_nettype none
+`timescale 1ns / 100ps
 
 module ipv6_eth_tx #(
-  parameter  DEST_MAC_ENTRY_NUM= 8 ,    // dest(对端)表项数
-  parameter  SRC_MAC_ENTRY_NUM= 8 ,     // src (本机)表项数
-  parameter  AXIS_USER_WIDTH= 4 
-)(
-  input  wire                                          clk             ,
-  input  wire                                          rst             ,
+    parameter integer DstMacEntryCount = 8,
+    parameter integer SrcMacEntryCount = 8,
+    parameter integer ReqWidth = 4,
+    localparam integer UsrWidth = ReqWidth
+) (
+    input wire clk,
+    input wire rst,
 
-  input  wire          [                 511:0]        ipv6_axis_sdata ,
-  input  wire          [                  63:0]        ipv6_axis_skeep ,
-  input  wire                                          ipv6_axis_slast ,
-  input  wire                                          ipv6_axis_svalid,
-  input  wire          [   AXIS_USER_WIDTH-1:0]        ipv6_axis_susr  ,
-  output wire                                          ipv6_axis_sready,
+    input wire cfg_stat_clear,
 
-  // 上游统一配置的 IP->MAC 映射表 (dest=对端表 / src=本机表)
-  input  wire          [128*DEST_MAC_ENTRY_NUM-1:0]    cfg_dst_ipv6,
-  input  wire          [48*DEST_MAC_ENTRY_NUM-1:0]     cfg_dst_mac,
-  input  wire          [128*SRC_MAC_ENTRY_NUM-1:0]     cfg_src_ipv6,
-  input  wire          [48*SRC_MAC_ENTRY_NUM-1:0]      cfg_src_mac,
+    input  wire [       511:0] axis_sdata,
+    input  wire [        63:0] axis_skeep,
+    input  wire                axis_slast,
+    input  wire                axis_svalid,
+    input  wire [UsrWidth-1:0] axis_susr,
+    output wire                axis_sready,
 
-  output wire          [                 511:0]        eth_axis_mdata  ,
-  output wire          [                  63:0]        eth_axis_mkeep  ,
-  output wire                                          eth_axis_mlast  ,
-  output wire                                          eth_axis_mvalid ,
-  output wire          [   AXIS_USER_WIDTH-1:0]        eth_axis_musr   ,
-  input  wire                                          eth_axis_mready ,
+    input wire [128*DstMacEntryCount-1:0] cfg_dst_ipv6,
+    input wire [ 48*DstMacEntryCount-1:0] cfg_dst_mac,
+    input wire [128*SrcMacEntryCount-1:0] cfg_src_ipv6,
+    input wire [ 48*SrcMacEntryCount-1:0] cfg_src_mac,
 
-  output wire                                          stat_drop_pulse  // 未命中丢包脉冲
+    output wire [       511:0] axis_mdata,
+    output wire [        63:0] axis_mkeep,
+    output wire                axis_mlast,
+    output wire                axis_mvalid,
+    output wire [UsrWidth-1:0] axis_musr,
+    input  wire                axis_mready,
+
+    output wire stat_tx_drop
 );
 
-  wire                 [                 511:0]        ipv6_lut_axis_mdata;
-  wire                 [                  63:0]        ipv6_lut_axis_mkeep;
-  wire                                                 ipv6_lut_axis_mlast;
-  wire                                                 ipv6_lut_axis_mvalid;
-  wire                                                 ipv6_lut_axis_mready;
-  wire                 [   AXIS_USER_WIDTH-1:0]        ipv6_lut_axis_musr;
+  // 配置表查找过滤未命中的帧。
+  // 命中帧插入以太网头后输出。
 
-  wire                 [                  47:0]        dst_mac          ;
-  wire                 [                  47:0]        src_mac          ;
+  // 参数范围检查
+  initial begin
+    if (DstMacEntryCount < 1 || SrcMacEntryCount < 1 || ReqWidth < 1) begin
+      $display("错误：ipv6_eth_tx：不支持的参数配置。");
+      $finish;
+    end
+  end
 
-ipv6_mac_lookup #(
-    .DEST_MAC_ENTRY_NUM(DEST_MAC_ENTRY_NUM),
-    .SRC_MAC_ENTRY_NUM(SRC_MAC_ENTRY_NUM),
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ) 
-) u_ipv6_mac_lookup (
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    .cfg_dst_ipv6(cfg_dst_ipv6),// (input)
-    .cfg_dst_mac(cfg_dst_mac),// (input)
-    .cfg_src_ipv6(cfg_src_ipv6),// (input)
-    .cfg_src_mac(cfg_src_mac),// (input)
-    .ipv6_axis_sdata  (ipv6_axis_sdata  ),// (input)
-    .ipv6_axis_skeep  (ipv6_axis_skeep  ),// (input)
-    .ipv6_axis_slast  (ipv6_axis_slast  ),// (input)
-    .ipv6_axis_svalid (ipv6_axis_svalid ),// (input)
-    .ipv6_axis_susr   (ipv6_axis_susr   ),// (input)
-    .ipv6_axis_sready (ipv6_axis_sready ),// (output)
-    .ipv6_axis_mdata  (ipv6_lut_axis_mdata),// (output)
-    .ipv6_axis_mkeep  (ipv6_lut_axis_mkeep),// (output)
-    .ipv6_axis_mlast  (ipv6_lut_axis_mlast),// (output)
-    .ipv6_axis_mvalid (ipv6_lut_axis_mvalid),// (output)
-    .ipv6_axis_musr   (ipv6_lut_axis_musr),// (output)
-    .ipv6_axis_mready (ipv6_lut_axis_mready),// (input)
-    .dst_mac          (dst_mac          ),// (output)
-    .src_mac          (src_mac          ),// (output)
-    .stat_drop_pulse  (stat_drop_pulse  ) // (output)
-);
+  // 查表后的帧
+  wire [       511:0] lookup_data;
+  wire [        63:0] lookup_keep;
+  wire                lookup_last;
+  wire                lookup_valid;
+  wire                lookup_ready;
+  wire [UsrWidth-1:0] lookup_usr;
 
-ipv6_eth_header_add #(
-    .AXIS_USER_WIDTH  (AXIS_USER_WIDTH  ) 
-)u_ipv6_eth_header_add (
-    .clk              (clk              ),// (input)
-    .rst              (rst              ),// (input)
-    .ipv6_axis_sdata  (ipv6_lut_axis_mdata),// (input)
-    .ipv6_axis_skeep  (ipv6_lut_axis_mkeep),// (input)
-    .ipv6_axis_slast  (ipv6_lut_axis_mlast),// (input)
-    .ipv6_axis_svalid (ipv6_lut_axis_mvalid),// (input)
-    .ipv6_axis_susr   (ipv6_lut_axis_musr),// (input)
-    .ipv6_axis_sready (ipv6_lut_axis_mready),// (output)
-    .dst_mac          (dst_mac          ),// (input)
-    .src_mac          (src_mac          ),// (input)
-    .eth_axis_mdata   (eth_axis_mdata   ),// (output)
-    .eth_axis_mkeep   (eth_axis_mkeep   ),// (output)
-    .eth_axis_mlast   (eth_axis_mlast   ),// (output)
-    .eth_axis_mvalid  (eth_axis_mvalid  ),// (output)
-    .eth_axis_musr    (eth_axis_musr    ),// (output)
-    .eth_axis_mready  (eth_axis_mready  ) // (input)
-);
+  // 首拍MAC地址
+  wire [        47:0] dst_mac;
+  wire [        47:0] src_mac;
+
+  // 配置表查找与整帧过滤
+  ipv6_mac_lookup #(
+      .DstMacEntryCount(DstMacEntryCount),
+      .SrcMacEntryCount(SrcMacEntryCount),
+      .ReqWidth(ReqWidth)
+  ) ipv6_mac_lookup_inst (
+      .clk           (clk),
+      .rst           (rst),
+      .cfg_stat_clear(cfg_stat_clear),
+      .cfg_dst_ipv6  (cfg_dst_ipv6),
+      .cfg_dst_mac   (cfg_dst_mac),
+      .cfg_src_ipv6  (cfg_src_ipv6),
+      .cfg_src_mac   (cfg_src_mac),
+      .axis_sdata    (axis_sdata),
+      .axis_skeep    (axis_skeep),
+      .axis_slast    (axis_slast),
+      .axis_svalid   (axis_svalid),
+      .axis_susr     (axis_susr),
+      .axis_sready   (axis_sready),
+      .axis_mdata    (lookup_data),
+      .axis_mkeep    (lookup_keep),
+      .axis_mlast    (lookup_last),
+      .axis_mvalid   (lookup_valid),
+      .axis_musr     (lookup_usr),
+      .axis_mready   (lookup_ready),
+      .dst_mac       (dst_mac),
+      .src_mac       (src_mac),
+      .stat_tx_drop  (stat_tx_drop)
+  );
+
+  // 以太网头插入
+  ipv6_eth_header_add #(
+      .ReqWidth(ReqWidth)
+  ) ipv6_eth_header_add_inst (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sdata (lookup_data),
+      .axis_skeep (lookup_keep),
+      .axis_slast (lookup_last),
+      .axis_svalid(lookup_valid),
+      .axis_susr  (lookup_usr),
+      .axis_sready(lookup_ready),
+      .dst_mac    (dst_mac),
+      .src_mac    (src_mac),
+      .axis_mdata (axis_mdata),
+      .axis_mkeep (axis_mkeep),
+      .axis_mlast (axis_mlast),
+      .axis_mvalid(axis_mvalid),
+      .axis_musr  (axis_musr),
+      .axis_mready(axis_mready)
+  );
 
 endmodule
 `resetall

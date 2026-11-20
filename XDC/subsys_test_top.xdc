@@ -1,15 +1,19 @@
-# setting
+# -----------------------------------------------------------------------------
+# subsys_test_top板级引脚与100MHz输入时钟
+# -----------------------------------------------------------------------------
+
+# 配置与位流
 set_property BITSTREAM.CONFIG.CONFIGRATE 36.4 [current_design]
 set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]
 set_property CONFIG_MODE SPIx4 [current_design]
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 
-# clock
+# 系统输入时钟
 set_property PACKAGE_PIN G18 [get_ports sys_clk]
-create_clock -period 10.000 [get_ports sys_clk]
+create_clock -name sys_clk -period 10.000 [get_ports sys_clk]
 set_property IOSTANDARD LVCMOS18 [get_ports sys_clk]
 
-# ethernet a
+# A口GT与QSFP引脚
 set_property PACKAGE_PIN AN41 [get_ports gt_ref_clk_n_a]
 set_property PACKAGE_PIN AN40 [get_ports gt_ref_clk_p_a]
 
@@ -44,7 +48,7 @@ set_property IOSTANDARD LVCMOS18 [get_ports qsfp_prsn_port_a]
 set_property PACKAGE_PIN D19 [get_ports qsfp_led_port_a]
 set_property IOSTANDARD LVCMOS18 [get_ports qsfp_led_port_a]
 
-# ethernet b
+# B口GT与QSFP引脚
 set_property PACKAGE_PIN AD43 [get_ports gt_ref_clk_n_b]
 set_property PACKAGE_PIN AD42 [get_ports gt_ref_clk_p_b]
 
@@ -67,7 +71,6 @@ set_property PACKAGE_PIN AB51 [get_ports {gt_rxp_in_b[3]}]
 set_property PACKAGE_PIN AB52 [get_ports {gt_rxn_in_b[3]}]
 set_property PACKAGE_PIN AA48 [get_ports {gt_txp_out_b[3]}]
 set_property PACKAGE_PIN AA49 [get_ports {gt_txn_out_b[3]}]
-
 
 set_property PACKAGE_PIN BJ22 [get_ports qsfp_rstn_port_b]
 set_property IOSTANDARD LVCMOS18 [get_ports qsfp_rstn_port_b]

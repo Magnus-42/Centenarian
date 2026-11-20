@@ -19,7 +19,6 @@ module eth_port_top #(
     parameter integer TxChannelCount = 4,
     parameter integer TxReqWidth = 4,
     localparam integer TxUsrWidth = TxReqWidth,
-    localparam integer RxUsrWidth = 1,
     parameter integer CdcFifoDepth = 512,
     parameter integer LedHalfPeriodCycles = 50_000_000
 ) (
@@ -51,12 +50,12 @@ module eth_port_top #(
 
     input wire [RxTypeCount*16-1:0] cfg_type_dict,
 
-    output wire [       512*(RxTypeCount+1)-1:0] axis_mdata,
-    output wire [        64*(RxTypeCount+1)-1:0] axis_mkeep,
-    output wire [                 RxTypeCount:0] axis_mlast,
-    output wire [                 RxTypeCount:0] axis_mvalid,
-    output wire [RxUsrWidth*(RxTypeCount+1)-1:0] axis_musr,
-    input  wire [                 RxTypeCount:0] axis_mready,
+    output wire [512*(RxTypeCount+1)-1:0] axis_mdata,
+    output wire [ 64*(RxTypeCount+1)-1:0] axis_mkeep,
+    output wire [          RxTypeCount:0] axis_mlast,
+    output wire [          RxTypeCount:0] axis_mvalid,
+    output wire [          RxTypeCount:0] axis_musr,
+    input  wire [          RxTypeCount:0] axis_mready,
 
     input  wire [       512*TxChannelCount-1:0] axis_sdata,
     input  wire [        64*TxChannelCount-1:0] axis_skeep,
@@ -76,9 +75,9 @@ module eth_port_top #(
       $display("错误：eth_port_top：CmacSelect仅支持0或1");
       $finish;
     end
-    if (RxTypeCount < 1 || TxChannelCount < 1 || TxUsrWidth < 1 || RxUsrWidth < 1) begin
+    if (RxTypeCount < 1 || TxChannelCount < 1 || TxUsrWidth < 1) begin
       $display({"错误：eth_port_top：RxTypeCount、TxChannelCount、",
-                "TxUsrWidth和RxUsrWidth必须不小于1"});
+                "TxUsrWidth必须不小于1"});
       $finish;
     end
     if (CdcFifoDepth < 2 || (CdcFifoDepth & (CdcFifoDepth - 1)) != 0) begin
@@ -92,56 +91,56 @@ module eth_port_top #(
   end
 
   // CMAC接收接口
-  wire [         511:0] gt_rx_cmac_data;
-  wire [          63:0] gt_rx_cmac_keep;
-  wire                  gt_rx_cmac_last;
-  wire                  gt_rx_cmac_valid;
-  wire                  gt_rx_cmac_usr;
+  wire [511:0] gt_rx_cmac_data;
+  wire [ 63:0] gt_rx_cmac_keep;
+  wire         gt_rx_cmac_last;
+  wire         gt_rx_cmac_valid;
+  wire         gt_rx_cmac_usr;
 
   // CMAC发送接口
-  wire [         511:0] gt_tx_cmac_data;
-  wire [          63:0] gt_tx_cmac_keep;
-  wire                  gt_tx_cmac_last;
-  wire                  gt_tx_cmac_valid;
-  wire                  gt_tx_cmac_usr;
-  wire                  gt_tx_cmac_ready;
+  wire [511:0] gt_tx_cmac_data;
+  wire [ 63:0] gt_tx_cmac_keep;
+  wire         gt_tx_cmac_last;
+  wire         gt_tx_cmac_valid;
+  wire         gt_tx_cmac_usr;
+  wire         gt_tx_cmac_ready;
 
   // 接收SLR接口
-  wire [         511:0] gt_rx_slr_data;
-  wire [          63:0] gt_rx_slr_keep;
-  wire                  gt_rx_slr_usr;
-  wire                  gt_rx_slr_last;
-  wire                  gt_rx_slr_valid;
-  wire                  gt_rx_slr_ready;
+  wire [511:0] gt_rx_slr_data;
+  wire [ 63:0] gt_rx_slr_keep;
+  wire         gt_rx_slr_usr;
+  wire         gt_rx_slr_last;
+  wire         gt_rx_slr_valid;
+  wire         gt_rx_slr_ready;
 
   // 发送FIFO读接口
-  wire [         511:0] gt_tx_fifo_data;
-  wire [          63:0] gt_tx_fifo_keep;
-  wire                  gt_tx_fifo_last;
-  wire                  gt_tx_fifo_valid;
-  wire                  gt_tx_fifo_ready;
+  wire [511:0] gt_tx_fifo_data;
+  wire [ 63:0] gt_tx_fifo_keep;
+  wire         gt_tx_fifo_last;
+  wire         gt_tx_fifo_valid;
+  wire         gt_tx_fifo_ready;
 
   // 逻辑域接收接口
-  wire [         511:0] rx_fifo_data;
-  wire [          63:0] rx_fifo_keep;
-  wire                  rx_fifo_last;
-  wire                  rx_fifo_valid;
-  wire [RxUsrWidth-1:0] rx_fifo_usr;
-  wire                  rx_fifo_ready;
+  wire [511:0] rx_fifo_data;
+  wire [ 63:0] rx_fifo_keep;
+  wire         rx_fifo_last;
+  wire         rx_fifo_valid;
+  wire         rx_fifo_usr;
+  wire         rx_fifo_ready;
 
   // 短帧补齐接口
-  wire [         511:0] pad_data;
-  wire [          63:0] pad_keep;
-  wire                  pad_last;
-  wire                  pad_valid;
-  wire                  pad_ready;
+  wire [511:0] pad_data;
+  wire [ 63:0] pad_keep;
+  wire         pad_last;
+  wire         pad_valid;
+  wire         pad_ready;
 
   // 发送仲裁接口
-  wire [         511:0] mux_data;
-  wire [          63:0] mux_keep;
-  wire                  mux_last;
-  wire                  mux_valid;
-  wire                  mux_ready;
+  wire [511:0] mux_data;
+  wire [ 63:0] mux_keep;
+  wire         mux_last;
+  wire         mux_valid;
+  wire         mux_ready;
 
   // CMAC选择
   if (CmacSelect == 0) begin : gen_cmac_a
@@ -237,7 +236,7 @@ module eth_port_top #(
   axis_fifo_async #(
       .Depth(CdcFifoDepth),
       .DataWidth(512),
-      .UsrWidth(RxUsrWidth),
+      .UsrWidth(1),
       .PacketFifo(0),
       .DataMemoryType("block"),
       .UsrMemoryType("distributed"),
@@ -250,7 +249,7 @@ module eth_port_top #(
       .arst              (gt_rx_arst),
       .axis_sdata        (gt_rx_slr_data),
       .axis_skeep        (gt_rx_slr_keep),
-      .axis_susr         ({{(RxUsrWidth - 1) {1'b0}}, gt_rx_slr_usr}),
+      .axis_susr         (gt_rx_slr_usr),
       .axis_svalid       (gt_rx_slr_valid),
       .axis_slast        (gt_rx_slr_last),
       .axis_sready       (gt_rx_slr_ready),
@@ -270,7 +269,7 @@ module eth_port_top #(
   //// 逻辑域类型分流
   eth_type_demux #(
       .TypeCount(RxTypeCount),
-      .UsrWidth (RxUsrWidth)
+      .UsrWidth (1)
   ) eth_type_demux_inst (
       .clk          (clk),
       .rst          (rst),

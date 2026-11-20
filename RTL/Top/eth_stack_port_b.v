@@ -43,9 +43,10 @@ module eth_stack_port_b #(
     },
 
     // ARP与ICMP策略
-    parameter [        56:0] DefaultPendingTime  = 57'd2000,
-    parameter [ReqWidth-1:0] DefaultArpPriority  = {ReqWidth{1'b1}},
-    parameter [ReqWidth-1:0] DefaultIcmpPriority = 4'd12,
+    parameter integer                        PendingTimeWidth    = 24,
+    parameter         [PendingTimeWidth-1:0] DefaultPendingTime  = 24'd2000,
+    parameter         [        ReqWidth-1:0] DefaultArpPriority  = {ReqWidth{1'b1}},
+    parameter         [        ReqWidth-1:0] DefaultIcmpPriority = 4'd12,
 
     // 管理配置
     parameter [31:0] DefaultMgmtIpv4Addr = 32'h8901_a8c0,
@@ -203,8 +204,9 @@ module eth_stack_port_b #(
       .DefaultSrcMac (DefaultSrcMac),
       .DefaultDstMac (DefaultDstMac),
 
-      .DefaultPendingTime (DefaultPendingTime),
-      .DefaultArpPriority (DefaultArpPriority),
+      .PendingTimeWidth(PendingTimeWidth),
+      .DefaultPendingTime(DefaultPendingTime),
+      .DefaultArpPriority(DefaultArpPriority),
       .DefaultIcmpPriority(DefaultIcmpPriority),
 
       .DefaultMgmtIpv4Addr(DefaultMgmtIpv4Addr),

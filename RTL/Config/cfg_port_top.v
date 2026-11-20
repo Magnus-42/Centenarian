@@ -19,6 +19,7 @@ module cfg_port_top #(
     parameter integer DstIpv6Count = 3,
     parameter integer UdpIpv4RxCount = 3,
     parameter integer ReqWidth = 4,
+    parameter integer PendingTimeWidth = 24,
     parameter [32*LocalIpv4Count-1:0] DefaultLocalIp = {
       32'h1001_a8c0, 32'h1101_a8c0, 32'h1201_a8c0
     },
@@ -46,7 +47,7 @@ module cfg_port_top #(
     parameter [32*UdpIpv4RxCount-1:0] DefaultUdpIpv4Range = {
       32'h3000_2000, 32'h1000_1000, 32'h0800_0000
     },
-    parameter [56:0] DefaultPendingTime = 57'd1000,
+    parameter [PendingTimeWidth-1:0] DefaultPendingTime = 24'd1000,
     parameter [ReqWidth-1:0] DefaultArpPriority = 4'd15,
     parameter [ReqWidth-1:0] DefaultIcmpPriority = 4'd12,
     parameter [31:0] DefaultMgmtIpv4Addr = 32'h0901_a8c0,
@@ -89,7 +90,7 @@ module cfg_port_top #(
     output wire [32*UdpIpv4RxCount-1:0] cfg_udp_ipv4_dst_port_range,
 
     // ARP与ICMP配置
-    output wire [56:0] cfg_pending_time,
+    output wire [PendingTimeWidth-1:0] cfg_pending_time,
     output wire [ReqWidth-1:0] cfg_arp_priority,
     output wire [ReqWidth-1:0] cfg_icmp_priority,
 
@@ -172,6 +173,7 @@ module cfg_port_top #(
 
   // 配置寄存器与业务状态
   cfg_regs #(
+      .PendingTimeWidth   (PendingTimeWidth),
       .LocalIpv4Count     (LocalIpv4Count),
       .SrcIpv6Count       (SrcIpv6Count),
       .DstIpv6Count       (DstIpv6Count),

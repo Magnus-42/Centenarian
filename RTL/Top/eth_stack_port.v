@@ -63,9 +63,10 @@ module eth_stack_port #(
     parameter [32*UdpIpv4RxCount-1:0] DefaultUdpIpv4Range = 'd0,
 
     // ARP与ICMP策略
-    parameter [        56:0] DefaultPendingTime  = 57'd1000,
-    parameter [ReqWidth-1:0] DefaultArpPriority  = 4'd15,
-    parameter [ReqWidth-1:0] DefaultIcmpPriority = 4'd12,
+    parameter integer                        PendingTimeWidth    = 24,
+    parameter         [PendingTimeWidth-1:0] DefaultPendingTime  = 24'd1000,
+    parameter         [        ReqWidth-1:0] DefaultArpPriority  = 4'd15,
+    parameter         [        ReqWidth-1:0] DefaultIcmpPriority = 4'd12,
 
     // 管理IP与端口默认值
     parameter [31:0] DefaultMgmtIpv4Addr = 32'h0901_a8c0,
@@ -203,7 +204,7 @@ module eth_stack_port #(
   //// UDP接收端口配置
   wire [32*UdpIpv4RxCount-1:0] cfg_udp_ipv4_dst_port_range;
   //// ARP与ICMP策略
-  wire [                 56:0] cfg_pending_time;
+  wire [ PendingTimeWidth-1:0] cfg_pending_time;
   wire [         ReqWidth-1:0] cfg_arp_priority;
   wire [         ReqWidth-1:0] cfg_icmp_priority;
   //// 管理配置
@@ -390,7 +391,7 @@ module eth_stack_port #(
 
   // ARP：管理地址位于低位槽0，业务地址从槽1开始。
   arp_engine_top #(
-      .PendingTimeWidth(24),
+      .PendingTimeWidth(PendingTimeWidth),
       .LocalIpCount    (LocalIpv4Count + 1),
       .ClkFreqHz       (ClkFreqHz),
       .ReqWidth        (ReqWidth)
@@ -628,11 +629,12 @@ module eth_stack_port #(
 
   // 本口配置与状态管理
   cfg_port_top #(
-      .LocalIpv4Count(LocalIpv4Count),
-      .SrcIpv6Count  (SrcIpv6Count),
-      .DstIpv6Count  (DstIpv6Count),
-      .UdpIpv4RxCount(UdpIpv4RxCount),
-      .ReqWidth      (ReqWidth),
+      .PendingTimeWidth(PendingTimeWidth),
+      .LocalIpv4Count  (LocalIpv4Count),
+      .SrcIpv6Count    (SrcIpv6Count),
+      .DstIpv6Count    (DstIpv6Count),
+      .UdpIpv4RxCount  (UdpIpv4RxCount),
+      .ReqWidth        (ReqWidth),
 
       .DefaultLocalIp   (DefaultLocalIp),
       .DefaultLocalMac  (DefaultLocalMac),

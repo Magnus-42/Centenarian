@@ -21,6 +21,7 @@ module cfg_regs #(
     parameter integer DstIpv6Count = 3,
     parameter integer UdpIpv4RxCount = 3,
     parameter integer ReqWidth = 4,
+    parameter integer PendingTimeWidth = 24,
     parameter [32*LocalIpv4Count-1:0] DefaultLocalIp = {
       32'h1001_a8c0, 32'h1101_a8c0, 32'h1201_a8c0
     },
@@ -48,7 +49,7 @@ module cfg_regs #(
     parameter [32*UdpIpv4RxCount-1:0] DefaultUdpIpv4Range = {
       32'h3000_2000, 32'h1000_1000, 32'h0800_0000
     },
-    parameter [56:0] DefaultPendingTime = 57'd1000,
+    parameter [PendingTimeWidth-1:0] DefaultPendingTime = 24'd1000,
     parameter [ReqWidth-1:0] DefaultArpPriority = {ReqWidth{1'b1}},
     parameter [ReqWidth-1:0] DefaultIcmpPriority = 4'd12,
     parameter [31:0] DefaultMgmtIpv4Addr = 32'h0901_a8c0,
@@ -84,7 +85,7 @@ module cfg_regs #(
     output wire [32*UdpIpv4RxCount-1:0] cfg_udp_ipv4_dst_port_range,
 
     // ARP与ICMP配置
-    output wire [56:0] cfg_pending_time,
+    output wire [PendingTimeWidth-1:0] cfg_pending_time,
     output wire [ReqWidth-1:0] cfg_arp_priority,
     output wire [ReqWidth-1:0] cfg_icmp_priority,
 
@@ -145,7 +146,7 @@ module cfg_regs #(
   reg  [ 128*DstIpv6Count-1:0] cfg_dst_ipv6_reg;
   reg  [  48*DstIpv6Count-1:0] cfg_dst_mac_reg;
   reg  [32*UdpIpv4RxCount-1:0] cfg_udp_ipv4_dst_port_range_reg;
-  reg  [                 56:0] cfg_pending_time_reg;
+  reg  [ PendingTimeWidth-1:0] cfg_pending_time_reg;
   reg  [         ReqWidth-1:0] cfg_arp_priority_reg;
   reg  [         ReqWidth-1:0] cfg_icmp_priority_reg;
   reg  [                 31:0] cfg_mgmt_ipv4_addr_reg;
@@ -255,7 +256,7 @@ module cfg_regs #(
       end
       `CFG_ARP_PENDING_TIMEOUT_MS: begin
         item_bytes = 8'd8;
-        read_value[56:0] = cfg_pending_time_reg;
+        read_value[PendingTimeWidth-1:0] = cfg_pending_time_reg;
       end
       `CFG_ARP_TX_PRIORITY: begin
         item_bytes = 8'd1;
@@ -492,9 +493,9 @@ module cfg_regs #(
   //// ARP与ICMP配置
   always @(posedge clk) begin
     if (rst || restore_defaults) begin
-      cfg_pending_time_reg <= DefaultPendingTime;
+      cfg_pending_time_reg <= DefaultPendingTime[PendingTimeWidth-1:0];
     end else if (write_commit && req_item_d2 == `CFG_ARP_PENDING_TIMEOUT_MS) begin
-      cfg_pending_time_reg <= req_value_d2[56:0];
+      cfg_pending_time_reg <= req_value_d2[PendingTimeWidth-1:0];
     end
   end
   assign cfg_pending_time = cfg_pending_time_reg;

@@ -63,11 +63,10 @@ set_false_path -to [get_pins {u_eth_stack_top/eth_stack_port_b_inst/eth_stack_po
 # A口模块在位信号分别进入init_clk和gt_rxusrclk域，只豁免各第一级D。
 set_false_path -from [get_ports qsfp_prsn_port_a] -to [get_pins {u_eth_stack_top/eth_stack_port_a_inst/eth_stack_port_inst/eth_port_top_inst/gen_cmac_a.cmac_a_if_inst/init_qsfp_present_sync_reg[0]/D}]
 set_false_path -from [get_ports qsfp_prsn_port_a] -to [get_pins {u_eth_stack_top/eth_stack_port_a_inst/eth_stack_port_inst/eth_port_top_inst/gen_cmac_a.cmac_a_if_inst/gt_rx_qsfp_present_sync_reg[0]/D}]
-# gt_rx域在位同步链的原始异步复位，仅豁免同步器CLR脚。
-set_false_path -to [get_pins {{u_eth_stack_top/eth_stack_port_a_inst/eth_stack_port_inst/eth_port_top_inst/gen_cmac_a.cmac_a_if_inst/gt_rx_qsfp_present_sync_reg[0]/CLR} {u_eth_stack_top/eth_stack_port_a_inst/eth_stack_port_inst/eth_port_top_inst/gen_cmac_a.cmac_a_if_inst/gt_rx_qsfp_present_sync_reg[1]/CLR}}]
 
 # B口模块在位信号分别进入init_clk和gt_rxusrclk域，只豁免各第一级D。
 set_false_path -from [get_ports qsfp_prsn_port_b] -to [get_pins {u_eth_stack_top/eth_stack_port_b_inst/eth_stack_port_inst/eth_port_top_inst/gen_cmac_b.cmac_b_if_inst/init_qsfp_present_sync_reg[0]/D}]
 set_false_path -from [get_ports qsfp_prsn_port_b] -to [get_pins {u_eth_stack_top/eth_stack_port_b_inst/eth_stack_port_inst/eth_port_top_inst/gen_cmac_b.cmac_b_if_inst/gt_rx_qsfp_present_sync_reg[0]/D}]
-# gt_rx域在位同步链的原始异步复位，仅豁免同步器CLR脚。
-set_false_path -to [get_pins {{u_eth_stack_top/eth_stack_port_b_inst/eth_stack_port_inst/eth_port_top_inst/gen_cmac_b.cmac_b_if_inst/gt_rx_qsfp_present_sync_reg[0]/CLR} {u_eth_stack_top/eth_stack_port_b_inst/eth_stack_port_inst/eth_port_top_inst/gen_cmac_b.cmac_b_if_inst/gt_rx_qsfp_present_sync_reg[1]/CLR}}]
+
+# LED只驱动指示灯
+set_false_path -to [get_ports {qsfp_led_port_a qsfp_led_port_b}]

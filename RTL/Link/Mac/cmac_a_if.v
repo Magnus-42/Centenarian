@@ -62,7 +62,7 @@ module cmac_a_if #(
 );
 
   // CMAC硬核提供GT及AXIS收发接口，启用RS-FEC。
-  // gt_rxusrclk域同步模块在位信号，并组合PCS、FEC与故障状态生成链路指示。
+  // gt_rxusrclk域同步模块在位信号，并寄存PCS、FEC与故障状态生成链路指示。
   // init_clk域同步模块在位信号，计数生成QSFP指示灯。
 
   // 参数范围检查
@@ -88,18 +88,28 @@ module cmac_a_if #(
   wire                     stat_gt_rx_local_fault;
   wire                     stat_gt_rx_remote_fault;
   wire                     stat_gt_rx_fec_aligned;
-  wire                     gt_rx_link_arst;
   (* ASYNC_REG = "TRUE" *)reg  [              1:0] gt_rx_qsfp_present_sync;
+  reg                      stat_link_up_reg;
 
   // gt_rxusrclk域链路状态
-  assign gt_rx_link_arst = arst | gt_rx_arst;
-  always @(posedge gt_rxusrclk or posedge gt_rx_link_arst) begin
-    if (gt_rx_link_arst) gt_rx_qsfp_present_sync <= 2'b00;
-    else gt_rx_qsfp_present_sync <= {gt_rx_qsfp_present_sync[0], !qsfp_present_n};
+  //// 同步模块在位信号
+  always @(posedge gt_rxusrclk) begin
+    if (gt_rx_arst) begin
+      gt_rx_qsfp_present_sync <= 2'b00;
+    end else begin
+      gt_rx_qsfp_present_sync <= {gt_rx_qsfp_present_sync[0], !qsfp_present_n};
+    end
   end
-  assign stat_link_up = gt_rx_qsfp_present_sync[1] & stat_gt_rx_pcs_up &
-                        stat_gt_rx_fec_aligned &
-                        ~stat_gt_rx_local_fault & ~stat_gt_rx_remote_fault;
+  //// 寄存链路状态
+  always @(posedge gt_rxusrclk) begin
+    if (gt_rx_arst) begin
+      stat_link_up_reg <= 1'b0;
+    end else begin
+      stat_link_up_reg <= gt_rx_qsfp_present_sync[1] && stat_gt_rx_pcs_up &&
+          stat_gt_rx_fec_aligned && !stat_gt_rx_local_fault && !stat_gt_rx_remote_fault;
+    end
+  end
+  assign stat_link_up = stat_link_up_reg;
 
   // init_clk域指示灯
   //// 同步模块在位信号

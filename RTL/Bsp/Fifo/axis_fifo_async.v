@@ -347,8 +347,8 @@ module axis_fifo_async #(
   assign stat_rd_empty            = !rd_last_output_valid || rd_data_keep_empty || rd_usr_empty;
 
   //// AXIS接口
-  assign axis_sready              = !arst && !wr_arst && !stat_wr_full;
-  assign axis_mvalid              = !arst && !rd_arst && !stat_rd_empty && rd_allow_read;
+  assign axis_sready              = !wr_arst && !stat_wr_full;
+  assign axis_mvalid              = !rd_arst && !stat_rd_empty && rd_allow_read;
   assign {axis_mkeep, axis_mdata} = rd_data_keep_fifo;
   assign axis_musr                = rd_usr_fifo;
   assign axis_mlast               = rd_last_output;

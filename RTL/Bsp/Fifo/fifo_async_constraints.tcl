@@ -72,10 +72,9 @@ dict for {fifo_xdc_parent fifo_xdc_read_clks} $fifo_xdc_roots {
   puts "FIFO_XDC_RESET $fifo_xdc_parent async_pins=[llength $fifo_xdc_reset_pins]"
 }
 
-# 分布式RAM是随同步指针传输的数据，不能把每个数据bit单独打两级同步。
-# 只约束RAM写时钟到实际读域捕获寄存器的异步数据路径；读地址本域路径仍正常计时。
-# -from使用存储单元时钟脚，不在组合RAM输出/层次边界上截断路径。
-set fifo_xdc_all_mem [get_cells -quiet -hier -filter {IS_PRIMITIVE && REF_NAME =~ RAM* && REF_NAME !~ RAMB*}]
+# 分布式RAM由同步后的Gray指针保护，写入当前读地址的情况不会发生。
+# 禁用RAM内部WCLK到输出的异步弧；读地址到输出仍正常计时。
+set fifo_xdc_all_mem [get_cells -quiet -hier -filter {IS_PRIMITIVE && PRIMITIVE_LEVEL != MACRO && REF_NAME =~ RAM* && REF_NAME !~ RAMB*}]
 dict for {fifo_xdc_parent fifo_xdc_read_clks} $fifo_xdc_roots {
   set fifo_xdc_mem {}
   foreach fifo_xdc_cell $fifo_xdc_all_mem {
@@ -109,9 +108,18 @@ dict for {fifo_xdc_parent fifo_xdc_read_clks} $fifo_xdc_roots {
     foreach fifo_xdc_clk [concat $fifo_xdc_read_clks $fifo_xdc_mem_clks] {
       set fifo_xdc_budget [expr {min($fifo_xdc_budget,[get_property PERIOD $fifo_xdc_clk])}]
     }
-    set_max_delay $fifo_xdc_budget -datapath_only -from $fifo_xdc_mem_clk -to $fifo_xdc_capture
+    foreach fifo_xdc_cell $fifo_xdc_mem {
+      set fifo_xdc_wclk [get_pins -of_objects $fifo_xdc_cell -filter {REF_PIN_NAME == WCLK || REF_PIN_NAME == CLK}]
+      set fifo_xdc_q [get_pins -of_objects $fifo_xdc_cell -filter {DIRECTION == OUT}]
+      foreach fifo_xdc_clk_pin $fifo_xdc_wclk {
+        foreach fifo_xdc_q_pin $fifo_xdc_q {
+          set_disable_timing -from [get_property REF_PIN_NAME $fifo_xdc_clk_pin] \
+              -to [get_property REF_PIN_NAME $fifo_xdc_q_pin] $fifo_xdc_cell
+        }
+      }
+    }
     incr fifo_xdc_payload_total [llength $fifo_xdc_capture]
-    puts "FIFO_XDC_LUTRAM $fifo_xdc_parent captures=[llength $fifo_xdc_capture] budget_ns=$fifo_xdc_budget"
+    puts "FIFO_XDC_LUTRAM $fifo_xdc_parent captures=[llength $fifo_xdc_capture] write_clock_arcs_disabled=[llength $fifo_xdc_mem]"
   }
   if {$fifo_xdc_ports > 0 || $fifo_xdc_other > 0} {
     puts "FIFO_XDC_INTERFACE $fifo_xdc_parent ports=$fifo_xdc_ports other_endpoints=$fifo_xdc_other : require top-level interface timing budgets"

@@ -134,8 +134,24 @@ module axis_fifo_async #(
   reg                           rd_early_release_active;
   wire                          rd_allow_read;
 
+  // 异步复位同步释放
+  (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)reg  [                   1:0] wr_rst_sync;
+  (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)reg  [                   1:0] rd_rst_sync;
+
   // 生成循环
   genvar g_gray;
+
+  // 复位
+  always @(posedge wr_clk or posedge arst) begin
+    if (arst) wr_rst_sync <= 2'b11;
+    else wr_rst_sync <= {wr_rst_sync[0], 1'b0};
+  end
+  always @(posedge rd_clk or posedge arst) begin
+    if (arst) rd_rst_sync <= 2'b11;
+    else rd_rst_sync <= {rd_rst_sync[0], 1'b0};
+  end
+  assign wr_arst                = wr_rst_sync[1];
+  assign rd_arst                = rd_rst_sync[1];
 
   // AXIS握手
   assign wr_handshake           = axis_svalid && axis_sready;
@@ -219,7 +235,8 @@ module axis_fifo_async #(
     ) fifo_async_fwft_data_keep (
         .wr_clk            (wr_clk),
         .rd_clk            (rd_clk),
-        .arst              (arst),
+        .wr_arst           (wr_arst),
+        .rd_arst           (rd_arst),
         .wr_en             (wr_handshake),
         .din               ({axis_skeep, axis_sdata}),
         .rd_en             (rd_fifo_rd_en),
@@ -229,9 +246,7 @@ module axis_fifo_async #(
         .prog_full         (stat_wr_prog_full),
         .prog_empty        (stat_rd_prog_empty),
         .stat_wr_data_count(stat_wr_data_count),
-        .stat_rd_data_count(stat_rd_data_count),
-        .wr_arst           (),
-        .rd_arst           ()
+        .stat_rd_data_count(stat_rd_data_count)
     );
   end else begin : gen_data_distributed
     fifo_async #(
@@ -243,7 +258,8 @@ module axis_fifo_async #(
     ) fifo_async_data_keep (
         .wr_clk            (wr_clk),
         .rd_clk            (rd_clk),
-        .arst              (arst),
+        .wr_arst           (wr_arst),
+        .rd_arst           (rd_arst),
         .wr_en             (wr_handshake),
         .din               ({axis_skeep, axis_sdata}),
         .rd_en             (rd_fifo_rd_en),
@@ -253,9 +269,7 @@ module axis_fifo_async #(
         .prog_full         (stat_wr_prog_full),
         .prog_empty        (stat_rd_prog_empty),
         .stat_wr_data_count(stat_wr_data_count),
-        .stat_rd_data_count(stat_rd_data_count),
-        .wr_arst           (),
-        .rd_arst           ()
+        .stat_rd_data_count(stat_rd_data_count)
     );
   end
   //// usr存储
@@ -266,7 +280,8 @@ module axis_fifo_async #(
     ) fifo_async_fwft_usr (
         .wr_clk            (wr_clk),
         .rd_clk            (rd_clk),
-        .arst              (arst),
+        .wr_arst           (wr_arst),
+        .rd_arst           (rd_arst),
         .wr_en             (wr_handshake),
         .din               (axis_susr),
         .rd_en             (rd_fifo_rd_en),
@@ -276,9 +291,7 @@ module axis_fifo_async #(
         .prog_full         (),
         .prog_empty        (),
         .stat_wr_data_count(),
-        .stat_rd_data_count(),
-        .wr_arst           (),
-        .rd_arst           ()
+        .stat_rd_data_count()
     );
   end else begin : gen_usr_distributed
     fifo_async #(
@@ -290,7 +303,8 @@ module axis_fifo_async #(
     ) fifo_async_usr (
         .wr_clk            (wr_clk),
         .rd_clk            (rd_clk),
-        .arst              (arst),
+        .wr_arst           (wr_arst),
+        .rd_arst           (rd_arst),
         .wr_en             (wr_handshake),
         .din               (axis_susr),
         .rd_en             (rd_fifo_rd_en),
@@ -300,9 +314,7 @@ module axis_fifo_async #(
         .prog_full         (),
         .prog_empty        (),
         .stat_wr_data_count(),
-        .stat_rd_data_count(),
-        .wr_arst           (),
-        .rd_arst           ()
+        .stat_rd_data_count()
     );
   end
   //// last
@@ -326,7 +338,8 @@ module axis_fifo_async #(
   ) fifo_async_last (
       .wr_clk            (wr_clk),
       .rd_clk            (rd_clk),
-      .arst              (arst),
+      .wr_arst           (wr_arst),
+      .rd_arst           (rd_arst),
       .wr_en             (wr_handshake),
       .din               (axis_slast),
       .rd_en             (rd_last_fifo_rd_en),
@@ -336,9 +349,7 @@ module axis_fifo_async #(
       .prog_full         (),
       .prog_empty        (),
       .stat_wr_data_count(),
-      .stat_rd_data_count(),
-      .wr_arst           (wr_arst),
-      .rd_arst           (rd_arst)
+      .stat_rd_data_count()
   );
 
   // 输出

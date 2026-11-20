@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # File Name   : fifo_async_constraints.tcl
-# Description : 普通异步FIFO：读写Gray指针、局部复位同步器及分布式RAM数据通路
+# Description : 普通异步FIFO：读写Gray指针、复位同步器及分布式RAM数据通路
 # Note        : 先创建时钟，在综合后用source加载；也可作为impl_1的OPT_DESIGN前置脚本。
 #               按父模块类型和实际同步器选择路径，不依赖顶层实例名。
 # -----------------------------------------------------------------------------
@@ -62,17 +62,24 @@ dict for {fifo_xdc_key fifo_xdc_cells} $fifo_xdc_groups {
 
 # 只对复位同步器自身的异步PRE/CLR脚切断恢复/移除检查。
 # 不切断wr_arst/rd_arst到功能寄存器的本域复位释放检查。
-dict for {fifo_xdc_parent fifo_xdc_read_clks} $fifo_xdc_roots {
-  if {$fifo_xdc_parent eq ""} {set fifo_xdc_prefix ""} else {set fifo_xdc_prefix ${fifo_xdc_parent}/}
-  set fifo_xdc_reset [get_cells -quiet ${fifo_xdc_prefix}*rst_sync_reg*]
-  if {[llength $fifo_xdc_reset] != 4} {error "FIFO_XDC: expected four reset synchronizer FFs at $fifo_xdc_parent"}
-  set fifo_xdc_reset_pins [get_pins -of_objects $fifo_xdc_reset -filter {REF_PIN_NAME == PRE || REF_PIN_NAME == CLR}]
-  if {[llength $fifo_xdc_reset_pins] != 4} {error "FIFO_XDC: reset async pins not found at $fifo_xdc_parent"}
+set fifo_xdc_reset_cells {}
+foreach fifo_xdc_reset_ff [get_cells -quiet -hier -regexp {.*(wr|rd)_rst_sync_reg(\[[0-9]+\])?}] {
+  set fifo_xdc_reset_name [get_property NAME $fifo_xdc_reset_ff]
+  set fifo_xdc_reset_parent [string range $fifo_xdc_reset_name 0 [expr {[string last / $fifo_xdc_reset_name]-1}]]
+  set fifo_xdc_reset_obj [get_cells -quiet $fifo_xdc_reset_parent]
+  if {[llength $fifo_xdc_reset_obj] != 1} {continue}
+  set fifo_xdc_reset_ref [get_property -quiet ORIG_REF_NAME $fifo_xdc_reset_obj]
+  if {$fifo_xdc_reset_ref eq ""} {set fifo_xdc_reset_ref [get_property REF_NAME $fifo_xdc_reset_obj]}
+  if {![regexp {^axis_fifo_async(_+[0-9]+)?$} $fifo_xdc_reset_ref]} {continue}
+  lappend fifo_xdc_reset_cells $fifo_xdc_reset_ff
+}
+if {[llength $fifo_xdc_reset_cells] > 0} {
+  set fifo_xdc_reset_pins [get_pins -of_objects $fifo_xdc_reset_cells -filter {REF_PIN_NAME == PRE || REF_PIN_NAME == CLR}]
   set_false_path -to $fifo_xdc_reset_pins
-  puts "FIFO_XDC_RESET $fifo_xdc_parent async_pins=[llength $fifo_xdc_reset_pins]"
+  puts "FIFO_XDC_RESET axis_shared_async_pins=[llength $fifo_xdc_reset_pins]"
 }
 
-# 分布式RAM由同步后的Gray指针保护，写入当前读地址的情况不会发生。
+# Gray指针保护有效读取，避免同地址读写碰撞；空FIFO写入不属于有效读取。
 # 禁用RAM内部WCLK到输出的异步弧；读地址到输出仍正常计时。
 set fifo_xdc_all_mem [get_cells -quiet -hier -filter {IS_PRIMITIVE && PRIMITIVE_LEVEL != MACRO && REF_NAME =~ RAM* && REF_NAME !~ RAMB*}]
 dict for {fifo_xdc_parent fifo_xdc_read_clks} $fifo_xdc_roots {
@@ -104,10 +111,6 @@ dict for {fifo_xdc_parent fifo_xdc_read_clks} $fifo_xdc_roots {
   }
   set fifo_xdc_capture [lsort -unique $fifo_xdc_capture]
   if {[llength $fifo_xdc_capture] > 0} {
-    set fifo_xdc_budget 1.0e30
-    foreach fifo_xdc_clk [concat $fifo_xdc_read_clks $fifo_xdc_mem_clks] {
-      set fifo_xdc_budget [expr {min($fifo_xdc_budget,[get_property PERIOD $fifo_xdc_clk])}]
-    }
     foreach fifo_xdc_cell $fifo_xdc_mem {
       set fifo_xdc_wclk [get_pins -of_objects $fifo_xdc_cell -filter {REF_PIN_NAME == WCLK || REF_PIN_NAME == CLK}]
       set fifo_xdc_q [get_pins -of_objects $fifo_xdc_cell -filter {DIRECTION == OUT}]

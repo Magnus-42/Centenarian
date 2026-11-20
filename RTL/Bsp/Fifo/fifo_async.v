@@ -8,8 +8,7 @@
 // Description : Gray指针异步FIFO，支持distributed/block两种存储类型。
 // Note        : Depth必须为2的2次幂；
 //               distributed组合输出队首，empty=0时有效；
-//               block在有效读请求后延迟2个rd_clk周期输出；
-//               arst同时复位两域，各域复位异步置位、同步释放。
+//               block在有效读请求后延迟2个rd_clk周期输出。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -26,24 +25,23 @@ module fifo_async #(
 ) (
     input wire wr_clk,
     input wire rd_clk,
-    input wire arst,
+    input wire wr_arst,
+    input wire rd_arst,
 
     input  wire                  wr_en,
     input  wire [     Width-1:0] din,
     output wire                  full,
     output wire                  prog_full,
     output wire [CountWidth-1:0] stat_wr_data_count,
-    output wire                  wr_arst,
 
     input  wire                  rd_en,
     output wire [     Width-1:0] dout,
     output wire                  empty,
     output wire                  prog_empty,
-    output wire [CountWidth-1:0] stat_rd_data_count,
-    output wire                  rd_arst
+    output wire [CountWidth-1:0] stat_rd_data_count
 );
 
-  // 各时钟域同步释放复位，Gray指针经两级寄存跨域。
+  // 使用上游分域复位，Gray指针经两级寄存跨域。
   // 写域控制写入和满标志，读域控制读取和空标志。
   // 存储模式决定组合队首或两拍读返回，占用与阈值状态分域更新。
 
@@ -111,24 +109,8 @@ module fifo_async #(
   (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)reg  [   AddrWidth:0] rd_wr_ptr_gray_sync_d1;
   (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)reg  [   AddrWidth:0] rd_wr_ptr_gray_sync_d2;
 
-  // 复位同步
-  (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)reg  [           1:0] wr_rst_sync;
-  (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)reg  [           1:0] rd_rst_sync;
-
   // 生成循环
   genvar g_gray;
-
-  // 分域复位与同步释放
-  always @(posedge wr_clk or posedge arst) begin
-    if (arst) wr_rst_sync <= 2'b11;
-    else wr_rst_sync <= {wr_rst_sync[0], 1'b0};
-  end
-  always @(posedge rd_clk or posedge arst) begin
-    if (arst) rd_rst_sync <= 2'b11;
-    else rd_rst_sync <= {rd_rst_sync[0], 1'b0};
-  end
-  assign wr_arst = wr_rst_sync[1];
-  assign rd_arst = rd_rst_sync[1];
 
   // 读写指针格雷码同步
   //// 两级同步

@@ -7,7 +7,7 @@
 // -----------------------------------------------------------------------------
 // Description : 基于Block存储的异步首字直通FIFO。
 // Note        : Depth必须为2的2次幂；
-//               对应wr_arst/rd_arst释放前禁止读写。
+//               wr_arst/rd_arst释放前禁止读写。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -23,21 +23,20 @@ module fifo_async_fwft #(
 ) (
     input wire wr_clk,
     input wire rd_clk,
-    input wire arst,
+    input wire wr_arst,
+    input wire rd_arst,
 
     input  wire                  wr_en,
     input  wire [     Width-1:0] din,
     output wire                  full,
     output wire                  prog_full,
     output wire [CountWidth-1:0] stat_wr_data_count,
-    output wire                  wr_arst,
 
     input  wire                  rd_en,
     output wire [     Width-1:0] dout,
     output wire                  empty,
     output wire                  prog_empty,
-    output wire [CountWidth-1:0] stat_rd_data_count,
-    output wire                  rd_arst
+    output wire [CountWidth-1:0] stat_rd_data_count
 );
 
   // 底层block FIFO完成跨时钟存储，读域按三项额度预取到skid。
@@ -247,7 +246,8 @@ module fifo_async_fwft #(
   ) fifo_async_block (
       .wr_clk            (wr_clk),
       .rd_clk            (rd_clk),
-      .arst              (arst),
+      .wr_arst           (wr_arst),
+      .rd_arst           (rd_arst),
       .wr_en             (wr_accept),
       .din               (din),
       .rd_en             (rd_block_rd_en),
@@ -257,9 +257,7 @@ module fifo_async_fwft #(
       .prog_full         (),
       .prog_empty        (),
       .stat_wr_data_count(),
-      .stat_rd_data_count(rd_block_count),
-      .wr_arst           (wr_arst),
-      .rd_arst           (rd_arst)
+      .stat_rd_data_count(rd_block_count)
   );
 endmodule
 `resetall

@@ -6,16 +6,14 @@
 // -----------------------------------------------------------------------------
 // Description : eth_stack_top 双口板级测试，A/B 经外部光缆对接。
 // Note        : 每个测试器从本口发送，在对端对应的协议通道校验。
-//               VIO probe_out0..22 分别控制 23 路测试流。
+//               VIO probe_out0..22 控制23路使能，probe_out23 配置共享包间隔。
 // -----------------------------------------------------------------------------
 
 `resetall
 `default_nettype none
 `timescale 1ns / 1ps
 
-module subsys_test_top #(
-    parameter [15:0] TEST_GAP_CYCLES = 16'd0  // 各测试流的包间隔（400 MHz 时钟周期）
-) (
+module subsys_test_top (
     input wire sys_clk,
 
     // 网口A
@@ -164,11 +162,12 @@ module subsys_test_top #(
   // 时钟与复位信号
   wire clk_400m;
   wire clk_locked;
-  reg  usr_rst;
+  reg usr_rst;
   wire qsfp_gt_rst;
   (* ASYNC_REG = "true" *) reg [1:0] rst_sync = 2'b11;
 
   // 测试使能，VIO探针映射见末尾实例。
+  wire [15:0] cfg_gap_cycles;
   wire en_a_udp;
   wire en_a_icmp;
   wire en_a_ospf;
@@ -553,7 +552,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_udp),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_udp_ipv4_axis_sdata[0*512+:512]),
       .axis_mkeep (a_udp_ipv4_axis_skeep[0*64+:64]),
@@ -579,7 +578,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_icmp),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_ipv4_axis_sdata[0*512+:512]),
       .axis_mkeep (a_ipv4_axis_skeep[0*64+:64]),
@@ -604,7 +603,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_ospf),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_ipv4_axis_sdata[1*512+:512]),
       .axis_mkeep (a_ipv4_axis_skeep[1*64+:64]),
@@ -629,7 +628,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_ipv4_06),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_ipv4_axis_sdata[2*512+:512]),
       .axis_mkeep (a_ipv4_axis_skeep[2*64+:64]),
@@ -655,7 +654,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_mac_88b5),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_mac_axis_sdata[0*512+:512]),
       .axis_mkeep (a_mac_axis_skeep[0*64+:64]),
@@ -681,7 +680,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_ip6icmp),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_ipv6_axis_sdata[1*512+:512]),
       .axis_mkeep (a_ipv6_axis_skeep[1*64+:64]),
@@ -706,7 +705,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_ip6ospf),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_ipv6_axis_sdata[2*512+:512]),
       .axis_mkeep (a_ipv6_axis_skeep[2*64+:64]),
@@ -732,7 +731,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_fb_mac),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_mac_axis_sdata[1*512+:512]),
       .axis_mkeep (a_mac_axis_skeep[1*64+:64]),
@@ -757,7 +756,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_fb_ipv4),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_ipv4_axis_sdata[3*512+:512]),
       .axis_mkeep (a_ipv4_axis_skeep[3*64+:64]),
@@ -782,7 +781,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_fb_ipv6),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_ipv6_axis_sdata[0*512+:512]),
       .axis_mkeep (a_ipv6_axis_skeep[0*64+:64]),
@@ -807,7 +806,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_a_fb_udp),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (a_udp_ipv4_axis_sdata[1*512+:512]),
       .axis_mkeep (a_udp_ipv4_axis_skeep[1*64+:64]),
@@ -834,7 +833,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_udp),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_udp_ipv4_axis_sdata[0*512+:512]),
       .axis_mkeep (b_udp_ipv4_axis_skeep[0*64+:64]),
@@ -860,7 +859,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_icmp),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_ipv4_axis_sdata[0*512+:512]),
       .axis_mkeep (b_ipv4_axis_skeep[0*64+:64]),
@@ -885,7 +884,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_ospf),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_ipv4_axis_sdata[1*512+:512]),
       .axis_mkeep (b_ipv4_axis_skeep[1*64+:64]),
@@ -910,7 +909,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_ipv4_06),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_ipv4_axis_sdata[2*512+:512]),
       .axis_mkeep (b_ipv4_axis_skeep[2*64+:64]),
@@ -936,7 +935,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_mac_88b5),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_mac_axis_sdata[0*512+:512]),
       .axis_mkeep (b_mac_axis_skeep[0*64+:64]),
@@ -961,7 +960,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_mac_88cc),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_mac_axis_sdata[1*512+:512]),
       .axis_mkeep (b_mac_axis_skeep[1*64+:64]),
@@ -987,7 +986,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_ip6icmp),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_ipv6_axis_sdata[1*512+:512]),
       .axis_mkeep (b_ipv6_axis_skeep[1*64+:64]),
@@ -1012,7 +1011,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_ip6ospf),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_ipv6_axis_sdata[2*512+:512]),
       .axis_mkeep (b_ipv6_axis_skeep[2*64+:64]),
@@ -1038,7 +1037,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_fb_mac),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_mac_axis_sdata[2*512+:512]),
       .axis_mkeep (b_mac_axis_skeep[2*64+:64]),
@@ -1063,7 +1062,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_fb_ipv4),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_ipv4_axis_sdata[3*512+:512]),
       .axis_mkeep (b_ipv4_axis_skeep[3*64+:64]),
@@ -1088,7 +1087,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_fb_ipv6),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_ipv6_axis_sdata[0*512+:512]),
       .axis_mkeep (b_ipv6_axis_skeep[0*64+:64]),
@@ -1113,7 +1112,7 @@ module subsys_test_top #(
       .clk           (clk_400m),
       .rst           (usr_rst),
       .test_enable   (en_b_fb_udp),
-      .cfg_gap_cycles(TEST_GAP_CYCLES),
+      .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_udp_ipv4_axis_sdata[1*512+:512]),
       .axis_mkeep (b_udp_ipv4_axis_skeep[1*64+:64]),
@@ -1153,7 +1152,8 @@ module subsys_test_top #(
       .probe_out19(en_b_fb_mac),    // B 发 MAC兜底探测->A兜底档
       .probe_out20(en_b_fb_ipv4),   // B 发 IPv4兜底探测->A兜底档
       .probe_out21(en_b_fb_ipv6),   // B 发 IPv6兜底探测->A兜底档
-      .probe_out22(en_b_fb_udp)     // B 发 UDP兜底探测->A兜底档
+      .probe_out22(en_b_fb_udp),    // B 发 UDP兜底探测->A兜底档
+      .probe_out23(cfg_gap_cycles)  // 共享包间隔，默认0拍
   );
 
 endmodule

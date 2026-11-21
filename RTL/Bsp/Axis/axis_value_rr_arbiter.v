@@ -66,7 +66,6 @@ module axis_value_rr_arbiter #(
   localparam integer SelectPayloadWidth = DataWidth > UsrWidth ? DataWidth : UsrWidth;
   localparam integer SelectGroupCount =
       SelectGroupWidth >= 8 ? (SelectPayloadWidth - 1) / SelectGroupWidth + 1 : 1;
-  localparam integer SelectKeepGroupWidth = SelectGroupWidth >= 8 ? SelectGroupWidth / 8 : 1;
 
   // 入口skid接口
   wire [     RequesterCount*DataWidth-1:0] axis_sdata_skid;
@@ -306,7 +305,7 @@ module axis_value_rr_arbiter #(
   for (g_bit = 0; g_bit < DataWidth; g_bit = g_bit + 1) begin : gen_data
     wire [RequesterCount-1:0] terms;
     for (g_lane = 0; g_lane < RequesterCount; g_lane = g_lane + 1) begin : gen_terms
-      assign terms[g_lane] = arb_onehot_group[g_bit/SelectGroupWidth][g_lane] &
+      assign terms[g_lane] = arb_onehot_group[((g_bit/8)*SelectGroupCount)/KeepWidth][g_lane] &
           p1_axis_sdata[g_lane*DataWidth+g_bit];
     end
     assign axis_mdata_skid[g_bit] = |terms;
@@ -315,7 +314,7 @@ module axis_value_rr_arbiter #(
   for (g_bit = 0; g_bit < KeepWidth; g_bit = g_bit + 1) begin : gen_keep
     wire [RequesterCount-1:0] terms;
     for (g_lane = 0; g_lane < RequesterCount; g_lane = g_lane + 1) begin : gen_terms
-      assign terms[g_lane] = arb_onehot_group[g_bit/SelectKeepGroupWidth][g_lane] &
+      assign terms[g_lane] = arb_onehot_group[(g_bit*SelectGroupCount)/KeepWidth][g_lane] &
           p1_axis_skeep[g_lane*KeepWidth+g_bit];
     end
     assign axis_mkeep_skid[g_bit] = |terms;

@@ -18,13 +18,14 @@
 `timescale 1ns / 100ps
 
 module axis_value_rr_arbiter #(
-    parameter  integer RequesterCount = 6,
-    parameter  integer DataWidth      = 64,
-    parameter  integer UsrWidth       = 10,
-    parameter  integer ReqWidth       = 7,
-    parameter  integer LowReqFirst    = 0,
-    parameter  integer LowFirst       = 1,
-    localparam integer KeepWidth      = DataWidth / 8
+    parameter  integer RequesterCount   = 6,
+    parameter  integer DataWidth        = 64,
+    parameter  integer UsrWidth         = 10,
+    parameter  integer ReqWidth         = 7,
+    parameter  integer LowReqFirst      = 0,
+    parameter  integer LowFirst         = 1,
+    parameter  integer SelectGroupWidth = 128,
+    localparam integer KeepWidth        = DataWidth / 8
 ) (
     input wire clk,
     input wire rst,
@@ -47,12 +48,14 @@ module axis_value_rr_arbiter #(
   // 各通道入口skid缓存输入，p1保存数据与完整usr。
   // 仅比较usr低ReqWidth位，平局按帧轮询并锁定通道。
   // 并行比较产生独热选择，出口skid缓存选中数据。
+  // data、对应keep与usr按SelectGroupWidth分组，第0组同时用于仲裁控制。
 
   // 参数范围检查
   initial begin
     if (RequesterCount < 1 || DataWidth < 8 || DataWidth % 8 != 0 || UsrWidth < 1 ||
         (LowFirst != 0 && LowFirst != 1) || ReqWidth < 1 || ReqWidth > UsrWidth ||
-        (LowReqFirst != 0 && LowReqFirst != 1)) begin
+        (LowReqFirst != 0 && LowReqFirst != 1) ||
+        SelectGroupWidth < 8 || SelectGroupWidth % 8 != 0) begin
       $display("错误：axis_value_rr_arbiter：不支持的参数配置。");
       $finish;
     end
@@ -60,6 +63,10 @@ module axis_value_rr_arbiter #(
 
   // 内部常量
   localparam [ReqWidth-1:0] InvalidReq = (LowReqFirst == 1) ? {ReqWidth{1'b1}} : {ReqWidth{1'b0}};
+  localparam integer SelectPayloadWidth = DataWidth > UsrWidth ? DataWidth : UsrWidth;
+  localparam integer SelectGroupCount =
+      SelectGroupWidth >= 8 ? (SelectPayloadWidth - 1) / SelectGroupWidth + 1 : 1;
+  localparam integer SelectKeepGroupWidth = SelectGroupWidth >= 8 ? SelectGroupWidth / 8 : 1;
 
   // 入口skid接口
   wire [     RequesterCount*DataWidth-1:0] axis_sdata_skid;
@@ -88,7 +95,8 @@ module axis_value_rr_arbiter #(
 
   // 仲裁请求与通道锁定
   wire                                     arb_refresh;
-  reg  [               RequesterCount-1:0] arb_onehot_locked;
+  wire [               RequesterCount-1:0] arb_onehot_locked;
+  wire [               RequesterCount-1:0] arb_onehot_group   [0:SelectGroupCount-1];
   wire                                     has_locked_channel;
   wire [               RequesterCount-1:0] p1_req_valid;
   wire [               RequesterCount-1:0] skid_req_valid;
@@ -113,8 +121,10 @@ module axis_value_rr_arbiter #(
   genvar g_j;
   genvar g_bit;
   genvar g_lane;
+  genvar g_group;
 
   // 仲裁状态与流水握手
+  assign arb_onehot_locked  = arb_onehot_group[0];
   assign has_locked_channel = |arb_onehot_locked;
 
   assign p1_ready           = axis_mready_skid ? arb_onehot_locked : 'd0;
@@ -258,13 +268,37 @@ module axis_value_rr_arbiter #(
   //// 生成输出和缓存
   always @(posedge clk) begin
     if (rst) begin
-      refresh_d1        <= 'd0;
-      rr_mask           <= 'd0;
-      arb_onehot_locked <= 'd0;
+      refresh_d1 <= 'd0;
+      rr_mask    <= 'd0;
     end else begin
-      refresh_d1        <= arb_refresh;
-      rr_mask           <= rr_mask_active;
-      arb_onehot_locked <= arb_refresh ? arb_onehot : arb_onehot_locked;
+      refresh_d1 <= arb_refresh;
+      rr_mask    <= rr_mask_active;
+    end
+  end
+  //// 复制arb_onehot_locked寄存器
+  for (g_group = 0; g_group < SelectGroupCount; g_group = g_group + 1) begin : gen_select_group
+    if (SelectGroupCount == 1) begin : gen_shared
+      reg [RequesterCount-1:0] arb_onehot_locked_group;
+
+      always @(posedge clk) begin
+        if (rst) begin
+          arb_onehot_locked_group <= 'd0;
+        end else if (arb_refresh) begin
+          arb_onehot_locked_group <= arb_onehot;
+        end
+      end
+      assign arb_onehot_group[g_group] = arb_onehot_locked_group;
+    end else begin : gen_replica
+      (* dont_touch = "true" *) reg [RequesterCount-1:0] arb_onehot_locked_group;
+
+      always @(posedge clk) begin
+        if (rst) begin
+          arb_onehot_locked_group <= 'd0;
+        end else if (arb_refresh) begin
+          arb_onehot_locked_group <= arb_onehot;
+        end
+      end
+      assign arb_onehot_group[g_group] = arb_onehot_locked_group;
     end
   end
 
@@ -272,7 +306,8 @@ module axis_value_rr_arbiter #(
   for (g_bit = 0; g_bit < DataWidth; g_bit = g_bit + 1) begin : gen_data
     wire [RequesterCount-1:0] terms;
     for (g_lane = 0; g_lane < RequesterCount; g_lane = g_lane + 1) begin : gen_terms
-      assign terms[g_lane] = arb_onehot_locked[g_lane] & p1_axis_sdata[g_lane*DataWidth+g_bit];
+      assign terms[g_lane] = arb_onehot_group[g_bit/SelectGroupWidth][g_lane] &
+          p1_axis_sdata[g_lane*DataWidth+g_bit];
     end
     assign axis_mdata_skid[g_bit] = |terms;
   end
@@ -280,7 +315,8 @@ module axis_value_rr_arbiter #(
   for (g_bit = 0; g_bit < KeepWidth; g_bit = g_bit + 1) begin : gen_keep
     wire [RequesterCount-1:0] terms;
     for (g_lane = 0; g_lane < RequesterCount; g_lane = g_lane + 1) begin : gen_terms
-      assign terms[g_lane] = arb_onehot_locked[g_lane] & p1_axis_skeep[g_lane*KeepWidth+g_bit];
+      assign terms[g_lane] = arb_onehot_group[g_bit/SelectKeepGroupWidth][g_lane] &
+          p1_axis_skeep[g_lane*KeepWidth+g_bit];
     end
     assign axis_mkeep_skid[g_bit] = |terms;
   end
@@ -288,7 +324,8 @@ module axis_value_rr_arbiter #(
   for (g_bit = 0; g_bit < UsrWidth; g_bit = g_bit + 1) begin : gen_usr
     wire [RequesterCount-1:0] terms;
     for (g_lane = 0; g_lane < RequesterCount; g_lane = g_lane + 1) begin : gen_terms
-      assign terms[g_lane] = arb_onehot_locked[g_lane] & p1_axis_susr[g_lane*UsrWidth+g_bit];
+      assign terms[g_lane] = arb_onehot_group[(g_bit*SelectGroupCount)/UsrWidth][g_lane] &
+          p1_axis_susr[g_lane*UsrWidth+g_bit];
     end
     assign axis_musr_skid[g_bit] = |terms;
   end

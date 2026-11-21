@@ -70,7 +70,8 @@ module arp_engine_top #(
     output wire stat_query_src_not_local
 );
 
-  // p1匹配本地源地址，寄存路由、广播和MAC候选。
+  // p1匹配本地源地址，寄存子网、广播判断标志和MAC候选。
+  // 本地路由配置在查询在途期间保持稳定，更新前停止查询并排空流水。
   // p2选择缓存查询IP，p3至p6完成四级缓存查询，随后寄存应答。
   // 未命中请求进入五级待决查询，许可后生成ARP请求。
   // 接收帧用于缓存学习和应答，两类发送帧经FIFO、仲裁和封装输出。
@@ -138,8 +139,9 @@ module arp_engine_top #(
   wire [                         47:0] query_source_mac;
   wire [             LocalIpCount-1:0] query_src_match_mask;
   reg  [             LocalIpCount-1:0] p1_query_src_match_mask;
-  reg  [             LocalIpCount-1:0] p1_broadcast;
-  reg  [          32*LocalIpCount-1:0] p1_route_ip;
+  reg  [             LocalIpCount-1:0] p1_is_out_subnet;
+  reg  [             LocalIpCount-1:0] p1_host_bits_all_ones;
+  reg                                  p1_is_limited_broadcast;
   reg  [          48*LocalIpCount-1:0] p1_query_mac;
 
   // 接收学习与应答
@@ -285,22 +287,20 @@ module arp_engine_top #(
       cfg_stat_clear_d1 <= cfg_stat_clear;
     end
   end
-  //// 本地路由候选并行计算，P1寄存候选，P2完成选择
+  //// P1并行寄存子网和主机位判断，P2完成路由与广播选择
   for (g_local = 0; g_local < LocalIpCount; g_local = g_local + 1) begin : gen_route
     wire is_out_subnet;
-    wire is_limited_broadcast;
     assign is_out_subnet =
         |((query_dst_ip ^ cfg_local_ip_d1[g_local*32+:32]) & cfg_subnet_mask_d1[g_local*32+:32]);
-    assign is_limited_broadcast = query_dst_ip == 32'hffff_ffff;
     assign query_src_match_mask[g_local] = query_src_ip == cfg_local_ip_d1[g_local*32+:32];
     assign rx_target_match_mask[g_local] = rx_tpa == cfg_local_ip_d1[g_local*32+:32];
     always @(posedge clk) begin
       p1_query_src_match_mask[g_local] <= query_src_match_mask[g_local];
       p1_query_mac[g_local*48+:48] <= cfg_local_mac_d1[g_local*48+:48];
-      p1_route_ip[g_local*32+:32] <= is_out_subnet && !is_limited_broadcast ?
-          cfg_gateway_ip_d1[g_local*32+:32] : query_dst_ip;
-      p1_broadcast[g_local] <= is_limited_broadcast || (
-          !is_out_subnet && ((query_dst_ip | cfg_subnet_mask_d1[g_local*32+:32]) == 32'hffff_ffff));
+      p1_is_out_subnet[g_local] <= is_out_subnet;
+      p1_is_limited_broadcast <= query_dst_ip == 32'hffff_ffff;
+      p1_host_bits_all_ones[g_local] <=
+          (query_dst_ip | cfg_subnet_mask_d1[g_local*32+:32]) == 32'hffff_ffff;
     end
   end
   for (g_group = 0; g_group < RxGroupCount; g_group = g_group + 1) begin : gen_rx_group
@@ -323,16 +323,17 @@ module arp_engine_top #(
     query_src_is_local = |query_src_match_mask;
     p1_query_src_mac   = 'd0;
     p1_routed_query_ip = p1_query_dst_ip;
-    p1_is_broadcast    = p1_query_dst_ip == 32'hffff_ffff;
+    p1_is_broadcast    = p1_is_limited_broadcast;
     for (i = 0; i < LocalIpCount; i = i + 1) begin
       if (p1_query_src_match_mask[i]) begin
-        p1_query_src_mac   = p1_query_mac[i*48+:48];
-        p1_routed_query_ip = p1_route_ip[i*32+:32];
-        p1_is_broadcast    = p1_broadcast[i];
+        p1_query_src_mac = p1_query_mac[i*48+:48];
+        p1_routed_query_ip = p1_is_out_subnet[i] && !p1_is_limited_broadcast ?
+            cfg_gateway_ip_d1[i*32+:32] : p1_query_dst_ip;
+        p1_is_broadcast    = p1_is_limited_broadcast ||
+            (!p1_is_out_subnet[i] && p1_host_bits_all_ones[i]);
       end
     end
   end
-
   //// 接收目标匹配与应答MAC选择
   always @(*) begin : match_receive
     integer i;

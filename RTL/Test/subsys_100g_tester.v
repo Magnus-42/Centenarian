@@ -39,7 +39,7 @@ module subsys_100g_tester #(
     input  wire                    axis_slast,
     output wire                    axis_sready,
 
-    input wire [15:0] cfg_gap_cycles  // 发送末拍握手时采样，单位为clk周期
+    input wire [15:0] cfg_gap_cycles  // 单位为clk周期
 );
 
   // 末拍握手装载包间隔，计数归零后允许发送。
@@ -48,11 +48,16 @@ module subsys_100g_tester #(
   // 内部常量
   localparam [AXIS_WIDTH-1:0] HDR_BEAT = {{(AXIS_WIDTH - 320) {1'b0}}, HDR_BYTES};
 
+  // 包间隔配置
+  reg  [            15:0] cfg_gap_cycles_d1;
+  reg                     cfg_gap_zero_d1;
+
   // 发送拍号与包间隔
   reg  [            15:0] tx_beat_cnt;
   wire [            15:0] tx_beat_next;
   reg  [            15:0] gap_remaining;
   wire [            15:0] gap_remaining_next;
+  wire                    gap_next_is_zero;
 
   // 接收计数与校验
   reg  [            15:0] rx_beat_cnt;
@@ -88,12 +93,20 @@ module subsys_100g_tester #(
   reg                     axis_mlast_reg;
 
   // 出口装载与握手
-  assign reg_ready = !axis_mvalid_reg || axis_mready;
+  assign reg_ready   = !axis_mvalid_reg || axis_mready;
   assign m_handshake = axis_mvalid && axis_mready;
+
+  // 包间隔配置
+  always @(posedge clk) begin
+    cfg_gap_cycles_d1 <= cfg_gap_cycles;
+    cfg_gap_zero_d1   <= cfg_gap_cycles == 16'd0;
+  end
 
   // 包间隔
   assign gap_remaining_next = (m_handshake && axis_mlast_reg) ?
-      cfg_gap_cycles : ((gap_remaining != 16'd0) ? gap_remaining - 16'd1 : 16'd0);
+      cfg_gap_cycles_d1 : ((gap_remaining != 16'd0) ? gap_remaining - 16'd1 : 16'd0);
+  assign gap_next_is_zero = (m_handshake && axis_mlast_reg) ?
+      cfg_gap_zero_d1 : (gap_remaining <= 16'd1);
   always @(posedge clk) begin
     if (rst) gap_remaining <= cfg_gap_cycles;
     else gap_remaining <= gap_remaining_next;
@@ -125,7 +138,7 @@ module subsys_100g_tester #(
       axis_mvalid_reg <= 'd0;
     end else begin
       if (test_enable) begin
-        if (gap_remaining_next == 'd0) axis_mvalid_reg <= 1'b1;
+        if (gap_next_is_zero) axis_mvalid_reg <= 1'b1;
         else if (m_handshake) axis_mvalid_reg <= 1'b0;
       end else begin
         if (m_handshake && axis_mlast) begin

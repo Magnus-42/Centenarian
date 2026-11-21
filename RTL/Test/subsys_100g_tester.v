@@ -165,8 +165,12 @@ module subsys_100g_tester #(
   // 错误拍检测与累计
   //// 检测结果寄存一拍。
   always @(posedge clk) begin
-    if (rst) err_this_beat <= 1'b0;
-    else err_this_beat <= s_handshake && rx_lock && (axis_sdata != exp_data);
+    if (rst) begin
+      err_this_beat <= 1'b0;
+    end else begin
+      err_this_beat <= s_handshake && rx_lock &&
+        ((axis_sdata != exp_data) || (axis_skeep != {(AXIS_WIDTH / 8) {1'b1}}));
+    end
   end
   //// 累计上一拍的检测结果。
   always @(posedge clk) begin

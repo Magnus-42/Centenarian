@@ -87,8 +87,9 @@ module cfg_cmd #(
   wire                  is_cfg_frame;
 
   // 请求缓存
-  reg  [         511:0] req_data_held;
-  reg  [         240:0] req_usr_held;
+  reg  [         175:0] req_data_held;
+  reg  [          31:0] req_src_ip_held;
+  reg  [          15:0] req_src_port_held;
 
   // 配置执行字段
   reg                   exec_valid_reg;
@@ -144,8 +145,9 @@ module cfg_cmd #(
   // 请求缓存
   always @(posedge clk) begin
     if (s_handshake) begin
-      req_data_held <= axis_sdata;
-      req_usr_held  <= axis_susr;
+      req_data_held <= axis_sdata[175:0];
+      req_src_ip_held <= axis_susr[SrcIpLsb+:32];
+      req_src_port_held <= axis_susr[SrcPortLsb+:16];
     end
   end
 
@@ -177,8 +179,8 @@ module cfg_cmd #(
 
   // 回复
   //// 应答目的地址提取
-  assign dest_ip    = req_usr_held[SrcIpLsb+:32];
-  assign dest_port  = req_usr_held[SrcPortLsb+:16];
+  assign dest_ip    = req_src_ip_held;
+  assign dest_port  = req_src_port_held;
   //// 应答数据与usr
   always @(posedge clk) begin
     if (state == StateReply && !axis_mvalid_reg) begin

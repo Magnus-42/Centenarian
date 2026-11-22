@@ -21,7 +21,7 @@ python -B Tools/PortConfig/server.py --open
 浏览器未自动打开时，访问 `http://127.0.0.1:8770/`。若本机网页端口已被占用，可在启动命令末尾加 `--port 8771`，并改用对应网页地址。
 
 1. 在「设备连接」选择 A/B 预设，或输入管理 IPv4 和 UDP 端口。点击「连接设备」，再用「刷新概况」核对管理地址和链路状态。 [参考端点](02-configuration.md#参考设计默认值)
-2. 在「端口配置」修改目标配置项，点击「确定」，确认读回值与输入一致。
+2. 在对应的配置页面修改目标配置项，点击「确定」，确认读回值与输入一致。
 3. 修改管理 IPv4 或 UDP 端口后，在新端点核对管理 MAC。若连接未恢复，在「设备连接」探测旧端点和新端点。恢复默认值后，按该网口的默认端点重新连接。
 
 无应答时，先检查链路、主机网段和目标端点，再从「日志 → UDP 报文日志」查看请求和应答。
@@ -69,8 +69,10 @@ python -B Tools/PortConfig/server.py --open
 | `0x27` | `ARP_CLEAR_STATE` | GET | 1 | bit 0、bit 1 分别为缓存、待决解析清除完成 |
 | `0x28` | `ARP_CLEAR_CACHE` | EXEC | 0 | 发起 ARP 缓存清除 |
 | `0x29` | `ARP_CLEAR_PENDING` | EXEC | 0 | 发起 ARP 待决解析状态清除 |
-| `0x2A` | `ICMP_ECHO_PRIORITY` | GET/SET | 1 | ICMPv4 回显回复优先级，保存低 `ReqWidth` 位 |
-| `0x2B` | `ICMP_ERROR_FLAGS` | GET | 1 | bit 0 为 TTL 错误 |
-| `0x2C` | `UDP_IPV4_RX_PORT_RANGE` | GET/SET | 4 | UDP(IPV4) 目的端口下界、上界，各 2 字节 |
-| `0x2D` | `UDP_IPV6_RX_PORT_RANGE` | GET/SET | 4 | UDP(IPV6) 目的端口下界、上界，各 2 字节 |
+| `0x2A` | `ARP_ANNOUNCE_MASK` | GET/SET | 1–16 | 索引为 0，整份掩码低字节先传 |
+| `0x2B` | `ARP_ANNOUNCE_SEND` | EXEC | 0 | 索引为 0，锁存当前掩码，覆盖尚未被发送模块接收的请求 |
+| `0x2C` | `ICMP_ECHO_PRIORITY` | GET/SET | 1 | ICMPv4 回显回复优先级，保存低 `ReqWidth` 位 |
+| `0x2D` | `ICMP_ERROR_FLAGS` | GET | 1 | bit 0 为 TTL 错误 |
+| `0x2E` | `UDP_IPV4_RX_PORT_RANGE` | GET/SET | 4 | UDP(IPV4) 目的端口下界、上界，各 2 字节 |
+| `0x2F` | `UDP_IPV6_RX_PORT_RANGE` | GET/SET | 4 | UDP(IPV6) 目的端口下界、上界，各 2 字节 |
 | `0x40–0x43` | `IPV6_SRC_IP`、`IPV6_SRC_MAC`、`IPV6_DST_IP`、`IPV6_DST_MAC` | GET/SET | 16 / 6 / 16 / 6 | IPv6 源、目的表的 IP 或 MAC |

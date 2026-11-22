@@ -43,4 +43,4 @@
 
 ## 修改运行时配置
 
-复位或执行 `RESTORE_PORT_DEFAULTS` 会把本口配置恢复为综合时设定的默认值。 [网页读写步骤](05-config-command.md#用网页读写配置)
+复位或执行 `RESTORE_PORT_DEFAULTS` 会把本口配置恢复为默认值。 [网页读写步骤](05-config-command.md#用网页读写配置) · [发送免费 ARP](05-config-command.md#发送免费-arp)

@@ -197,13 +197,7 @@ module cfg_cmd #(
       };
       axis_mkeep_reg <= {41'd0, {23{1'b1}}};
       axis_musr_reg <= {
-        dest_ip,
-        cfg_mgmt_ipv4_addr,
-        dest_port,
-        cfg_mgmt_udp_port[7:0],
-        cfg_mgmt_udp_port[15:8],
-        ReplyTtl,
-        ReplyPriority
+        dest_ip, cfg_mgmt_ipv4_addr, dest_port, cfg_mgmt_udp_port, ReplyTtl, ReplyPriority
       };
       axis_mlast_reg <= 1'b1;
     end

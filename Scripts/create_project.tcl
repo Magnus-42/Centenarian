@@ -193,15 +193,17 @@ proc centenarian_create_project {args} {
 
     if {[llength $ip_files]} {
         import_ip $ip_files
-        # 升级旧版 VIO 配置的工程副本。当前顶层使用 23 个使能位和一个 16 位包间隔。
+        # 升级旧版 VIO 配置的工程副本。当前顶层使用 27 个使能位和一个 16 位包间隔。
         if {[dict exists $ip_names vio_enable]} {
             set vio [get_ips vio_enable]
             set vio_config [list CONFIG.C_NUM_PROBE_IN 0 CONFIG.C_EN_PROBE_IN_ACTIVITY 0 \
-                                 CONFIG.C_NUM_PROBE_OUT 24 CONFIG.C_PROBE_OUT23_WIDTH 16]
+                                 CONFIG.C_NUM_PROBE_OUT 28 CONFIG.C_PROBE_OUT23_WIDTH 16 \
+                                 CONFIG.C_PROBE_OUT24_WIDTH 1 CONFIG.C_PROBE_OUT25_WIDTH 1 \
+                                 CONFIG.C_PROBE_OUT26_WIDTH 1 CONFIG.C_PROBE_OUT27_WIDTH 1]
             foreach {property value} $vio_config {
                 if {[get_property $property $vio] ne $value} {
                     set_property -dict $vio_config $vio
-                    puts "  VIO: 已将工程副本更新为 23 路使能和 16 位包间隔"
+                    puts "  VIO: 已将工程副本更新为 27 路使能和 16 位包间隔"
                     break
                 }
             }

@@ -76,10 +76,13 @@ if {![info exists ::BW_FULL_REF   ]} { set ::BW_FULL_REF   12213921472 } ;# PKT_
 #   IPv4/IPv6 +38（= 24 + 14 以太网首部，打流机发的是完整 IP 包）
 #   UDP       +66（= 24 + 14 以太网首部 + 20 IPv4 首部 + 8 UDP 首部）
 #   UDP/IPv6  +86（= 24 + 14 + 40 IPv6 首部 + 8 UDP 首部）
+set _ovh_defaults {udp 66 fb_udp 66 udp_ipv6 86 fb_udp_ipv6 86 ipv4_06 38 icmp 38 ospf 38 ip6icmp 38 ip6ospf 38 \
+                   fb_ipv4 38 fb_ipv6 38 mac_88b5 24 mac_88cc 24 fb_mac 24}
 if {![info exists ::CHAN_OVH]} {
-  set ::CHAN_OVH {udp 66 fb_udp 66 udp_ipv6 86 fb_udp_ipv6 86 ipv4_06 38 icmp 38 ospf 38 ip6icmp 38 ip6ospf 38 \
-                  fb_ipv4 38 fb_ipv6 38 mac_88b5 24 mac_88cc 24 fb_mac 24}
+  set ::CHAN_OVH $_ovh_defaults
 } else {
+  # 重载脚本时补齐新增通道，已设置的值仍优先。
+  set ::CHAN_OVH [dict merge $_ovh_defaults $::CHAN_OVH]
   set _ovh_def {udp 66 fb_udp 66 udp_ipv6 86 fb_udp_ipv6 86}
   foreach {_k _v} $_ovh_def {
     if {[dict exists $::CHAN_OVH $_k] && [dict get $::CHAN_OVH $_k] != $_v} {
@@ -88,6 +91,7 @@ if {![info exists ::CHAN_OVH]} {
   }
   unset _ovh_def _k _v
 }
+unset _ovh_defaults
 if {![info exists ::LINE_TH_GBPS  ]} { set ::LINE_TH_GBPS   99.0 } ;# 线速判定门限 (Gbps)
 if {![info exists ::STARVE_RATIO  ]} { set ::STARVE_RATIO   0.05 } ;# 低优先级「饿死」判据(占线速比)
 # 「另有通道计数非零」是否判 WARN：本环境交换机流量会自然落进部分通道（其使能未开），
@@ -919,9 +923,10 @@ proc ila_probe_index {{quiet 1}} {
   foreach ila $::ILAS {
     foreach p [get_hw_probes -of_objects $ila] {
       set nm [get_property NAME $p]
+      set hierarchy [split $nm /]
       set t ""
       foreach cand $::TESTERS {
-        if {[string first $cand $nm] >= 0} { set t $cand; break }
+        if {[lsearch -exact $hierarchy $cand] >= 0} { set t $cand; break }
       }
       set k ""
       foreach pair $::CNT_KEYS {

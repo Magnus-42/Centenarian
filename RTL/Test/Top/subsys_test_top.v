@@ -1350,7 +1350,6 @@ module subsys_test_top (
   // VIO测试使能
   vio_enable u_test_vio_enable (
       .clk        (clk_400m),
-      .probe_in0  (16'd0),
       .probe_out0 (en_a_udp),          // A 口 UDP(端口2)
       .probe_out1 (en_a_icmp),         // A 口 ICMPv4 TX
       .probe_out2 (en_a_ospf),         // A 口 IPv4-ospf

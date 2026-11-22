@@ -52,7 +52,7 @@
 
 参考设计的 `ReqWidth` 为 4。请求值为 0 时不参与仲裁，数值越大越优先。同一仲裁器对同优先级请求按帧轮询。发送路径使用分层仲裁，跨层或跨协议的同优先级流仍受各自路径的仲裁结果和背压影响，带宽可能不同。 [打流顶层](../RTL/Test/Top/subsys_test_top.v) · [TX 仲裁器](../RTL/Bsp/Axis/axis_value_rr_arbiter.v)
 
-ARP 和 ICMPv4 自动回显的优先级可以通过配置项 `0x25` 和 `0x2C` 修改，配置应答的优先级由 RTL 常量指定。 [配置项](05-config-command.md#配置项) · [单口协议栈](../RTL/Top/eth_stack_port.v)
+配置应答、ARP 和 ICMPv4 自动回显的优先级分别通过本口配置项 `0x13`、`0x25` 和 `0x2C` 修改。[配置项](05-config-command.md#配置项) · [单口协议栈](../RTL/Top/eth_stack_port.v)
 
 ## 排列规则与地址
 

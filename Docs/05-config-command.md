@@ -58,10 +58,11 @@ python -B Tools/PortConfig/server.py --open
 | `0x10` | `MGMT_MAC_ADDR` | GET/SET | 6 | 本口管理 MAC |
 | `0x11` | `MGMT_IPV4_ADDR` | GET/SET | 4 | 本口管理 IPv4 |
 | `0x12` | `MGMT_UDP_PORT` | GET/SET | 2 | 本口请求接收端口 |
-| `0x13` | `LINK_STATE` | GET | 1 | bit 0 为链路就绪 |
-| `0x14` | `IP_TX_DROP_FLAGS` | GET | 1 | bit 0 为 IPv4、bit 1 为 IPv6 发送丢包 |
-| `0x15` | `CLEAR_PORT_FLAGS` | EXEC | 0 | 清除本口 IP、ARP 和 ICMP 错误标志 |
-| `0x16` | `RESTORE_PORT_DEFAULTS` | EXEC | 0 | 恢复本口寄存器默认值，可能改变管理端点 |
+| `0x13` | `MGMT_PRIORITY` | GET/SET | 1 | 本口 UDP/IPv4 配置应答优先级，索引 0，保存值的低 `ReqWidth` 位
+| `0x14` | `LINK_STATE` | GET | 1 | bit 0 为链路就绪 |
+| `0x15` | `IP_TX_DROP_FLAGS` | GET | 1 | bit 0 为 IPv4、bit 1 为 IPv6 发送丢包 |
+| `0x16` | `CLEAR_PORT_FLAGS` | EXEC | 0 | 清除本口 IP、ARP 和 ICMP 错误标志 |
+| `0x17` | `RESTORE_PORT_DEFAULTS` | EXEC | 0 | 恢复本口寄存器默认值，可能改变管理端点 |
 | `0x20–0x23` | `IPV4_LOCAL_IP`、`IPV4_LOCAL_MAC`、`IPV4_GATEWAY`、`IPV4_MASK` | GET/SET | 4 / 6 / 4 / 4 | 本口业务 IPv4 表 |
 | `0x24` | `ARP_PENDING_TIMEOUT_MS` | GET/SET | 8 | 毫秒，无符号小端，保存低 `PendingTimeWidth` 位 |
 | `0x25` | `ARP_TX_PRIORITY` | GET/SET | 1 | ARP 数值优先级，保存低 `ReqWidth` 位，参考设计默认值为 15 |

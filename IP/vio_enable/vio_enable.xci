@@ -239,7 +239,7 @@
         "C_PROBE_OUT26_INIT_VAL": [ { "value": "0x0", "resolve_type": "user", "format": "bitString", "usage": "all" } ],
         "C_PROBE_OUT25_INIT_VAL": [ { "value": "0x0", "resolve_type": "user", "format": "bitString", "usage": "all" } ],
         "C_PROBE_OUT24_INIT_VAL": [ { "value": "0x0", "resolve_type": "user", "format": "bitString", "usage": "all" } ],
-        "C_PROBE_OUT23_INIT_VAL": [ { "value": "0x0", "resolve_type": "user", "format": "bitString", "usage": "all" } ],
+        "C_PROBE_OUT23_INIT_VAL": [ { "value": "0x0000", "resolve_type": "user", "format": "bitString", "usage": "all" } ],
         "C_PROBE_OUT22_INIT_VAL": [ { "value": "0x0", "resolve_type": "user", "format": "bitString", "usage": "all" } ],
         "C_PROBE_OUT21_INIT_VAL": [ { "value": "0x0", "resolve_type": "user", "format": "bitString", "usage": "all" } ],
         "C_PROBE_OUT20_INIT_VAL": [ { "value": "0x0", "resolve_type": "user", "format": "bitString", "usage": "all" } ],
@@ -495,7 +495,7 @@
         "C_PROBE_OUT26_WIDTH": [ { "value": "1", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_PROBE_OUT25_WIDTH": [ { "value": "1", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_PROBE_OUT24_WIDTH": [ { "value": "1", "resolve_type": "user", "format": "long", "usage": "all" } ],
-        "C_PROBE_OUT23_WIDTH": [ { "value": "1", "resolve_type": "user", "format": "long", "usage": "all" } ],
+        "C_PROBE_OUT23_WIDTH": [ { "value": "16", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_PROBE_OUT22_WIDTH": [ { "value": "1", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_PROBE_OUT21_WIDTH": [ { "value": "1", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_PROBE_OUT20_WIDTH": [ { "value": "1", "resolve_type": "user", "format": "long", "usage": "all" } ],
@@ -776,9 +776,9 @@
         "C_PROBE_IN1_WIDTH": [ { "value": "1", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_PROBE_IN0_WIDTH": [ { "value": "16", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "C_EN_SYNCHRONIZATION": [ { "value": "1", "resolve_type": "user", "format": "long", "usage": "all" } ],
-        "C_NUM_PROBE_OUT": [ { "value": "23", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
-        "C_EN_PROBE_IN_ACTIVITY": [ { "value": "1", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
-        "C_NUM_PROBE_IN": [ { "value": "1", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
+        "C_NUM_PROBE_OUT": [ { "value": "24", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
+        "C_EN_PROBE_IN_ACTIVITY": [ { "value": "0", "resolve_type": "user", "format": "long", "enabled": false, "usage": "all" } ],
+        "C_NUM_PROBE_IN": [ { "value": "0", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
         "Component_Name": [ { "value": "vio_enable", "resolve_type": "user", "usage": "all" } ]
       },
       "model_parameters": {
@@ -800,9 +800,9 @@
         "C_PIPE_IFACE": [ { "value": "0", "format": "long", "usage": "all" } ],
         "C_BUS_ADDR_WIDTH": [ { "value": "17", "format": "long", "usage": "all" } ],
         "C_BUS_DATA_WIDTH": [ { "value": "16", "format": "long", "usage": "all" } ],
-        "C_NUM_PROBE_IN": [ { "value": "1", "resolve_type": "generated", "format": "long", "usage": "all" } ],
-        "C_EN_PROBE_IN_ACTIVITY": [ { "value": "1", "resolve_type": "generated", "format": "long", "usage": "all" } ],
-        "C_NUM_PROBE_OUT": [ { "value": "23", "resolve_type": "generated", "format": "long", "usage": "all" } ],
+        "C_NUM_PROBE_IN": [ { "value": "0", "resolve_type": "generated", "format": "long", "usage": "all" } ],
+        "C_EN_PROBE_IN_ACTIVITY": [ { "value": "0", "resolve_type": "generated", "format": "long", "usage": "all" } ],
+        "C_NUM_PROBE_OUT": [ { "value": "24", "resolve_type": "generated", "format": "long", "usage": "all" } ],
         "C_EN_SYNCHRONIZATION": [ { "value": "1", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
         "C_PROBE_IN0_WIDTH": [ { "value": "16", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
         "C_PROBE_IN1_WIDTH": [ { "value": "1", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
@@ -1083,7 +1083,7 @@
         "C_PROBE_OUT20_WIDTH": [ { "value": "1", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
         "C_PROBE_OUT21_WIDTH": [ { "value": "1", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
         "C_PROBE_OUT22_WIDTH": [ { "value": "1", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
-        "C_PROBE_OUT23_WIDTH": [ { "value": "1", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
+        "C_PROBE_OUT23_WIDTH": [ { "value": "16", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
         "C_PROBE_OUT24_WIDTH": [ { "value": "1", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
         "C_PROBE_OUT25_WIDTH": [ { "value": "1", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
         "C_PROBE_OUT26_WIDTH": [ { "value": "1", "resolve_type": "dependent", "format": "long", "usage": "all" } ],
@@ -1339,7 +1339,7 @@
         "C_PROBE_OUT20_INIT_VAL": [ { "value": "0x0", "resolve_type": "dependent", "format": "bitString", "usage": "all" } ],
         "C_PROBE_OUT21_INIT_VAL": [ { "value": "0x0", "resolve_type": "dependent", "format": "bitString", "usage": "all" } ],
         "C_PROBE_OUT22_INIT_VAL": [ { "value": "0x0", "resolve_type": "dependent", "format": "bitString", "usage": "all" } ],
-        "C_PROBE_OUT23_INIT_VAL": [ { "value": "0x0", "resolve_type": "dependent", "format": "bitString", "usage": "all" } ],
+        "C_PROBE_OUT23_INIT_VAL": [ { "value": "0x0000", "resolve_type": "dependent", "format": "bitString", "usage": "all" } ],
         "C_PROBE_OUT24_INIT_VAL": [ { "value": "0x0", "resolve_type": "dependent", "format": "bitString", "usage": "all" } ],
         "C_PROBE_OUT25_INIT_VAL": [ { "value": "0x0", "resolve_type": "dependent", "format": "bitString", "usage": "all" } ],
         "C_PROBE_OUT26_INIT_VAL": [ { "value": "0x0", "resolve_type": "dependent", "format": "bitString", "usage": "all" } ],
@@ -1600,7 +1600,6 @@
     "boundary": {
       "ports": {
         "clk": [ { "direction": "in" } ],
-        "probe_in0": [ { "direction": "in", "size_left": "15", "size_right": "0", "driver_value": "0" } ],
         "probe_out0": [ { "direction": "out", "size_left": "0", "size_right": "0" } ],
         "probe_out1": [ { "direction": "out", "size_left": "0", "size_right": "0" } ],
         "probe_out2": [ { "direction": "out", "size_left": "0", "size_right": "0" } ],
@@ -1623,7 +1622,8 @@
         "probe_out19": [ { "direction": "out", "size_left": "0", "size_right": "0" } ],
         "probe_out20": [ { "direction": "out", "size_left": "0", "size_right": "0" } ],
         "probe_out21": [ { "direction": "out", "size_left": "0", "size_right": "0" } ],
-        "probe_out22": [ { "direction": "out", "size_left": "0", "size_right": "0" } ]
+        "probe_out22": [ { "direction": "out", "size_left": "0", "size_right": "0" } ],
+        "probe_out23": [ { "direction": "out", "size_left": "15", "size_right": "0" } ]
       },
       "interfaces": {
         "signal_clock": {
@@ -1631,7 +1631,7 @@
           "abstraction_type": "xilinx.com:signal:clock_rtl:1.0",
           "mode": "slave",
           "parameters": {
-            "FREQ_HZ": [ { "value": "100000000", "resolve_type": "user", "format": "long", "usage": "all" } ],
+            "FREQ_HZ": [ { "value": "400000000", "value_src": "user", "resolve_type": "user", "format": "long", "usage": "all" } ],
             "FREQ_TOLERANCE_HZ": [ { "value": "0", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "PHASE": [ { "value": "0.0", "resolve_type": "generated", "format": "float", "is_ips_inferred": true, "is_static_object": false } ],
             "CLK_DOMAIN": [ { "value": "", "resolve_type": "generated", "is_ips_inferred": true, "is_static_object": false } ],
@@ -1647,5 +1647,5 @@
       }
     }
   },
-  "checksum": "9113e350"
+  "checksum": "1f1ab563"
 }

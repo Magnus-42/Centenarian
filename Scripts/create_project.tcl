@@ -1,310 +1,234 @@
-# ============================================================================
-# Centenarian · 快速建工程脚本（外层建工程，内层只放源码）
-# ----------------------------------------------------------------------------
-# 目录约定（本脚本位于「源码目录」的 Scripts/ 下，源码目录名字任意）：
+# Centenarian 参考工程。Vivado 工程输出到仓库的上一级目录。
 #
-#   <工作区>/                          ← 外层：Vivado 工程创建在这里
-#   ├── <工程名>.xpr
-#   ├── <工程名>.runs/  <工程名>.cache/  <工程名>.gen/ …（Vivado 生成）
-#   └── <源码目录>/                     ← 内层：只有用户源码，如 usr/ 或 Centenarian.user/
-#       ├── RTL/  TB/  XDC/  IP/  Docs/
-#       └── Scripts/
-#           ├── create_project.tcl      ← 本脚本
-#           └── hw_ila_vio.tcl
+# vivado -mode batch -source usr/Scripts/create_project.tcl \
+#        -tclargs -top subsys_test_top -jobs 8 -name My100G
 #
-#   脚本按「自己所在位置」推导内层与外层，因此内层文件夹叫什么都行。
-#
-# 用法（在“外层”目录下执行，或给绝对路径）：
-#   vivado -mode batch -source <源码目录>/Scripts/create_project.tcl \
-#          -tclargs -top subsys_test_top -jobs 8 [-synth] [-ooc] [-name <工程名>] [-xdc <约束名>] [-force]
-#
-#   -top    综合顶层，默认 subsys_test_top
-#            可选：subsys_test_top / cmac_test_top / ipv4_test_top / net_stack_top / 你自己的顶层
-#   -jobs   并行线程数，默认 4
-#   -synth  建完工程后立即启动 synth_1（默认不启动）
-#   -ooc    IP 生成产物后额外跑 OOC 综合（很慢，默认不跑）
-#   -name   工程名，默认取「外层目录名」
-#   -force  外层已存在同名工程时，删除并重建（**会丢弃该工程的 runs 结果**，慎用）
-#   -xdc    强制启用指定的 XDC（可省略 .xdc 后缀），默认启用与 -top 同名的那个；
-#            产品顶层（如 net_stack_top）复用某个板级顶层引脚约束时用它，例如
-#              vivado -mode batch -source ... -tclargs -top net_stack_top -xdc subsys_test_top
-#
-# 说明：本脚本**复用仓库里已提交的 .xci 配置**（<源码目录>/IP/*/*.xci），
-#       不手写 CMAC 的 CONFIG 参数 —— IP 定制项很多，手抄极易与实际板卡不一致。
-#
-# RTL 收集：**按目录全深度递归**（RTL/A/B/C/*.v 都在内），自动跳过任一层级的
-#       `Backup/` 与以 `.` 开头的目录 —— 因此 RTL 分层（Bsp/Axis、Transport/Udp/Ipv4 …）
-#       增减层级都不需要改脚本。头文件（`.vh`/`.svh`，如 RTL/Config/cfg_map.vh）
-#       一并收入 sources_1 并标成 Verilog Header，供 `include` 解析。
-#
-# 约束分两阶段（与签核工程一致）：
-#       <顶层>.xdc       管脚 + create_clock + bitstream，综合与实现都读；
-#       <顶层>_impl.xdc  pblock / clock_groups / false_path，**只用于 implementation**
-#                        （脚本显式设 USED_IN=implementation，否则默认会带进综合）。
-# ============================================================================
+# -top <module>  综合顶层，默认 subsys_test_top。可选 eth_stack_top、
+#                eth_stack_port、eth_stack_port_a、eth_stack_port_b 或自定义顶层。
+# -name <name>   工程名（省略 .xpr 后缀），默认为工作区目录名。
+#                生成 <工作区>/<name>.xpr。
+# -jobs <n>      综合任务数，默认 4。
+# -xdc <name>    选择 XDC 基名（可带 .xdc），以及配套的 <name>_impl.xdc。
+#                约束必须与顶层端口和层级匹配。默认按顶层名选择。
+# -synth         创建后运行 synth_1。
+# -ooc           生成 IP 产物后显式运行 IP OOC 综合。
+# -force         允许覆盖同名工程及其构建结果。
 
-# ---------- 参数解析 ----------
-set TOP        "subsys_test_top"
-set JOBS       4
-set RUN_SYNTH  0
-set RUN_OOC    0
-set PRJ_NAME   ""
-set FORCE      0
-set XDC_FORCE  ""
-for {set i 0} {$i < [llength $argv]} {incr i} {
-    switch -exact -- [lindex $argv $i] {
-        -top   { incr i; set TOP       [lindex $argv $i] }
-        -jobs  { incr i; set JOBS      [lindex $argv $i] }
-        -name  { incr i; set PRJ_NAME  [lindex $argv $i] }
-        -xdc   { incr i; set XDC_FORCE [lindex $argv $i] }
-        -synth { set RUN_SYNTH 1 }
-        -ooc   { set RUN_OOC   1 }
-        -force { set FORCE     1 }
-        default { puts "WARNING: 忽略未知参数 [lindex $argv $i]" }
-    }
-}
-
-# ---------- 路径推导（与文件夹名字无关）----------
-#   SCRIPT_DIR = <源码目录>/Scripts
-#   SRC_DIR    = <源码目录>          ← 内层：只放源码
-#   PROJ_DIR   = <工作区>            ← 外层：工程创建在这里
-set SCRIPT_DIR [file dirname [file normalize [info script]]]
-set SRC_DIR    [file dirname $SCRIPT_DIR]
-set PROJ_DIR   [file dirname $SRC_DIR]
-# 目录特征校验：内层必须像"源码目录"（含有 RTL/ 或 XDC/ 或 IP/），否则说明脚本位置不对
-if {[string equal $SRC_DIR $PROJ_DIR] ||
-    !([file isdirectory [file join $SRC_DIR RTL]] ||
-      [file isdirectory [file join $SRC_DIR XDC]] ||
-      [file isdirectory [file join $SRC_DIR IP]])} {
-    error "脚本位置不符合约定：应放在 <工作区>/<源码目录>/Scripts/ 下（当前脚本在 $SCRIPT_DIR，推到内层=$SRC_DIR）"
-}
-if {[string trim $PRJ_NAME] eq ""} { set PRJ_NAME [file tail $PROJ_DIR] }
-
-set RTL_DIR  [file join $SRC_DIR RTL]
-set XDC_DIR  [file join $SRC_DIR XDC]
-set IP_DIR   [file join $SRC_DIR IP]
-set XPR      [file join $PROJ_DIR ${PRJ_NAME}.xpr]
-set PART     "xcvu37p-fsvh2892-2L-e"
-
-puts "=============================================="
-puts " Centenarian 工程创建"
-puts " 脚本位置 : $SCRIPT_DIR"
-puts " 源码目录 : $SRC_DIR        （内层，只有源码）"
-puts " 工程目录 : $PROJ_DIR       （外层，工程建在这里）"
-puts " 工程名   : $PRJ_NAME"
-puts " 顶层     : $TOP"
-puts " 器件     : $PART"
-puts "=============================================="
-
-# ---------- 保护已有工程 ----------
-if {[file exists $XPR] && !$FORCE} {
-    puts ""
-    puts "!! 已存在同名工程：$XPR"
-    puts "!! 若只是要使用现有工程，请直接打开它："
-    puts "!!     vivado $XPR"
-    puts "!! 若确实要重建（会丢弃现有 runs 结果），请先备份外层工程文件，再加 -force 重跑。"
-    error "工程已存在，已中止（未改动任何文件）"
-}
-
-# ---------- 建工程（外层）----------
-create_project -force $PRJ_NAME $PROJ_DIR -part $PART
-set_property target_language  Verilog [current_project]
-set_property default_lib      work    [current_project]
-set_property source_mgmt_mode All     [current_project]   ;# 引用源文件而非拷贝进工程目录
-
-if {$JOBS > 1} { set_param general.maxThreads $JOBS }
-
-# ---------- 递归收集 HDL 源文件 ----------
-#   dir       : 起始目录
-#   exts      : 扩展名白名单（小写，如 {.v .sv}）
-#   skip_dirs : 任一层级都要跳过的目录名（如 Backup）
-# 说明：不限层级 —— RTL 分层怎么加都不会漏；隐藏目录（.xxx）一律跳过。
-proc collect_hdl_files {dir exts skip_dirs} {
-    set out [list]
-    if {![file isdirectory $dir]} { return $out }
-    foreach f [lsort [glob -nocomplain -directory $dir -type f *]] {
-        if {[lsearch -exact $exts [string tolower [file extension $f]]] >= 0} {
-            lappend out $f
+proc centenarian_collect_files {dir extensions} {
+    set files {}
+    foreach path [lsort [glob -nocomplain -directory $dir -type f *]] {
+        if {[string tolower [file extension $path]] in $extensions} {
+            lappend files $path
         }
     }
-    foreach d [lsort [glob -nocomplain -directory $dir -type d *]] {
-        set base [file tail $d]
-        if {[string index $base 0] eq "."} { continue }
-        if {[lsearch -exact $skip_dirs $base] >= 0} { continue }
-        foreach f [collect_hdl_files $d $exts $skip_dirs] { lappend out $f }
-    }
-    return $out
-}
-
-# ---------- 加入 RTL（源码目录下的 RTL/，全深度递归，跳过历史备份）----------
-if {![file isdirectory $RTL_DIR]} { error "未找到 RTL 目录：$RTL_DIR" }
-set rtl_files [collect_hdl_files $RTL_DIR {.v .sv} {Backup}]
-if {[llength $rtl_files] == 0} { error "未在 $RTL_DIR 下找到任何 .v/.sv 文件" }
-add_files -norecurse -fileset sources_1 $rtl_files
-puts "  RTL : [llength $rtl_files] 个源文件（来自 $RTL_DIR，递归全深度）"
-
-# ---------- 加入头文件（.vh / .svh，如 RTL/Config/cfg_map.vh）----------
-# 头文件必须作为 File 进 fileset：Vivado 由它的位置推导 include 搜索路径。
-# RTL 与头文件同目录时综合即使漏收也能过，但 TB/ 在别的目录、仿真时会直接报
-#   ERROR: [VRFC 10-3195] cannot open include file 'cfg_map.vh'
-set hdr_files [collect_hdl_files $RTL_DIR {.vh .svh} {Backup}]
-if {[llength $hdr_files] > 0} {
-    add_files -norecurse -fileset sources_1 $hdr_files
-    set_property file_type {Verilog Header} [get_files $hdr_files]
-    puts "  HDR : [llength $hdr_files] 个头文件"
-    foreach f $hdr_files { puts "        - [file tail $f]" }
-}
-# 按「RTL 下一级目录」分组统计 —— 漏扫/多扫一眼可见
-array set _rtl_cnt {}
-foreach f $rtl_files {
-    set rel     [lrange [file split $f] [llength [file split $RTL_DIR]] end]
-    set top_dir [expr {[llength $rel] > 1 ? [lindex $rel 0] : "<RTL 根>"}]
-    if {[info exists _rtl_cnt($top_dir)]} { incr _rtl_cnt($top_dir) } else { set _rtl_cnt($top_dir) 1 }
-}
-foreach k [lsort [array names _rtl_cnt]] {
-    puts [format "        - %-16s %2d" $k $_rtl_cnt($k)]
-}
-unset _rtl_cnt
-
-# ---------- 重复模块定义自检 ----------
-# 搬目录 / 改名后最容易出现「同一模块被两份文件定义」（Vivado 会静默挑一个），这里提前拦。
-array set _mod_seen {}
-set _dup_cnt 0
-foreach f $rtl_files {
-    set _fh [open $f r]
-    set _src [read $_fh]
-    close $_fh
-    foreach {- m} [regexp -all -line -inline {^[ \t]*module[ \t]+([A-Za-z_][A-Za-z0-9_]*)} $_src] {
-        if {[info exists _mod_seen($m)]} {
-            puts "  WARNING: 模块 $m 重复定义 —— [file tail $_mod_seen($m)] 与 [file tail $f]"
-            incr _dup_cnt
-        } else {
-            set _mod_seen($m) $f
-        }
-    }
-}
-puts "  模块自检: [array size _mod_seen] 个模块名，重复定义 $_dup_cnt 处"
-unset _mod_seen
-
-# ---------- 加入约束 ----------
-# 引脚/时钟约束与「板级顶层」一一对应：默认启用与 -top 同名的 XDC；
-# 可用 -xdc <名> 覆盖（例如 -top net_stack_top -xdc subsys_test_top）。
-# 其余 *_test_top.xdc 一律置为禁用，避免多个引脚约束互相冲突。
-set xdc_enable "${TOP}.xdc"
-if {[string trim $XDC_FORCE] ne ""} {
-    set xdc_enable [string trim $XDC_FORCE]
-    if {![string match "*.xdc" $xdc_enable]} { append xdc_enable ".xdc" }
-}
-set xdc_files [glob -nocomplain -directory $XDC_DIR -type f *.xdc]
-if {[llength $xdc_files] > 0} {
-    add_files -norecurse -fileset constrs_1 $xdc_files
-    puts "  XDC : [llength $xdc_files] 个约束文件（来自 $XDC_DIR），启用目标 = $xdc_enable"
-    set _xdc_hit 0
-    foreach f $xdc_files {
-        set _base [file tail $f]
-        # 两阶段拆分：<顶层>_impl.xdc 只承载 pblock / clock_groups / false_path，
-        # 必须设成 implementation only —— 默认的 USED_IN 含 synthesis，会把布局约束
-        # 和跨时钟组提前带到综合，与签核那版不是一回事。
-        if {[string match "*_impl.xdc" $_base]} {
-            set_property USED_IN {implementation} [get_files $f]
-            puts "        - $_base（仅 implementation：pblock/clock_groups 不进综合）"
+    foreach path [lsort [glob -nocomplain -directory $dir -type d *]] {
+        set name [file tail $path]
+        if {[string match .* $name] || [string equal -nocase $name Backup]} {
             continue
         }
-        if {[string equal $_base $xdc_enable]} {
-            set_property IS_ENABLED true [get_files $f]
-            puts "        - $_base（启用）"
-            set _xdc_hit 1
-        } elseif {[string match "*_test_top.xdc" $_base]} {
-            set_property IS_ENABLED false [get_files $f]
-            puts "        - $_base（已禁用：不是本次的目标约束）"
-        } else {
-            puts "        - $_base（通用约束，保持启用）"
+        lappend files {*}[centenarian_collect_files $path $extensions]
+    }
+    return $files
+}
+
+proc centenarian_create_project {args} {
+    set options [dict create -top subsys_test_top -jobs 4 -name "" -xdc "" \
+                             -synth 0 -ooc 0 -force 0]
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set option [lindex $args $i]
+        switch -exact -- $option {
+            -top - -jobs - -name - -xdc {
+                incr i
+                set value [lindex $args $i]
+                if {$value eq "" || [string match -* $value]} {
+                    error "参数 $option 需要一个值"
+                }
+                dict set options $option $value
+            }
+            -synth - -ooc - -force { dict set options $option 1 }
+            default { error "未知参数：$option" }
         }
     }
-    if {!$_xdc_hit} {
-        puts "        WARNING: 没有找到 $xdc_enable —— 本次不会加载任何引脚约束"
-        puts "                 若顶层是产品顶层（如 net_stack_top），请用 -xdc <板级顶层名> 指定复用哪套引脚约束"
-    }
-} else {
-    puts "  WARNING: 未找到 XDC，将无引脚/时钟约束"
-}
 
-# ---------- 加入模块级约束（XDC/*.tcl：文件名 = 作用模块名，如 axis_fifo_async.tcl）----------
-# 约定：文件名（去扩展名）必须等于被约束模块名 —— SCOPED_TO_REF 直接取它；
-#       若该模块在 RTL 里不存在，SCOPED_TO_REF 会指向空对象，这里提前告警。
-set _rtl_mods {}
-foreach f $rtl_files { lappend _rtl_mods [file rootname [file tail $f]] }
-set tcl_cstr_files [glob -nocomplain -directory $XDC_DIR -type f *.tcl]
-foreach f $tcl_cstr_files {
-    add_files -norecurse -fileset constrs_1 $f
-    set _base [file rootname [file tail $f]]
-    set_property SCOPED_TO_REF    $_base                                [get_files $f]
-    set_property PROCESSING_ORDER LATE                                  [get_files $f]
-    set_property USED_IN          {synthesis implementation simulation} [get_files $f]
-    if {[lsearch -exact $_rtl_mods $_base] >= 0} {
-        puts "  CSTR: [file tail $f]（SCOPED_TO_REF=$_base，USED_IN=synthesis/implementation/simulation，PROCESSING_ORDER=LATE）"
+    set source_dir [file dirname [file dirname [file normalize [info script]]]]
+    set project_dir [file dirname $source_dir]
+    set project_name [dict get $options -name]
+    if {$project_name eq ""} {
+        set project_name [file tail $project_dir]
+    }
+    if {[file pathtype $project_name] ne "relative" || $project_name in {. ..} ||
+        [regexp {[[:cntrl:]\\/:*?"<>|]} $project_name] ||
+        [string trim $project_name] eq ""} {
+        error "工程名必须是有效的文件名：$project_name"
+    }
+    set project_file [file join $project_dir $project_name.xpr]
+    set overwrite [dict get $options -force]
+    if {[file exists $project_file] && !$overwrite} {
+        error "工程已存在：$project_file。请打开此工程，或用 -name 指定其他名称。"
+    }
+    set top [dict get $options -top]
+    set jobs [dict get $options -jobs]
+    if {![string is integer -strict $jobs] || $jobs < 1} {
+        error "-jobs 必须是正整数"
+    }
+
+    set rtl_dir [file join $source_dir RTL]
+    if {![file isdirectory $rtl_dir]} {
+        error "未找到 RTL 目录：$rtl_dir"
+    }
+    set rtl_files [centenarian_collect_files $rtl_dir {.v .sv}]
+    set headers [centenarian_collect_files $rtl_dir {.vh .svh}]
+    set modules [dict create]
+    foreach path $rtl_files {
+        set fh [open $path r]
+        set contents [read $fh]
+        close $fh
+        set contents [regsub -all {/\*.*?\*/|//[^\n]*} $contents ""]
+        foreach {match module} [regexp -all -line -inline \
+                {^[ \t]*module[ \t]+(?:(?:automatic|static)[ \t]+)?([A-Za-z_][A-Za-z0-9_$]*)} $contents] {
+            if {[dict exists $modules $module]} {
+                error "模块 $module 重复定义：[dict get $modules $module] 和 $path"
+            }
+            dict set modules $module $path
+        }
+    }
+    if {![dict exists $modules $top]} {
+        error "未在 $rtl_dir 找到顶层模块 $top"
+    }
+
+    set xdc_dir [file join $source_dir XDC]
+    set xdc_name [dict get $options -xdc]
+    if {$xdc_name eq ""} {
+        set xdc_name $top
+    } elseif {[string equal -nocase [file extension $xdc_name] .xdc]} {
+        set xdc_name [file rootname $xdc_name]
+    }
+    set board_xdc [file join $xdc_dir $xdc_name.xdc]
+    set impl_xdc [file join $xdc_dir [format %s_impl.xdc $xdc_name]]
+    if {[dict get $options -xdc] ne "" &&
+        ([regexp {[\\/:]} $xdc_name] || ![file isfile $board_xdc])} {
+        error "-xdc 指定的板级约束不存在：$board_xdc"
+    }
+    set xdc_files [lsort [glob -nocomplain -directory $xdc_dir -type f *.xdc]]
+    set scoped_files [lsort [glob -nocomplain -directory $xdc_dir -type f *.tcl]]
+    set fifo_dir [file join $rtl_dir Bsp Fifo]
+    set fifo_loader [file join $fifo_dir load_fifo_async_constraints.tcl]
+    set fifo_scripts {}
+    foreach name {load_fifo_async_constraints fifo_async_constraints
+                  fifo_async_fwft_constraints axis_fifo_async_constraints} {
+        set path [file join $fifo_dir $name.tcl]
+        if {![file isfile $path]} {
+            error "缺少异步 FIFO 约束脚本：$path"
+        }
+        lappend fifo_scripts $path
+    }
+
+    set ip_files [centenarian_collect_files [file join $source_dir IP] {.xci}]
+    set ip_names [dict create]
+    foreach path $ip_files {
+        set ip [file rootname [file tail $path]]
+        if {[dict exists $ip_names $ip]} {
+            error "IP $ip 有多个 XCI：[dict get $ip_names $ip] 和 $path"
+        }
+        dict set ip_names $ip $path
+    }
+    puts "  工程输出: $project_file"
+    set_param general.maxThreads $jobs
+    create_project $project_name $project_dir -part xcvu37p-fsvh2892-2L-e \
+        {*}[expr {$overwrite ? {-force} : {}}]
+    set_property target_language Verilog [current_project]
+    set_property default_lib work [current_project]
+    set_property source_mgmt_mode All [current_project]
+
+    set sources [get_filesets sources_1]
+    add_files -norecurse -fileset $sources [concat $rtl_files $headers]
+    if {[llength $headers]} {
+        set include_dirs {}
+        foreach header $headers {
+            set_property FILE_TYPE {Verilog Header} [get_files $header]
+            lappend include_dirs [file dirname $header]
+        }
+        set include_dirs [lsort -unique $include_dirs]
+        set_property INCLUDE_DIRS $include_dirs $sources
+        set_property INCLUDE_DIRS $include_dirs [get_filesets sim_1]
+    }
+    set_property top $top $sources
+    puts "  RTL: [llength $rtl_files] 个源文件，[llength $headers] 个头文件，顶层 $top"
+
+    if {[llength $xdc_files]} {
+        add_files -norecurse -fileset constrs_1 $xdc_files
+        foreach path $xdc_files {
+            set xdc [get_files $path]
+            if {[string match *_impl.xdc $path]} {
+                set_property USED_IN {implementation} $xdc
+                set_property PROCESSING_ORDER LATE $xdc
+                set_property IS_ENABLED [expr {$path eq $impl_xdc}] $xdc
+            } elseif {[string match *_top.xdc $path] ||
+                      [file exists [file join $xdc_dir [file rootname [file tail $path]]_impl.xdc]]} {
+                set_property IS_ENABLED [expr {$path eq $board_xdc}] $xdc
+            }
+        }
+    }
+    if {[file isfile $board_xdc]} {
+        puts "  XDC: [file tail $board_xdc]"
+        if {[file isfile $impl_xdc]} {
+            puts "  XDC: [file tail $impl_xdc]（仅实现，LATE）"
+        }
     } else {
-        puts "  CSTR: [file tail $f]（SCOPED_TO_REF=$_base）  WARNING: RTL 中未找到同名模块，约束将不生效"
+        puts "  INFO: $top 未配套板级 XDC。"
+    }
+    foreach path $scoped_files {
+        set module [file rootname [file tail $path]]
+        if {![dict exists $modules $module]} {
+            puts "  WARNING: 跳过 [file tail $path]，RTL 中没有模块 $module"
+            continue
+        }
+        add_files -norecurse -fileset constrs_1 $path
+        set_property -dict [list SCOPED_TO_REF $module PROCESSING_ORDER LATE \
+                                 USED_IN {synthesis implementation simulation}] [get_files $path]
+    }
+    add_files -norecurse -fileset utils_1 $fifo_scripts
+    set_property STEPS.OPT_DESIGN.TCL.PRE $fifo_loader [get_runs impl_1]
+    puts "  CDC: impl_1 将在 opt_design 前加载异步 FIFO 约束"
+
+    if {[llength $ip_files]} {
+        import_ip $ip_files
+        # 升级旧版 VIO 配置的工程副本。当前顶层使用 23 个使能位和一个 16 位包间隔。
+        if {[dict exists $ip_names vio_enable]} {
+            set vio [get_ips vio_enable]
+            set vio_config [list CONFIG.C_NUM_PROBE_IN 0 CONFIG.C_EN_PROBE_IN_ACTIVITY 0 \
+                                 CONFIG.C_NUM_PROBE_OUT 24 CONFIG.C_PROBE_OUT23_WIDTH 16]
+            foreach {property value} $vio_config {
+                if {[get_property $property $vio] ne $value} {
+                    set_property -dict $vio_config $vio
+                    puts "  VIO: 已将工程副本更新为 23 路使能和 16 位包间隔"
+                    break
+                }
+            }
+        }
+        set ips [get_ips]
+        generate_target all $ips
+        puts "  IP: [join [dict keys $ip_names] {, }]"
+        if {[dict get $options -ooc]} {
+            synth_ip $ips -force
+            puts "  IP OOC 综合完成"
+        }
+    } else {
+        puts "  WARNING: IP 目录下未找到 XCI。"
+    }
+    update_compile_order -fileset $sources
+    puts "  工程已创建: $project_file"
+
+    if {[dict get $options -synth]} {
+        set run [get_runs synth_1]
+        launch_runs $run -jobs $jobs
+        wait_on_run $run
+        set status [get_property STATUS $run]
+        if {$status ne "synth_design Complete!"} {
+            error "synth_1 未完成：$status"
+        }
+        puts "  synth_1 完成"
     }
 }
 
-# ---------- 加入 IP（复用已提交的 .xci：<源码目录>/IP 下任意深度的 *.xci）----------
-set ip_files [list]
-if {[file isdirectory $IP_DIR]} {
-    set ip_files [collect_hdl_files $IP_DIR {.xci} {Backup}]
-}
-if {[llength $ip_files] > 0} {
-    import_ip $ip_files
-    puts "  IP  : [llength $ip_files] 个 .xci（来自 $IP_DIR）"
-    foreach f $ip_files { puts "        - [file tail $f]" }
-} else {
-    puts "  WARNING: 未在 $IP_DIR 找到 .xci，需先在 Vivado 里定制 CMAC / clk_wiz / vio / axis_slr_crossing"
-}
-
-# ---------- 生成 IP 输出产物 ----------
-if {[llength $ip_files] > 0} {
-    generate_target all [get_ips]
-    puts "  IP 输出产物已生成"
-    if {$RUN_OOC} {
-        synth_ip [get_ips] -force
-        puts "  IP OOC 综合完成"
-    }
-}
-
-# ---------- 设置顶层（精确匹配文件名，兜底按 module 声明查找）----------
-set top_file ""
-foreach f $rtl_files {
-    if {[string equal [file tail $f] "${TOP}.v"]} { set top_file $f; break }
-}
-if {$top_file eq ""} {
-    # 文件名与模块名不一致时（非本仓库约定，但允许）按 "module <TOP>" 声明查找
-    set _pat [format {(^|\n)\s*module\s+%s\s*[#(;]} $TOP]
-    foreach f $rtl_files {
-        set _fh [open $f r]
-        set _src [read $_fh]
-        close $_fh
-        if {[regexp $_pat $_src]} { set top_file $f; break }
-    }
-}
-if {$top_file eq ""} {
-    error "未在 RTL 中找到顶层 ${TOP}（既没有 ${TOP}.v，也没有 module ${TOP} 声明）——请检查 -top 参数或 RTL 目录"
-} else {
-    set_property top      $TOP      [current_fileset]
-    set_property top_file $top_file [current_fileset]
-    puts "  顶层已设置: $TOP ($top_file)"
-}
-
-update_compile_order -fileset sources_1
-puts "  工程已创建: $XPR"
-
-# ---------- 可选：启动综合 ----------
-if {$RUN_SYNTH} {
-    puts "  启动 synth_1 ..."
-    launch_runs synth_1 -jobs $JOBS
-    wait_on_run synth_1
-    puts "  synth_1 完成"
-}
-
-puts "=============================================="
-puts " 完成。GUI 打开： vivado $XPR"
-puts "=============================================="
+centenarian_create_project {*}$argv

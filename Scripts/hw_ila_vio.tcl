@@ -4,8 +4,8 @@
 # 依赖：Vivado（2025.2 验证，其余版本命令一致）+ 板卡经 JTAG 连到本机 hw_server。
 #
 # 标准用法：在 Vivado GUI 里下载 bit 与 ltx（Hardware Manager → Program Device /
-#         刷新调试核）之后，直接在 Tcl Console 输入：
-#             source ./Scripts/hw_ila_vio.tcl
+#         刷新调试核）之后，从工程所在的外层目录在 Tcl Console 输入：
+#             source -encoding utf-8 Centenarian.user/Scripts/hw_ila_vio.tcl
 #         脚本会自动连上 hw_server、枚举调试核、打印使能位映射与可用命令；
 #         之后用 hw_run <命令...> 逐条调用即可（也可用 -tclargs 一次性批处理）。
 #
@@ -17,10 +17,11 @@
 #   csvpeek              诊断：打印本次采集导出的 CSV 的前两行（核对列名与数值格式）
 #   paths                打印「路径统计」：各分支/策略实际被走到的次数（清理死代码用）
 #   refresh              重新枚举调试核（重新下载 bit 后调用）
-#   bit  <file>          下载 bitstream
-#   set  <num>           按 23 位位图设置使能（支持 0x 十六进制），如 set 0x5
+#   bit  <file> [ltx]    下载 bitstream，并加载指定或同名的 .ltx
+#   set  <num>           按 27 位位图设置使能（支持 0x 十六进制），如 set 0x5
 #   on   <名|位>...      打开指定使能，其余位保持不变，如 on en_a_udp en_b_udp
 #   off  <名|位>...      关闭指定使能
+#   gap  [cycles]        读取或设置两口共享的包间隔（0~65535 个业务时钟周期）
 #   read [filter]        立即触发一次 ILA 采集并打印探针值（filter 为名称子串）
 #   csv  <file> [f]      同 read，并把原始波形另存为 CSV（多 ILA 核时按核名分文件）
 #   monitor <n> [f]      连续采集 n 次（间隔约 1 秒），只打印匹配探针
@@ -29,19 +30,19 @@
 #   sc1 [settle]         场景 1 · 通道连通性：逐位单开，核对收端打流机与错误计数
 #   sc2 [chan...] [s]    场景 2 · 单通道线速：双向同开，换算线速并与门限比较
 #   sc3 [settle]         场景 3 · 严格优先级：自高向低逐路关闭，核对独占与饿死
-#   sc4 [settle]         场景 4 · 未匹配通道：四个兜底探测位，核对落档与错误计数
+#   sc4 [settle]         场景 4 · 未匹配通道：各协议兜底探测，核对落档与错误计数
 #   scall [settle]       依次跑 sc1~sc4 并给出总判定表
 #
 # 示例：
-#   source ./Scripts/hw_ila_vio.tcl          # GUI：连接 + 打印映射与命令
+#   source -encoding utf-8 Centenarian.user/Scripts/hw_ila_vio.tcl
 #   hw_run sc1                               # 逐路连通性全自动核对
-#   hw_run sc2 udp icmp ospf                 # 只测这三个通道的双向线速
+#   hw_run gap 0 sc2 udp icmp ospf           # 取消包间隔并测三个通道的双向线速
 #   hw_run scall 3                           # 全部场景，每步稳定 3 秒
 #   hw_run on en_a_udp monitor 10 rx_bw      # 手工：开 A 口 UDP，连采 10 次
 #   hw_run set 0                             # 手工：全部关闭
 #
 # 批处理等价写法：
-#   vivado -mode batch -source Scripts/hw_ila_vio.tcl -tclargs scall 3
+#   vivado -mode batch -source Centenarian.user/Scripts/hw_ila_vio.tcl -tclargs scall 3
 # ============================================================================
 
 # ---- 日志降噪 ----
@@ -60,7 +61,7 @@ if {$::QUIET_ILA_MSG} {
 if {[string length "通道"] != 2} {
   puts "\[hw\] NOTE: script is UTF-8 but was decoded as '[encoding system]';"
   puts "\[hw\]       Chinese log text may look garbled (functions unaffected)."
-  puts "\[hw\]       batch mode fix: source -encoding utf-8 Scripts/hw_ila_vio.tcl"
+  puts "\[hw\]       batch mode fix: source -encoding utf-8 <仓库目录>/Scripts/hw_ila_vio.tcl"
 }
 
 # ---- 连接参数（按环境修改）----
@@ -73,12 +74,13 @@ if {![info exists ::BW_FULL_REF   ]} { set ::BW_FULL_REF   12213921472 } ;# PKT_
 # 线速换算的"额外长度"（字节）：按打流机所在层次，L = 打流机每包计数的字节数
 #   MAC 层    +24（前导码/SFD 8 + FCS 4 + IFG 12）
 #   IPv4/IPv6 +38（= 24 + 14 以太网首部，打流机发的是完整 IP 包）
-#   UDP       +66（= 24 + 14 以太网首部 + 20 IPv4 首部 + 8 UDP 首部；
+#   UDP       +66（= 24 + 14 以太网首部 + 20 IPv4 首部 + 8 UDP 首部）
+#   UDP/IPv6  +86（= 24 + 14 + 40 IPv6 首部 + 8 UDP 首部）
 if {![info exists ::CHAN_OVH]} {
-  set ::CHAN_OVH {udp 66 fb_udp 66 ipv4_06 38 icmp 38 ospf 38 ip6icmp 38 ip6ospf 38 \
+  set ::CHAN_OVH {udp 66 fb_udp 66 udp_ipv6 86 fb_udp_ipv6 86 ipv4_06 38 icmp 38 ospf 38 ip6icmp 38 ip6ospf 38 \
                   fb_ipv4 38 fb_ipv6 38 mac_88b5 24 mac_88cc 24 fb_mac 24}
 } else {
-  set _ovh_def {udp 66 fb_udp 66}
+  set _ovh_def {udp 66 fb_udp 66 udp_ipv6 86 fb_udp_ipv6 86}
   foreach {_k _v} $_ovh_def {
     if {[dict exists $::CHAN_OVH $_k] && [dict get $::CHAN_OVH $_k] != $_v} {
       puts "\[hw\] 警告: ::CHAN_OVH 的 $_k = [dict get $::CHAN_OVH $_k]（脚本默认 $_v），\n\[hw\]       很可能是同一会话残留的旧值；如非有意，请先执行 unset -nocomplain ::CHAN_OVH 再重新 source"
@@ -102,9 +104,10 @@ set ::EN_NAMES {
   en_a_ip6icmp  en_a_ip6ospf  en_b_ip6icmp  en_b_ip6ospf
   en_a_fb_mac   en_a_fb_ipv4  en_a_fb_ipv6  en_a_fb_udp
   en_b_mac_88cc en_b_fb_mac   en_b_fb_ipv4  en_b_fb_ipv6 en_b_fb_udp
+  en_a_udp_ipv6 en_b_udp_ipv6 en_a_fb_udp_ipv6 en_b_fb_udp_ipv6
 }
 
-# ---- 23 台打流机例化名（与 subsys_test_top.v 一致；用于把 ILA 探针归到"哪台"）----
+# ---- 27 台打流机例化名（与 subsys_test_top.v 一致；用于把 ILA 探针归到"哪台"）----
 set ::TESTERS {
   u_ta_udp      u_ta_icmp     u_ta_ospf     u_ta_ipv4_06  u_ta_mac_88b5
   u_ta_ip6icmp  u_ta_ip6ospf
@@ -112,6 +115,7 @@ set ::TESTERS {
   u_tb_udp      u_tb_icmp     u_tb_ospf     u_tb_ipv4_06  u_tb_mac_88b5
   u_tb_mac_88cc u_tb_ip6icmp  u_tb_ip6ospf
   u_tb_fb_mac   u_tb_fb_ipv4  u_tb_fb_ipv6  u_tb_fb_udp
+  u_ta_udp_ipv6 u_tb_udp_ipv6 u_ta_fb_udp_ipv6 u_tb_fb_udp_ipv6
 }
 
 # ---- 打流机统计寄存器 → 简称（长名在前，避免子串误判）----
@@ -124,8 +128,8 @@ set ::CNT_KEYS {
 }
 
 # ---- 通道分组 ----
-set ::DUAL_CHANS {udp icmp ospf ipv4_06 mac_88b5 ip6icmp ip6ospf} ;# A/B 两侧都有的
-set ::FB_CHANS   {fb_mac fb_ipv4 fb_ipv6 fb_udp}                   ;# 未匹配兜底探测
+set ::DUAL_CHANS {udp udp_ipv6 icmp ospf ipv4_06 mac_88b5 ip6icmp ip6ospf} ;# A/B 两侧都有的
+set ::FB_CHANS   {fb_mac fb_ipv4 fb_ipv6 fb_udp fb_udp_ipv6}                   ;# 未匹配兜底探测
 # 场景 3 的通道优先级（自高向低）：取自 RTL/Test/Top/subsys_test_top.v 的 PRIO_* 常量
 #   OSPF 13 > ICMPv4 12(A)/11(B) > UDP 8(A)/9(B) > MAC-88B5 6(A)/5(B) > 兜底探测 2
 set ::PRIO_ORDER {ospf icmp udp mac_88b5 fb_ipv4}
@@ -167,26 +171,27 @@ proc mark_report {{title {}}} {
 # ----------------------------------------------------------------------------
 proc hw_connect {} {
   # 已连接过且器件仍在，直接复用（避免反复 source 时重复连接）
-  if {[info exists ::HW_READY] && $::HW_READY} {
-    catch {
-      if {[llength [get_hw_devices]] > 0} {
-        set ::VIOS [get_hw_vios]
-        set ::ILAS [get_hw_ilas]
-        return
-      }
-    }
-    set ::HW_READY 0
+  if {[info exists ::HW_READY] && $::HW_READY &&
+      ![catch {current_hw_device} dev] && $dev ne ""} {
+    set ::VIOS [get_hw_vios]
+    set ::ILAS [get_hw_ilas]
+    return
   }
-  if {[catch {connect_hw_server -url $::HW_URL}]} {
-    catch {disconnect_hw_server}
+  set ::HW_READY 0
+  catch {open_hw_manager}
+  if {[llength [get_hw_servers -quiet]] == 0} {
     connect_hw_server -url $::HW_URL
   }
-  set tgts [get_hw_targets]
-  if {[llength $tgts] == 0} { error "没有找到 JTAG target，请确认板卡与 hw_server" }
-  open_hw_target [lindex $tgts 0]
-  set devs [get_hw_devices]
-  if {[llength $devs] == 0} { error "没有找到器件" }
-  current_hw_device [lindex $devs 0]
+  if {[llength [get_hw_devices -quiet]] == 0} {
+    set tgts [get_hw_targets -quiet]
+    if {[llength $tgts] == 0} { error "没有找到 JTAG target，请确认板卡与 hw_server" }
+    open_hw_target [lindex $tgts 0]
+  }
+  if {[current_hw_device] eq ""} {
+    set devs [get_hw_devices -quiet]
+    if {[llength $devs] == 0} { error "没有找到器件" }
+    current_hw_device [lindex $devs 0]
+  }
   refresh_hw_device [current_hw_device]
   set ::HW_READY 1
 
@@ -219,6 +224,7 @@ proc sleep_s {sec} {
 # 清空 VIO / ILA 侧缓存（重新下载 bit 或刷新调试核后调用）
 proc vio_cache_clear {} {
   unset -nocomplain ::VIO_MAP_D
+  unset -nocomplain ::VIO_GAP_PROBE
   unset -nocomplain ::VIO_OUT_PROP
   unset -nocomplain ::VIO_BM
   array unset ::TP
@@ -250,19 +256,22 @@ proc vio_map {} {
   }
   if {[llength $probes] == 0} { return $map }
 
-  # 探针名即"使能网络名"（本工程实测命名，形如 u_test_vio_enable/en_a_udp）
+  set gap_probe ""
   foreach p $probes {
-    set txt ""
-    foreach prop {NAME PATH FULL_NAME LONG_NAME} {
-      if {![catch {get_property $prop $p} v]} { append txt "$v " }
-    }
-    set i 0
-    foreach en $::EN_NAMES {
-      if {[string first $en $txt] >= 0} { dict set map $i $p }
-      incr i
+    set signal [lindex [split [get_property NAME $p] /] end]
+    regsub {\[[0-9]+(?::[0-9]+)?\]$} $signal {} signal
+    if {$signal eq "cfg_gap_cycles"} {
+      if {$gap_probe ne ""} { error "找到多个 cfg_gap_cycles 探针，请核对当前器件和 LTX" }
+      set gap_probe $p
+    } else {
+      set bit [lsearch -exact $::EN_NAMES $signal]
+      if {$bit < 0} { continue }
+      if {[dict exists $map $bit]} { error "找到多个 $signal 探针，请核对当前器件和 LTX" }
+      dict set map $bit $p
     }
   }
 
+  set ::VIO_GAP_PROBE $gap_probe
   set ::VIO_MAP_D $map
   mark "vioident.netname" "[dict size $map] 位"
   if {[dict size $map] != [llength $::EN_NAMES]} {
@@ -284,20 +293,17 @@ proc vio_probe_of {bit} {
 }
 
 # ---------------------------------------------------------------------------
-# 自动发现「写 VIO 输出」用的属性名
-# 不同 Vivado 版本 / 核类型下属性名可能是 OUTPUT / OUTPUT_VALUE / VALUE ...
-# 且 get_property 读回未必可行，因此这里用 list_property + 试写来确定。
+# 查询输出属性，避免诊断时改动待提交的 VIO 值。
 # ---------------------------------------------------------------------------
 proc vio_out_prop {{p {}}} {
   if {[info exists ::VIO_OUT_PROP] && $::VIO_OUT_PROP ne ""} { return $::VIO_OUT_PROP }
   if {$p eq ""} {
-    set probe_list [get_hw_probes -of_objects $::VIOS]
-    if {[llength $probe_list] == 0} { return "" }
-    set p [lindex $probe_list 0]
+    set p [lindex [vio_bit_probes] 1]
+    if {$p eq ""} { return "" }
   }
-  # 试写探测（不 commit，不改动硬件）：本工程实测 OUTPUT 不存在、OUTPUT_VALUE 可写
-  foreach c {OUTPUT OUTPUT_VALUE} {
-    if {![catch {set_property $c 0 $p}]} {
+  set properties [list_property $p]
+  foreach c {OUTPUT_VALUE OUTPUT} {
+    if {$c in $properties} {
       set ::VIO_OUT_PROP $c
       mark "viowrite.prop.$c"
       return $c
@@ -374,24 +380,47 @@ proc hw_refresh {} {
   log "提示: 若 GUI 里 ILA / VIO 仪表盘消失，在 Hardware Manager 中重新打开即可"
 }
 
-# 读回当前位图；属性不可读时回退到脚本影子值，返回 "" 表示未知
+# 从硬件同步并读取当前的使能位图。
 proc vio_get {} {
   set wp [vio_out_prop]
-  if {$wp eq ""} { return "" }
+  set pairs [vio_bit_probes]
+  if {$wp eq "" || ![vio_map_complete $pairs] ||
+      [catch {refresh_hw_vio -update_output_values $::VIOS}]} { return "" }
   set cur 0
-  foreach {n p} [vio_bit_probes] {
+  foreach {n p} $pairs {
     if {[catch {get_property $wp $p} v]} { return "" }
-    if {$v eq "true" || $v == 1} { set cur [expr {$cur | (1 << $n)}] }
+    if {![string is boolean -strict $v]} {
+      set v [str_num $v]
+      if {$v ni {0 1}} { return "" }
+    }
+    if {$v} { set cur [expr {$cur | (1 << $n)}] }
   }
   set ::VIO_BM $cur
   mark "vioread.ok"
   return $cur
 }
 
+proc vio_map_complete {pairs} {
+  set bits {}
+  foreach {bit probe} $pairs { lappend bits $bit }
+  set width [llength $bits]
+  if {$width != 23 && $width != [llength $::EN_NAMES]} { return 0 }
+  set expected {}
+  for {set bit 0} {$bit < $width} {incr bit} { lappend expected $bit }
+  return [expr {[lsort -integer $bits] eq $expected}]
+}
+
 proc vio_set {bitmap} {
+  set width [llength $::EN_NAMES]
+  if {![string is entier -strict $bitmap] || $bitmap < 0 || $bitmap >= (1 << $width)} {
+    error "使能位图必须是 0 到 [format 0x%X [expr {(1 << $width) - 1}]] 之间的整数"
+  }
   set pairs [vio_bit_probes]
-  if {[llength $pairs] == 0} {
-    error "没有可用的 VIO 输出探针：bit/ltx 是否已下载并刷新？可先执行 hw_run vionames 或 hw_run refresh"
+  if {![vio_map_complete $pairs]} {
+    error "VIO 使能映射不完整，请确认 bit/ltx 匹配并执行 hw_run refresh"
+  }
+  if {$bitmap >= (1 << ([llength $pairs] / 2))} {
+    error "当前位流缺少所选测试通道的 VIO 探针"
   }
   set wp [vio_out_prop]
   if {$wp eq ""} {
@@ -406,6 +435,44 @@ proc vio_set {bitmap} {
   set ::VIO_BM $bitmap
   log [format "VIO 使能位图 -> 0x%06X（%d 路）" $bitmap [popcount $bitmap]]
   return $bitmap
+}
+
+# 仅提交包间隔探针，保留各路使能。临时用 HEX 读写多位 OUTPUT_VALUE。
+proc vio_gap {{cycles ""}} {
+  vio_map
+  if {![info exists ::VIO_GAP_PROBE] || $::VIO_GAP_PROBE eq ""} {
+    error "未找到 cfg_gap_cycles 探针，请检查当前 bit/ltx 是否提供发包间隔控制"
+  }
+  set p $::VIO_GAP_PROBE
+  set radix [get_property OUTPUT_VALUE_RADIX $p]
+  if {$cycles ne "" && (![string is entier -strict $cycles] || $cycles < 0 || $cycles > 65535)} {
+    error "发包间隔必须是 0 到 65535 之间的整数"
+  }
+  set_property OUTPUT_VALUE_RADIX HEX $p
+  try {
+    if {$cycles eq ""} {
+      refresh_hw_vio -update_output_values $::VIOS
+      set value [get_property OUTPUT_VALUE $p]
+      if {![regexp -nocase {^(?:0x)?([0-9a-f]{1,4})$} $value -> digits]} {
+        error "无法读取发包间隔：$value"
+      }
+      scan $digits %x cycles
+    } else {
+      set_property OUTPUT_VALUE [format %04X $cycles] $p
+      commit_hw_vio [list $p]
+    }
+  } finally {
+    set_property OUTPUT_VALUE_RADIX $radix $p
+  }
+  return $cycles
+}
+
+proc require_zero_gap {} {
+  vio_map
+  # 兼容旧版只有 23 路使能的板级位流。
+  if {[info exists ::VIO_GAP_PROBE] && $::VIO_GAP_PROBE ne "" && [vio_gap] != 0} {
+    error "满载场景要求发包间隔为 0，请先执行 hw_run gap 0"
+  }
 }
 
 # 只写某一位（on/off 用）：不依赖读回，也不会动到其它位
@@ -436,7 +503,8 @@ proc en_resolve {s} {
   # 纯数字（含 09 这类非常规写法）按位号处理
   if {[regexp {^[0-9]+$} $s]} {
     set n [dec_num $s]
-    if {$n eq "" || $n < 0 || $n > 31} { error "位号非法: $s（应为 0~22）" }
+    set last [expr {[llength $::EN_NAMES] - 1}]
+    if {$n < 0 || $n > $last} { error "位号非法: $s（应为 0~$last）" }
     return $n
   }
   error "未知使能名: $s（用 list 命令查看全部）"
@@ -493,10 +561,6 @@ proc ila_capture {ila} {
     return ""
   }
   mark "ilawait.ok"
-  # 新采集：清掉上一次的取值 / CSV 缓存
-  set ::ILA_DATA ""
-  set ::CSV_READY 0
-  unset -nocomplain ::CSV_ERR
   set data ""
   if {[catch {set data [upload_hw_ila_data $ila]} e]} {
     set ::ILA_UPLOAD_ERR $e
@@ -517,6 +581,9 @@ proc ila_capture {ila} {
 proc ila_snap {} {
   # 每次全量采集先清空按核登记表，避免残留上一轮旧数据
   array unset ::ILA_DATA_ARR
+  array unset ::CSV_VALS
+  set ::CSV_READY 0
+  unset -nocomplain ::ILA_DATA ::ILA_UPLOAD_ERR ::CSV_ERR
   set datas {}
   foreach ila $::ILAS {
     set d [ila_capture $ila]
@@ -724,13 +791,12 @@ proc ila_readable {} {
       set raw [probe_raw $::TP($key)]
       if {$raw ne ""} { return 1 }
       set ::PROBE_READ_ERR_LAST $::PROBE_READ_ERR
-      return 0
     }
   }
   return 0
 }
 
-# 场景入口统一检查：读不到 ILA 数据就没必要跑 23 轮
+# 场景入口统一检查：读不到 ILA 数据就没必要逐路测试
 proc ila_require_readable {} {
   ila_probe_index
   if {$::N_PROBE == 0} { error "没有可用探针：请确认 bit 已下载、ltx 已刷新（ILA 核）" }
@@ -1012,7 +1078,7 @@ proc sc1 {{settle {}}} {
     set bw  [cnt $exp bw]
     set gb  [bw_gbps $bw $ovh]
     set recv  [expr {$pkt ne "" && $pkt > 0}]
-    set clean [expr {($err eq "" || $err == 0) && ($le eq "" || $le == 0)}]
+    set clean [expr {$err ne "" && $err == 0 && $le ne "" && $le == 0}]
     # 错误计数规则：除 MAC 未匹配档（fb_mac）外，err / len_err 必须为 0
     set ign [err_ignored $ch]
     set ok [expr {$recv && ($ign || $clean)}]
@@ -1047,11 +1113,14 @@ proc sc2 {args} {
     if {[string is double -strict $a]} { set settle $a } else { lappend chans $a }
   }
   if {[llength $chans] == 0} { set chans $::DUAL_CHANS }
+  foreach ch $chans {
+    if {[llength [chan_bits $ch]] == 0} { error "未知通道：$ch" }
+  }
+  require_zero_gap
   ila_require_readable
   set npass 0; set nfail 0
   foreach ch $chans {
     set bits [chan_bits $ch]
-    if {[llength $bits] == 0} { log "跳过未知通道: $ch"; continue }
     en_only $bits
     sleep_s $settle
     snapi
@@ -1069,8 +1138,10 @@ proc sc2 {args} {
       if {$pkt eq "" || $pkt == 0} { lappend why "$t 收端无包"; set ch_ok 0 }
       if {$gb eq ""} { lappend why "$t 线速取不到"; set ch_ok 0 } \
       elseif {$gb < $::LINE_TH_GBPS} { lappend why [format "%s 线速 %.3f G < %.1f G" $t $gb $::LINE_TH_GBPS]; set ch_ok 0 }
-      if {$err ne "" && $err != 0} { lappend why "$t err=$err（非 0）"; set ch_ok 0 }
-      if {$le  ne "" && $le  != 0} { lappend why "$t len_err=$le（非 0）"; set ch_ok 0 }
+      if {![err_ignored $ch]} {
+        if {$err eq "" || $err != 0} { lappend why "$t err=$err（应为 0）"; set ch_ok 0 }
+        if {$le eq "" || $le != 0} { lappend why "$t len_err=$le（应为 0）"; set ch_ok 0 }
+      }
     }
     if {$ch_ok} { incr npass } else { incr nfail }
     puts [format "    → %s（门限 %.1f Gbps × 双向；额外长度 +%d B）" \
@@ -1092,6 +1163,7 @@ proc sc2 {args} {
 # ----------------------------------------------------------------------------
 proc sc3 {{settle {}}} {
   if {$settle eq ""} { set settle $::DEFAULT_SETTLE }
+  require_zero_gap
   ila_require_readable
   set order $::PRIO_ORDER
   set n [llength $order]
@@ -1112,7 +1184,11 @@ proc sc3 {{settle {}}} {
         set t "u_t${side}_$ch"
         if {[lsearch -exact $::TESTERS $t] < 0} { continue }
         set gb [bw_gbps [cnt $t bw] [chan_ovh $ch]]
-        if {$gb eq ""} { continue }
+        if {$gb eq ""} {
+          puts "    $t $ch 无法读取线速"
+          set step_ok 0
+          continue
+        }
         if {$ch eq $win} {
           if {$gb < $::LINE_TH_GBPS} { set step_ok 0 }
           puts [format "    %-14s %-8s 线速=%.9f Gbps  %s" $t $ch $gb \
@@ -1156,7 +1232,7 @@ proc sc3 {{settle {}}} {
 }
 
 # ----------------------------------------------------------------------------
-# 场景 4 · 未匹配通道：四个兜底探测位逐侧单开，核对落档与错误计数
+# 场景 4 · 未匹配通道：各协议兜底探测逐侧单开，核对落档与错误计数
 # ----------------------------------------------------------------------------
 proc sc4 {{settle {}}} {
   if {$settle eq ""} { set settle $::DEFAULT_SETTLE }
@@ -1175,7 +1251,7 @@ proc sc4 {{settle {}}} {
       foreach {t v} [cnt_all pkt] {
         if {$v > 0 && $t ne $exp && ![err_ignored [tester_chan $t]]} { lappend got $t }
       }
-      set clean [expr {($err eq "" || $err == 0) && ($le eq "" || $le == 0)}]
+      set clean [expr {$err ne "" && $err == 0 && $le ne "" && $le == 0}]
       set ign [err_ignored $ch]
       set ok [expr {$pkt ne "" && $pkt > 0 && ($ign || $clean)}]
       set vd [verdict $ok [expr {$ok && $::STRICT_EXTRA && [llength $got] > 0}]]
@@ -1225,7 +1301,7 @@ proc scall {{settle {}}} {
 # ----------------------------------------------------------------------------
 # 命令行解析与主流程
 # ----------------------------------------------------------------------------
-set ::CMDS {list map vionames iladiag csvpeek paths refresh bit set on off read csv monitor sc1 sc2 sc3 sc4 scall}
+set ::CMDS {list map vionames iladiag csvpeek paths refresh bit set on off gap read csv monitor sc1 sc2 sc3 sc4 scall}
 
 # 入口：hw_run <命令...>，参数写法与批处理 -tclargs 一致
 proc hw_run {args} {
@@ -1273,6 +1349,13 @@ proc hw_run {args} {
             }
           }
         }
+        if {[info exists ::VIO_GAP_PROBE] && $::VIO_GAP_PROBE ne ""} {
+          if {[catch {vio_gap} cycles]} {
+            log "发包间隔读回失败：$cycles"
+          } else {
+            log "发包间隔: $cycles 个业务时钟周期"
+          }
+        }
         ila_probe_index 0
         foreach ila $::ILAS {
           puts "  ILA [get_property NAME $ila]：探针 [llength [get_hw_probes -of_objects $ila]] 个，已归类 $::N_PROBE 个"
@@ -1285,10 +1368,23 @@ proc hw_run {args} {
       paths    { mark_report "当前累计" }
       refresh  { hw_refresh }
       bit {
-        if {[llength $arg] != 1} { error "bit <file>" }
-        set_property PROGRAM.FILE [lindex $arg 0] [current_hw_device]
-        program_hw_devices [current_hw_device]
-        refresh_hw_device  [current_hw_device]
+        if {[llength $arg] ni {1 2}} { error "bit <file> \[ltx\]" }
+        lassign $arg bit ltx
+        set bit [file normalize $bit]
+        if {![file isfile $bit]} { error "未找到 bitstream：$bit" }
+        if {$ltx eq "" && [file isfile [file rootname $bit].ltx]} {
+          set ltx [file rootname $bit].ltx
+        }
+        set dev [current_hw_device]
+        if {$ltx ne ""} {
+          set ltx [file normalize $ltx]
+          if {![file isfile $ltx]} { error "未找到 LTX：$ltx" }
+          set_property PROBES.FILE $ltx $dev
+          set_property FULL_PROBES.FILE $ltx $dev
+        }
+        set_property PROGRAM.FILE $bit $dev
+        program_hw_devices $dev
+        refresh_hw_device $dev
         set ::VIOS [get_hw_vios]
         set ::ILAS [get_hw_ilas]
         vio_cache_clear
@@ -1297,7 +1393,16 @@ proc hw_run {args} {
       }
       set {
         if {[llength $arg] != 1} { error "set <num>（如 set 0x5 / set 0）" }
-        vio_set [expr [lindex $arg 0]]
+        vio_set [str_num [lindex $arg 0]]
+      }
+      gap {
+        if {[llength $arg] > 1} { error "gap \[cycles\]" }
+        set cycles [lindex $arg 0]
+        if {[llength $arg]} {
+          set cycles [str_num $cycles]
+          if {$cycles eq ""} { error "发包间隔必须是 0 到 65535 之间的整数" }
+        }
+        log "发包间隔: [vio_gap $cycles] 个业务时钟周期"
       }
       on  -
       off {
@@ -1314,17 +1419,18 @@ proc hw_run {args} {
         if {[llength $arg] < 1} { error "monitor <n> [filter]" }
         ila_monitor [lindex $arg 0] [lindex $arg 1]
       }
-      sc1   { mark_reset; set ret [sc1 [lindex $arg 0]] }
-      sc2   { mark_reset; set ret [eval sc2 $arg] }
-      sc3   { mark_reset; set ret [sc3 [lindex $arg 0]] }
-      sc4   { mark_reset; set ret [sc4 [lindex $arg 0]] }
-      scall { mark_reset; set ret [scall [lindex $arg 0]] }
+      sc1 - sc2 - sc3 - sc4 - scall {
+        mark_reset
+        set ok [$op {*}$arg]
+        set ret [expr {$ret && $ok}]
+      }
     }
   }
   return $ret
 }
 
 # 自动执行：批处理带 -tclargs 时执行命令；GUI 里 source（无参数）时只打印用法
+vio_cache_clear
 hw_connect
 
 if {[llength $argv] == 0} {
@@ -1334,16 +1440,17 @@ if {[llength $argv] == 0} {
   log "  hw_run vionames                      # 诊断：VIO 探针真实名称 / 可用属性"
   log "  hw_run iladiag                       # 诊断：ILA 触发属性 + 采集上传 + 探针原始值"
   log "  hw_run refresh                       # 重新下载 bit 后重新枚举调试核"
+  log "  hw_run gap 0                         # 设置共享包间隔为 0 个周期"
   log "  hw_run sc1                           # ① 通道连通性（逐路全自动核对）"
   log "  hw_run sc2                           # ② 单通道线速（双向满载，换算线速）"
   log "  hw_run sc2 udp icmp                  #    仅测指定通道"
   log "  hw_run sc3                           # ③ 严格优先级（逐路关闭 + 饿死判据）"
-  log "  hw_run sc4                           # ④ 未匹配通道（四个兜底探测位）"
+  log "  hw_run sc4                           # ④ 未匹配通道（各协议兜底探测）"
   log "  hw_run scall                         #  ①~④ 全跑 + 总判定表"
   log "  hw_run on en_a_udp monitor 10 rx_bw  # 手工控制（开 A 口 UDP 连采 10 次）"
   log "  hw_run set 0                         # 手工：全部关闭"
 } else {
-  hw_run {*}$argv
+  if {![hw_run {*}$argv]} { error "上板验证未通过" }
 }
 
 log "完成。"

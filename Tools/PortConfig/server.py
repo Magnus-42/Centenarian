@@ -18,7 +18,8 @@ from audit import AuditLog, SOURCES, default_directory, event, identifier, times
 from conflicts import check_conflicts, peer_udp_notes, read_config, related_items
 from demo import DemoDevice
 from protocol import (
-    ARP_ANNOUNCE_MASK, EXEC, GET, ICMP_ERROR_FLAGS, ITEMS, OK, PROFILES, SET, STATUS, TABLES, Client,
+    ARP_ANNOUNCE_MASK, EXEC, GET, ICMP_ERROR_FLAGS, IP_TX_DROP_FLAGS, ITEMS, LINK_STATE, OK, PROFILES,
+    MGMT_PRIORITY, SET, STATUS, TABLES, Client,
     big_endian_hex, decode_value, encode_value, is_management_address, unsigned,
 )
 
@@ -27,7 +28,7 @@ ROOT = Path(__file__).resolve().parent
 ASSETS = {"/": ("index.html", "text/html"), "/style.css": ("style.css", "text/css"),
           "/app.js": ("app.js", "text/javascript"), "/audit.js": ("audit.js", "text/javascript")}
 DEVICE_POST = {"/api/probe", "/api/probe-tables", "/api/read", "/api/check", "/api/write", "/api/action", "/api/heartbeat"}
-SUMMARY = (0x10, 0x11, 0x12, 0x13, 0x14, 0x26, 0x27, ICMP_ERROR_FLAGS)
+SUMMARY = (0x10, 0x11, 0x12, MGMT_PRIORITY, LINK_STATE, IP_TX_DROP_FLAGS, 0x26, 0x27, ICMP_ERROR_FLAGS)
 READ_LIMIT = sum(254 if item.table else 1 for item in ITEMS.values() if item.access != "exec")
 
 
@@ -76,7 +77,7 @@ class Bridge(ThreadingHTTPServer):
         super().__init__(("127.0.0.1", port), Handler)
         self.authority = f"127.0.0.1:{self.server_port}"
         self.origin = f"http://{self.authority}"
-        self.demo = DemoDevice() if demo else None
+        self.demo = DemoDevice(priority_width) if demo else None
         self.pending_width = pending_width
         self.priority_width = priority_width
         self.lock = threading.Lock()
@@ -115,12 +116,12 @@ class Bridge(ThreadingHTTPServer):
                 host, port = self.demo.endpoint
                 raise ValueError(f"虚拟设备当前的管理端点为 {host}:{port}。")
             if path == "/api/heartbeat":
-                return {"rows": [read_row(client, ITEMS[0x13], 0)], "trace": trace}
+                return {"rows": [read_row(client, ITEMS[LINK_STATE], 0)], "trace": trace}
             if path == "/api/probe":
-                link = read_row(client, ITEMS[0x13], 0)
+                link = read_row(client, ITEMS[LINK_STATE], 0)
                 if link["status"] != "OK":
                     return {"error": f"读取物理链路失败 · {link['status']}", "trace": trace}
-                rows = [link] + [read_row(client, ITEMS[code], 0) for code in SUMMARY if code != 0x13]
+                rows = [link] + [read_row(client, ITEMS[code], 0) for code in SUMMARY if code != LINK_STATE]
                 counts = {name: client.count(item) for name, item in TABLES.items()}
                 warnings = self.audit_rows(client, target, rows, peer, block_cross_port)
                 return {"rows": rows, "counts": counts, "validationWarnings": warnings, "trace": trace}

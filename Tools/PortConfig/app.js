@@ -537,7 +537,7 @@ function normalizedValue(item, text, index = 0) {
     case "timeout":
       return unsignedValue(value, item.label, 0n, BigInt(state.meta.pendingMax)).toString();
     case "priority":
-      return unsignedValue(value, item.label, 0n, BigInt(state.meta.priorityMax)).toString();
+      return unsignedValue(value, item.label, BigInt(item.value_min ?? 0), BigInt(state.meta.priorityMax)).toString();
     case "bitmask": {
       const count = state.counts.ipv4;
       if (count == null) throw new Error("请先探测本口 IPv4 地址表项数。");
@@ -698,7 +698,7 @@ function parameterRow(item, index, label) {
   appendReadbackValidation(value, saved?.validation);
   value.append(note);
   const hint = item.kind === "timeout" ? `0–${state.meta.pendingMax} ms`
-    : item.kind === "priority" ? `0–${state.meta.priorityMax}` : item.note;
+    : item.kind === "priority" ? `${item.value_min ?? 0}–${state.meta.priorityMax}` : item.note;
   if (saved && saved.status !== "OK") value.append(node("div", statusNames[saved.status] || saved.status, "secondary"));
   else if (hint) value.append(node("div", hint, "secondary"));
   row.append(actions);
@@ -706,7 +706,7 @@ function parameterRow(item, index, label) {
 }
 
 function actionRow(item) {
-  const row = node("div", undefined, `action-row${item.code === 0x16 ? " danger" : ""}`);
+  const row = node("div", undefined, `action-row${item.name === "RESTORE_PORT_DEFAULTS" ? " danger" : ""}`);
   const description = node("div");
   description.append(node("h3", item.label), node("p", item.note));
   const execute = control("执行", () => executeAction(item));
@@ -1175,7 +1175,7 @@ async function executeAction(item) {
       feedback(`设备拒绝执行 · ${statusNames[result.status] || result.status}`, "error");
       return;
     }
-    if (item.code === 0x16) {
+    if (item.name === "RESTORE_PORT_DEFAULTS") {
       resetConnection();
       feedback(result.status === "OK" ? "设备已确认恢复。请选择对应网口的出厂端点并重新连接。"
         : "设备未应答，恢复结果待核对。请在该网口的出厂端点重新连接。", result.status === "OK" ? "success" : "warn");

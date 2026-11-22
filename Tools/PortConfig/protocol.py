@@ -12,6 +12,11 @@ VALUE_BYTES = 16
 GET, SET, EXEC, RESPONSE = 1, 2, 3, 4
 OK, BAD_OP, BAD_ITEM, BAD_INDEX, ACCESS_DENIED, BAD_VALUE_LENGTH = range(6)
 STATUS = ("OK", "BAD_OP", "BAD_ITEM", "BAD_INDEX", "ACCESS_DENIED", "BAD_VALUE_LENGTH")
+MGMT_PRIORITY = 0x13
+LINK_STATE = 0x14
+IP_TX_DROP_FLAGS = 0x15
+CLEAR_PORT_FLAGS = 0x16
+RESTORE_PORT_DEFAULTS = 0x17
 ARP_ANNOUNCE_MASK = 0x2A
 ARP_ANNOUNCE_SEND = 0x2B
 ICMP_ECHO_PRIORITY = 0x2C
@@ -34,18 +39,20 @@ class Item:
     note: str = ""
     bits: tuple[str, ...] = ()
     value_bits: int = 0
+    value_min: int = 0
 
 
 ITEMS = {item.code: item for item in (
     Item(0x10, "MGMT_MAC_ADDR", "管理 MAC", "management", 6, "mac"),
     Item(0x11, "MGMT_IPV4_ADDR", "管理 IPv4", "management", 4, "ipv4"),
     Item(0x12, "MGMT_UDP_PORT", "管理 UDP 端口", "management", 2, "port"),
-    Item(0x13, "LINK_STATE", "物理链路", "status", 1, "link", "ro"),
-    Item(0x14, "IP_TX_DROP_FLAGS", "IP 发送丢包", "status", 1, "flags", "ro",
+    Item(MGMT_PRIORITY, "MGMT_PRIORITY", "配置应答优先级", "management", 1, "priority", value_min=1),
+    Item(LINK_STATE, "LINK_STATE", "物理链路", "status", 1, "link", "ro"),
+    Item(IP_TX_DROP_FLAGS, "IP_TX_DROP_FLAGS", "IP 发送丢包", "status", 1, "flags", "ro",
          bits=("IPv4 发送丢包", "IPv6 发送丢包")),
-    Item(0x15, "CLEAR_PORT_FLAGS", "清除端口状态", "actions", 0, "action", "exec",
+    Item(CLEAR_PORT_FLAGS, "CLEAR_PORT_FLAGS", "清除端口状态", "actions", 0, "action", "exec",
          note="清除本口的 IP、ARP 和 ICMP 错误标志。"),
-    Item(0x16, "RESTORE_PORT_DEFAULTS", "恢复端口默认值", "actions", 0, "action", "exec",
+    Item(RESTORE_PORT_DEFAULTS, "RESTORE_PORT_DEFAULTS", "恢复端口默认值", "actions", 0, "action", "exec",
          note="恢复本口寄存器的默认值，管理地址与 UDP 端口也可能改变。"),
     Item(0x20, "IPV4_LOCAL_IP", "本机 IPv4", "ipv4", 4, "ipv4", table="ipv4"),
     Item(0x21, "IPV4_LOCAL_MAC", "本机 MAC", "ipv4", 6, "mac", table="ipv4"),
@@ -143,7 +150,7 @@ def encode_value(item, text, pending_width=24, priority_width=4):
         if item.kind == "bitmask" and not item.value_bits:
             raise ValueError("尚未确定本口免费 ARP 掩码长度。")
         width = {"timeout": pending_width, "priority": priority_width, "bitmask": item.value_bits}[item.kind]
-        return unsigned(text, (1 << width) - 1).to_bytes(item.width, "little")
+        return unsigned(text, (1 << width) - 1, item.value_min).to_bytes(item.width, "little")
     raise ValueError("该配置项不可写")
 
 

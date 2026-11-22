@@ -4,21 +4,23 @@ import socket
 from threading import Thread
 
 from protocol import (
-    ACCESS_DENIED, ARP_ANNOUNCE_MASK, BAD_INDEX, BAD_ITEM, BAD_OP, BAD_VALUE_LENGTH, EXEC, GET,
-    ICMP_ECHO_PRIORITY, ICMP_ERROR_FLAGS, ITEMS, OK, PROFILES, RESPONSE, SET, STAMP, UDP_IPV4_RX_PORT_RANGE,
-    UDP_IPV6_RX_PORT_RANGE, VALUE_BYTES, announce_mask_item, decode_value, encode_value,
+    ACCESS_DENIED, ARP_ANNOUNCE_MASK, BAD_INDEX, BAD_ITEM, BAD_OP, BAD_VALUE_LENGTH, CLEAR_PORT_FLAGS, EXEC, GET,
+    ICMP_ECHO_PRIORITY, ICMP_ERROR_FLAGS, IP_TX_DROP_FLAGS, ITEMS, LINK_STATE, OK, PROFILES, MGMT_PRIORITY, RESPONSE,
+    RESTORE_PORT_DEFAULTS, SET, STAMP, UDP_IPV4_RX_PORT_RANGE, UDP_IPV6_RX_PORT_RANGE, VALUE_BYTES,
+    announce_mask_item, decode_value, encode_value,
 )
 
 
 class DemoDevice:
-    def __init__(self):
+    def __init__(self, priority_width=4):
+        self.priority_max = (1 << priority_width) - 1
         host, port = PROFILES["A"]
         defaults = {
             0x10: ["00:00:19:31:00:f1"], 0x11: [host], 0x12: [str(port)],
             0x20: ["192.168.1.18", "192.168.1.17", "192.168.1.16"],
             0x21: ["00:00:19:31:00:03", "00:00:19:31:00:02", "00:00:19:31:00:01"],
             0x22: ["192.168.1.1"] * 3, 0x23: ["255.255.255.0"] * 3,
-            0x24: ["1000"], 0x25: ["15"], ICMP_ECHO_PRIORITY: ["12"],
+            0x24: ["1000"], 0x25: ["15"], ICMP_ECHO_PRIORITY: ["13"],
             UDP_IPV4_RX_PORT_RANGE: ["0-8", "16-16", "32-48"],
             UDP_IPV6_RX_PORT_RANGE: ["0-8", "16-16", "32-48"],
             0x40: ["fe80::1931:12", "fe80::1931:11"],
@@ -28,10 +30,11 @@ class DemoDevice:
         }
         self.defaults = {code: tuple(encode_value(ITEMS[code], value) for value in values)
                          for code, values in defaults.items()}
+        self.defaults[MGMT_PRIORITY] = (bytes((14 & self.priority_max,)),)
         mask = announce_mask_item(len(defaults[0x20]))
         self.defaults[ARP_ANNOUNCE_MASK] = ((2 ** mask.value_bits - 1).to_bytes(mask.width, "little"),)
-        self.values = {code: [bytes((int(code == 0x13),))]
-                       for code in (0x13, 0x14, 0x26, 0x27, ICMP_ERROR_FLAGS)}
+        self.values = {code: [bytes((int(code == LINK_STATE),))]
+                       for code in (LINK_STATE, IP_TX_DROP_FLAGS, 0x26, 0x27, ICMP_ERROR_FLAGS)}
         self.reset()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("127.0.0.1", 0))
@@ -80,14 +83,16 @@ class DemoDevice:
             return OK, self.values[code][index]
         if op == SET:
             raw = value[:length]
-            if code == ARP_ANNOUNCE_MASK:
+            if code == MGMT_PRIORITY:
+                raw = bytes((raw[0] & self.priority_max,))
+            elif code == ARP_ANNOUNCE_MASK:
                 mask = int.from_bytes(raw, "little") & ((1 << item.value_bits) - 1)
                 raw = mask.to_bytes(item.width, "little")
             self.values[code][index] = raw
-        elif code == 0x16:
+        elif code == RESTORE_PORT_DEFAULTS:
             self.reset()
-        elif code == 0x15:
-            for flag in (0x14, 0x26, ICMP_ERROR_FLAGS):
+        elif code == CLEAR_PORT_FLAGS:
+            for flag in (IP_TX_DROP_FLAGS, 0x26, ICMP_ERROR_FLAGS):
                 self.values[flag][0] = b"\0"
         elif code in (0x28, 0x29):
             self.values[0x27][0] = bytes((self.values[0x27][0][0] | (1 << (code - 0x28)),))

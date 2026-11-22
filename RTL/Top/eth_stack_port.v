@@ -18,14 +18,18 @@ module eth_stack_port #(
     parameter integer CmacSelect = 0,
 
     // 用户通道数量
-    parameter integer MacRxCount     = 2,
-    parameter integer MacTxCount     = 2,
-    parameter integer Ipv4RxCount    = 3,
-    parameter integer Ipv4TxCount    = 4,
-    parameter integer Ipv6RxCount    = 3,
-    parameter integer Ipv6TxCount    = 3,
-    parameter integer UdpIpv4RxCount = 3,
-    parameter integer UdpIpv4TxCount = 8,
+    parameter  integer MacRxCount     = 2,
+    parameter  integer MacTxCount     = 2,
+    parameter  integer Ipv4RxCount    = 3,
+    parameter  integer Ipv4TxCount    = 4,
+    parameter  integer Ipv6RxCount    = 3,
+    parameter  integer Ipv6TxCount    = 3,
+    parameter  integer UdpIpv4RxCount = 3,
+    parameter  integer UdpIpv6RxCount = 3,
+    parameter  integer UdpIpv4TxCount = 8,
+    parameter  integer UdpIpv6TxCount = 2,
+    localparam integer IcmpRxCount    = 1,
+    parameter  integer IcmpTxCount    = 1,
 
     // 地址表规模
     parameter integer LocalIpv4Count = 3,
@@ -33,9 +37,11 @@ module eth_stack_port #(
     parameter integer DstIpv6Count   = 3,
 
     // 时钟与请求位宽
-    parameter  integer ClkFreqHz     = 400000000,
-    parameter  integer ReqWidth      = 4,
-    localparam integer UdpTxUsrWidth = 104 + ReqWidth,
+    parameter  integer InitClkFreqHz     = 100000000,
+    parameter  integer ClkFreqHz         = 400000000,
+    parameter  integer ReqWidth          = 4,
+    localparam integer UdpTxUsrWidth     = 104 + ReqWidth,
+    localparam integer UdpIpv6TxUsrWidth = 296 + ReqWidth,
 
     // 固定接收字典
     parameter [16*MacRxCount-1:0] MacTypeDict  = {16'hcc88, 16'hb588},
@@ -61,6 +67,7 @@ module eth_stack_port #(
 
     // UDP接收端口范围
     parameter [32*UdpIpv4RxCount-1:0] DefaultUdpIpv4Range = 'd0,
+    parameter [32*UdpIpv6RxCount-1:0] DefaultUdpIpv6Range = 'd0,
 
     // ARP与ICMP策略
     parameter integer                        PendingTimeWidth    = 24,
@@ -97,6 +104,7 @@ module eth_stack_port #(
     // MAC接收
     output wire [512*(MacRxCount+1)-1:0] mac_axis_mdata,
     output wire [ 64*(MacRxCount+1)-1:0] mac_axis_mkeep,
+    output wire [    (MacRxCount+1)-1:0] mac_axis_musr,
     output wire [    (MacRxCount+1)-1:0] mac_axis_mvalid,
     output wire [    (MacRxCount+1)-1:0] mac_axis_mlast,
     input  wire [    (MacRxCount+1)-1:0] mac_axis_mready,
@@ -125,13 +133,21 @@ module eth_stack_port #(
     input  wire [         Ipv4TxCount-1:0] ipv4_axis_slast,
     output wire [         Ipv4TxCount-1:0] ipv4_axis_sready,
 
-    // ICMP接收
-    output wire [511:0] icmp_axis_mdata,
-    output wire [ 63:0] icmp_axis_mkeep,
-    output wire [ 96:0] icmp_axis_musr,
-    output wire         icmp_axis_mvalid,
-    output wire         icmp_axis_mlast,
-    input  wire         icmp_axis_mready,
+    // ICMPv4接收
+    output wire [512*IcmpRxCount-1:0] icmp_axis_mdata,
+    output wire [ 64*IcmpRxCount-1:0] icmp_axis_mkeep,
+    output wire [ 97*IcmpRxCount-1:0] icmp_axis_musr,
+    output wire [    IcmpRxCount-1:0] icmp_axis_mvalid,
+    output wire [    IcmpRxCount-1:0] icmp_axis_mlast,
+    input  wire [    IcmpRxCount-1:0] icmp_axis_mready,
+
+    // ICMPv4发送
+    input  wire [     512*IcmpTxCount-1:0] icmp_axis_sdata,
+    input  wire [      64*IcmpTxCount-1:0] icmp_axis_skeep,
+    input  wire [ReqWidth*IcmpTxCount-1:0] icmp_axis_susr,
+    input  wire [         IcmpTxCount-1:0] icmp_axis_svalid,
+    input  wire [         IcmpTxCount-1:0] icmp_axis_slast,
+    output wire [         IcmpTxCount-1:0] icmp_axis_sready,
 
     // IPv6接收
     output wire [512*(Ipv6RxCount+1)-1:0] ipv6_axis_mdata,
@@ -149,7 +165,7 @@ module eth_stack_port #(
     input  wire [         Ipv6TxCount-1:0] ipv6_axis_slast,
     output wire [         Ipv6TxCount-1:0] ipv6_axis_sready,
 
-    // UDP接收
+    // UDP(IPV4) 接收
     output wire [512*(UdpIpv4RxCount+1)-1:0] udp_ipv4_axis_mdata,
     output wire [ 64*(UdpIpv4RxCount+1)-1:0] udp_ipv4_axis_mkeep,
     output wire [241*(UdpIpv4RxCount+1)-1:0] udp_ipv4_axis_musr,
@@ -157,13 +173,29 @@ module eth_stack_port #(
     output wire [    (UdpIpv4RxCount+1)-1:0] udp_ipv4_axis_mlast,
     input  wire [    (UdpIpv4RxCount+1)-1:0] udp_ipv4_axis_mready,
 
-    // UDP发送
+    // UDPP(IPV4) 发送
     input  wire [        512*(UdpIpv4TxCount)-1:0] udp_ipv4_axis_sdata,
     input  wire [         64*(UdpIpv4TxCount)-1:0] udp_ipv4_axis_skeep,
     input  wire [UdpTxUsrWidth*UdpIpv4TxCount-1:0] udp_ipv4_axis_susr,
     input  wire [              UdpIpv4TxCount-1:0] udp_ipv4_axis_svalid,
     input  wire [              UdpIpv4TxCount-1:0] udp_ipv4_axis_slast,
-    output wire [              UdpIpv4TxCount-1:0] udp_ipv4_axis_sready
+    output wire [              UdpIpv4TxCount-1:0] udp_ipv4_axis_sready,
+
+    // UDP(IPv6) 接收
+    output wire [512*(UdpIpv6RxCount+1)-1:0] udp_ipv6_axis_mdata,
+    output wire [ 64*(UdpIpv6RxCount+1)-1:0] udp_ipv6_axis_mkeep,
+    output wire [433*(UdpIpv6RxCount+1)-1:0] udp_ipv6_axis_musr,
+    output wire [    (UdpIpv6RxCount+1)-1:0] udp_ipv6_axis_mvalid,
+    output wire [    (UdpIpv6RxCount+1)-1:0] udp_ipv6_axis_mlast,
+    input  wire [    (UdpIpv6RxCount+1)-1:0] udp_ipv6_axis_mready,
+
+    // UDP(IPv6) 发送
+    input  wire [            512*(UdpIpv6TxCount)-1:0] udp_ipv6_axis_sdata,
+    input  wire [             64*(UdpIpv6TxCount)-1:0] udp_ipv6_axis_skeep,
+    input  wire [UdpIpv6TxUsrWidth*UdpIpv6TxCount-1:0] udp_ipv6_axis_susr,
+    input  wire [                  UdpIpv6TxCount-1:0] udp_ipv6_axis_svalid,
+    input  wire [                  UdpIpv6TxCount-1:0] udp_ipv6_axis_slast,
+    output wire [                  UdpIpv6TxCount-1:0] udp_ipv6_axis_sready
 );
 
   // MAC分流ARP、IPv4和IPv6，各协议连接用户通道。
@@ -173,7 +205,8 @@ module eth_stack_port #(
   // 参数范围检查
   initial begin
     if (MacRxCount < 1 || MacTxCount < 1 || Ipv4RxCount < 1 || Ipv4TxCount < 1 || Ipv6RxCount < 1 ||
-        Ipv6TxCount < 1 || UdpIpv4RxCount < 1 || UdpIpv4TxCount < 1 || ClkFreqHz < 1000) begin
+        Ipv6TxCount < 1 || UdpIpv4RxCount < 1 || UdpIpv4TxCount < 1 ||
+        UdpIpv6RxCount < 1 || UdpIpv6TxCount < 1 || IcmpTxCount < 1 || ClkFreqHz < 1000) begin
       $display("错误：eth_stack_port：不支持的通道数量或时钟频率。");
       $finish;
     end
@@ -188,7 +221,6 @@ module eth_stack_port #(
   wire                         gt_rx_link_up;
   (* ASYNC_REG = "TRUE" *)reg                          link_up_d1;
   (* ASYNC_REG = "TRUE" *)reg                          link_up_d2;
-  wire [         MacRxCount:0] unused_mac_usr;
 
   // 本口配置
   //// IPv4地址配置
@@ -203,6 +235,7 @@ module eth_stack_port #(
   wire [  48*DstIpv6Count-1:0] cfg_dst_mac;
   //// UDP接收端口配置
   wire [32*UdpIpv4RxCount-1:0] cfg_udp_ipv4_dst_port_range;
+  wire [32*UdpIpv6RxCount-1:0] cfg_udp_ipv6_dst_port_range;
   //// ARP与ICMP策略
   wire [ PendingTimeWidth-1:0] cfg_pending_time;
   wire [         ReqWidth-1:0] cfg_arp_priority;
@@ -294,6 +327,20 @@ module eth_stack_port #(
   wire                         ipv4_udp_tx_valid;
   wire                         ipv4_udp_tx_last;
   wire                         ipv4_udp_tx_ready;
+  //// UDP/IPv6接收
+  wire [                511:0] ipv6_udp_rx_data;
+  wire [                 63:0] ipv6_udp_rx_keep;
+  wire [                 96:0] ipv6_udp_rx_usr;
+  wire                         ipv6_udp_rx_valid;
+  wire                         ipv6_udp_rx_last;
+  wire                         ipv6_udp_rx_ready;
+  //// UDP/IPv6发送
+  wire [                511:0] ipv6_udp_tx_data;
+  wire [                 63:0] ipv6_udp_tx_keep;
+  wire [         ReqWidth-1:0] ipv6_udp_tx_usr;
+  wire                         ipv6_udp_tx_valid;
+  wire                         ipv6_udp_tx_last;
+  wire                         ipv6_udp_tx_ready;
   //// ICMP接收
   wire [                511:0] ipv4_icmp_rx_data;
   wire [                 63:0] ipv4_icmp_rx_keep;
@@ -344,7 +391,7 @@ module eth_stack_port #(
       .RxTypeCount        (MacRxCount + 3),
       .TxChannelCount     (MacTxCount + 3),
       .TxReqWidth         (ReqWidth),
-      .LedHalfPeriodCycles(ClkFreqHz / 2)
+      .LedHalfPeriodCycles(InitClkFreqHz / 2)
   ) eth_port_top_inst (
       .init_clk   (init_clk),
       .arst       (!clk_locked),
@@ -376,7 +423,7 @@ module eth_stack_port #(
 
       .axis_mdata ({mac_axis_mdata, ipv6_eth_rx_data, ipv4_eth_rx_data, arp_rx_data}),
       .axis_mkeep ({mac_axis_mkeep, ipv6_eth_rx_keep, ipv4_eth_rx_keep, arp_rx_keep}),
-      .axis_musr  ({unused_mac_usr, ipv6_eth_rx_usr, ipv4_eth_rx_usr, arp_rx_usr}),
+      .axis_musr  ({mac_axis_musr, ipv6_eth_rx_usr, ipv4_eth_rx_usr, arp_rx_usr}),
       .axis_mvalid({mac_axis_mvalid, ipv6_eth_rx_valid, ipv4_eth_rx_valid, arp_rx_valid}),
       .axis_mlast ({mac_axis_mlast, ipv6_eth_rx_last, ipv4_eth_rx_last, arp_rx_last}),
       .axis_mready({mac_axis_mready, ipv6_eth_rx_ready, ipv4_eth_rx_ready, arp_rx_ready}),
@@ -493,10 +540,10 @@ module eth_stack_port #(
       .stat_tx_drop(stat_ipv4_tx_drop)
   );
 
-  // ICMPv4：内部生成回显应答，非回显报文交给用户。
+  // ICMPv4：业务发送与内部回显应答仲裁，其他接收报文交给用户。
   icmpv4_top #(
       .ReqWidth      (ReqWidth),
-      .TxChannelCount(1)
+      .TxChannelCount(IcmpTxCount)
   ) icmpv4_top_inst (
       .clk(clk),
       .rst(rst),
@@ -518,12 +565,12 @@ module eth_stack_port #(
       .other_axis_mlast (icmp_axis_mlast),
       .other_axis_mready(icmp_axis_mready),
 
-      .tx_axis_sdata (512'd0),
-      .tx_axis_skeep (64'd0),
-      .tx_axis_susr  ({ReqWidth{1'b0}}),
-      .tx_axis_svalid(1'b0),
-      .tx_axis_slast (1'b0),
-      .tx_axis_sready(),
+      .tx_axis_sdata (icmp_axis_sdata),
+      .tx_axis_skeep (icmp_axis_skeep),
+      .tx_axis_susr  (icmp_axis_susr),
+      .tx_axis_svalid(icmp_axis_svalid),
+      .tx_axis_slast (icmp_axis_slast),
+      .tx_axis_sready(icmp_axis_sready),
 
       .tx_axis_mdata (ipv4_icmp_tx_data),
       .tx_axis_mkeep (ipv4_icmp_tx_keep),
@@ -535,19 +582,19 @@ module eth_stack_port #(
       .stat_ttl_error(stat_icmp_ttl_error)
   );
 
-  // IPv6：保留原协议分流和发送查表。
+  // IPv6：内部档0接收UDP，其余用户通道保持原索引。
   ipv6_top #(
-      .RxTypeCount     (Ipv6RxCount),
+      .RxTypeCount     (Ipv6RxCount + 1),
       .DstMacEntryCount(DstIpv6Count),
       .SrcMacEntryCount(SrcIpv6Count),
-      .TxChannelCount  (Ipv6TxCount),
+      .TxChannelCount  (Ipv6TxCount + 1),
       .TxReqWidth      (ReqWidth)
   ) ipv6_top_inst (
       .clk(clk),
       .rst(rst),
 
       .cfg_stat_clear  (cfg_stat_clear),
-      .cfg_rx_type_dict(Ipv6TypeDict),
+      .cfg_rx_type_dict({Ipv6TypeDict, 8'h11}),
 
       .rx_axis_sdata (ipv6_eth_rx_data),
       .rx_axis_skeep (ipv6_eth_rx_keep),
@@ -556,19 +603,19 @@ module eth_stack_port #(
       .rx_axis_slast (ipv6_eth_rx_last),
       .rx_axis_sready(ipv6_eth_rx_ready),
 
-      .rx_axis_mdata (ipv6_axis_mdata),
-      .rx_axis_mkeep (ipv6_axis_mkeep),
-      .rx_axis_musr  (ipv6_axis_musr),
-      .rx_axis_mvalid(ipv6_axis_mvalid),
-      .rx_axis_mlast (ipv6_axis_mlast),
-      .rx_axis_mready(ipv6_axis_mready),
+      .rx_axis_mdata ({ipv6_axis_mdata, ipv6_udp_rx_data}),
+      .rx_axis_mkeep ({ipv6_axis_mkeep, ipv6_udp_rx_keep}),
+      .rx_axis_musr  ({ipv6_axis_musr, ipv6_udp_rx_usr}),
+      .rx_axis_mvalid({ipv6_axis_mvalid, ipv6_udp_rx_valid}),
+      .rx_axis_mlast ({ipv6_axis_mlast, ipv6_udp_rx_last}),
+      .rx_axis_mready({ipv6_axis_mready, ipv6_udp_rx_ready}),
 
-      .tx_axis_sdata (ipv6_axis_sdata),
-      .tx_axis_skeep (ipv6_axis_skeep),
-      .tx_axis_susr  (ipv6_axis_susr),
-      .tx_axis_svalid(ipv6_axis_svalid),
-      .tx_axis_slast (ipv6_axis_slast),
-      .tx_axis_sready(ipv6_axis_sready),
+      .tx_axis_sdata ({ipv6_axis_sdata, ipv6_udp_tx_data}),
+      .tx_axis_skeep ({ipv6_axis_skeep, ipv6_udp_tx_keep}),
+      .tx_axis_susr  ({ipv6_axis_susr, ipv6_udp_tx_usr}),
+      .tx_axis_svalid({ipv6_axis_svalid, ipv6_udp_tx_valid}),
+      .tx_axis_slast ({ipv6_axis_slast, ipv6_udp_tx_last}),
+      .tx_axis_sready({ipv6_axis_sready, ipv6_udp_tx_ready}),
 
       .tx_axis_mdata (ipv6_eth_tx_data),
       .tx_axis_mkeep (ipv6_eth_tx_keep),
@@ -585,7 +632,47 @@ module eth_stack_port #(
       .stat_tx_drop(stat_ipv6_tx_drop)
   );
 
-  // UDP/IPv4：命令RX占档0，命令TX接在业务档后。
+  // UDP(IPv6)：端口字典独立配置，末路为兜底。
+  udp_ipv6_top #(
+      .RxPortCount   (UdpIpv6RxCount),
+      .TxChannelCount(UdpIpv6TxCount),
+      .TxReqWidth    (ReqWidth)
+  ) udp_ipv6_top_inst (
+      .clk(clk),
+      .rst(rst),
+
+      .cfg_dst_port_range(cfg_udp_ipv6_dst_port_range),
+
+      .rx_axis_sdata (ipv6_udp_rx_data),
+      .rx_axis_skeep (ipv6_udp_rx_keep),
+      .rx_axis_susr  (ipv6_udp_rx_usr),
+      .rx_axis_svalid(ipv6_udp_rx_valid),
+      .rx_axis_slast (ipv6_udp_rx_last),
+      .rx_axis_sready(ipv6_udp_rx_ready),
+
+      .rx_axis_mdata (udp_ipv6_axis_mdata),
+      .rx_axis_mkeep (udp_ipv6_axis_mkeep),
+      .rx_axis_musr  (udp_ipv6_axis_musr),
+      .rx_axis_mvalid(udp_ipv6_axis_mvalid),
+      .rx_axis_mlast (udp_ipv6_axis_mlast),
+      .rx_axis_mready(udp_ipv6_axis_mready),
+
+      .tx_axis_sdata (udp_ipv6_axis_sdata),
+      .tx_axis_skeep (udp_ipv6_axis_skeep),
+      .tx_axis_susr  (udp_ipv6_axis_susr),
+      .tx_axis_svalid(udp_ipv6_axis_svalid),
+      .tx_axis_slast (udp_ipv6_axis_slast),
+      .tx_axis_sready(udp_ipv6_axis_sready),
+
+      .tx_axis_mdata (ipv6_udp_tx_data),
+      .tx_axis_mkeep (ipv6_udp_tx_keep),
+      .tx_axis_musr  (ipv6_udp_tx_usr),
+      .tx_axis_mvalid(ipv6_udp_tx_valid),
+      .tx_axis_mlast (ipv6_udp_tx_last),
+      .tx_axis_mready(ipv6_udp_tx_ready)
+  );
+
+  // UDP(IPv4)：命令RX占档0，命令TX接在业务档后。
   udp_ipv4_top #(
       .RxPortCount   (UdpIpv4RxCount + 1),
       .TxChannelCount(UdpIpv4TxCount + 1),
@@ -634,6 +721,7 @@ module eth_stack_port #(
       .SrcIpv6Count    (SrcIpv6Count),
       .DstIpv6Count    (DstIpv6Count),
       .UdpIpv4RxCount  (UdpIpv4RxCount),
+      .UdpIpv6RxCount  (UdpIpv6RxCount),
       .ReqWidth        (ReqWidth),
 
       .DefaultLocalIp   (DefaultLocalIp),
@@ -647,6 +735,7 @@ module eth_stack_port #(
       .DefaultDstMac (DefaultDstMac),
 
       .DefaultUdpIpv4Range(DefaultUdpIpv4Range),
+      .DefaultUdpIpv6Range(DefaultUdpIpv6Range),
 
       .DefaultPendingTime (DefaultPendingTime),
       .DefaultArpPriority (DefaultArpPriority),
@@ -687,6 +776,7 @@ module eth_stack_port #(
       .cfg_dst_mac (cfg_dst_mac),
 
       .cfg_udp_ipv4_dst_port_range(cfg_udp_ipv4_dst_port_range),
+      .cfg_udp_ipv6_dst_port_range(cfg_udp_ipv6_dst_port_range),
 
       .cfg_pending_time (cfg_pending_time),
       .cfg_arp_priority (cfg_arp_priority),

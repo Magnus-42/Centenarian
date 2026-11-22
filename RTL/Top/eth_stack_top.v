@@ -14,8 +14,11 @@
 `timescale 1ns / 100ps
 
 module eth_stack_top #(
-    parameter integer ReqWidth = 4,
-    localparam integer UdpTxUsrWidth = 104 + ReqWidth
+    parameter  integer ReqWidth          = 4,
+    parameter  integer InitClkFreqHz     = 100000000,
+    parameter  integer ClkFreqHz         = 400000000,
+    localparam integer UdpTxUsrWidth     = 104 + ReqWidth,
+    localparam integer UdpIpv6TxUsrWidth = 296 + ReqWidth
 ) (
     // 公共时钟与复位
     input  wire init_clk,
@@ -42,6 +45,7 @@ module eth_stack_top #(
     //// MAC接收
     output wire [1535:0] a_mac_axis_mdata,
     output wire [ 191:0] a_mac_axis_mkeep,
+    output wire [   2:0] a_mac_axis_musr,
     output wire [   2:0] a_mac_axis_mvalid,
     output wire [   2:0] a_mac_axis_mlast,
     input  wire [   2:0] a_mac_axis_mready,
@@ -78,6 +82,14 @@ module eth_stack_top #(
     output wire         a_icmp_axis_mlast,
     input  wire         a_icmp_axis_mready,
 
+    // ICMPv4发送
+    input  wire [       511:0] a_icmp_axis_sdata,
+    input  wire [        63:0] a_icmp_axis_skeep,
+    input  wire [ReqWidth-1:0] a_icmp_axis_susr,
+    input  wire                a_icmp_axis_svalid,
+    input  wire                a_icmp_axis_slast,
+    output wire                a_icmp_axis_sready,
+
     //// IPv6接收
     output wire [2047:0] a_ipv6_axis_mdata,
     output wire [ 255:0] a_ipv6_axis_mkeep,
@@ -94,7 +106,7 @@ module eth_stack_top #(
     input  wire [           2:0] a_ipv6_axis_slast,
     output wire [           2:0] a_ipv6_axis_sready,
 
-    //// UDP接收
+    //// UDP(IPV4)接收
     output wire [2047:0] a_udp_ipv4_axis_mdata,
     output wire [ 255:0] a_udp_ipv4_axis_mkeep,
     output wire [ 963:0] a_udp_ipv4_axis_musr,
@@ -102,13 +114,29 @@ module eth_stack_top #(
     output wire [   3:0] a_udp_ipv4_axis_mlast,
     input  wire [   3:0] a_udp_ipv4_axis_mready,
 
-    //// UDP发送
+    //// UDP(IPV4)发送
     input  wire [             4095:0] a_udp_ipv4_axis_sdata,
     input  wire [              511:0] a_udp_ipv4_axis_skeep,
     input  wire [8*UdpTxUsrWidth-1:0] a_udp_ipv4_axis_susr,
     input  wire [                7:0] a_udp_ipv4_axis_svalid,
     input  wire [                7:0] a_udp_ipv4_axis_slast,
     output wire [                7:0] a_udp_ipv4_axis_sready,
+
+    //// UDP(IPV6)接收
+    output wire [2047:0] a_udp_ipv6_axis_mdata,
+    output wire [ 255:0] a_udp_ipv6_axis_mkeep,
+    output wire [1731:0] a_udp_ipv6_axis_musr,
+    output wire [   3:0] a_udp_ipv6_axis_mvalid,
+    output wire [   3:0] a_udp_ipv6_axis_mlast,
+    input  wire [   3:0] a_udp_ipv6_axis_mready,
+
+    //// UDP(IPV6)发送
+    input  wire [                 1023:0] a_udp_ipv6_axis_sdata,
+    input  wire [                  127:0] a_udp_ipv6_axis_skeep,
+    input  wire [2*UdpIpv6TxUsrWidth-1:0] a_udp_ipv6_axis_susr,
+    input  wire [                    1:0] a_udp_ipv6_axis_svalid,
+    input  wire [                    1:0] a_udp_ipv6_axis_slast,
+    output wire [                    1:0] a_udp_ipv6_axis_sready,
 
     // B口板级和业务接口
     //// GT接口
@@ -128,6 +156,7 @@ module eth_stack_top #(
     //// MAC接收
     output wire [1023:0] b_mac_axis_mdata,
     output wire [ 127:0] b_mac_axis_mkeep,
+    output wire [   1:0] b_mac_axis_musr,
     output wire [   1:0] b_mac_axis_mvalid,
     output wire [   1:0] b_mac_axis_mlast,
     input  wire [   1:0] b_mac_axis_mready,
@@ -164,6 +193,14 @@ module eth_stack_top #(
     output wire         b_icmp_axis_mlast,
     input  wire         b_icmp_axis_mready,
 
+    // ICMPv4业务发送（完整IPv4包）
+    input  wire [       511:0] b_icmp_axis_sdata,
+    input  wire [        63:0] b_icmp_axis_skeep,
+    input  wire [ReqWidth-1:0] b_icmp_axis_susr,
+    input  wire                b_icmp_axis_svalid,
+    input  wire                b_icmp_axis_slast,
+    output wire                b_icmp_axis_sready,
+
     //// IPv6接收
     output wire [2047:0] b_ipv6_axis_mdata,
     output wire [ 255:0] b_ipv6_axis_mkeep,
@@ -194,7 +231,23 @@ module eth_stack_top #(
     input  wire [4*UdpTxUsrWidth-1:0] b_udp_ipv4_axis_susr,
     input  wire [                3:0] b_udp_ipv4_axis_svalid,
     input  wire [                3:0] b_udp_ipv4_axis_slast,
-    output wire [                3:0] b_udp_ipv4_axis_sready
+    output wire [                3:0] b_udp_ipv4_axis_sready,
+
+    //// UDP/IPv6接收
+    output wire [2047:0] b_udp_ipv6_axis_mdata,
+    output wire [ 255:0] b_udp_ipv6_axis_mkeep,
+    output wire [1731:0] b_udp_ipv6_axis_musr,
+    output wire [   3:0] b_udp_ipv6_axis_mvalid,
+    output wire [   3:0] b_udp_ipv6_axis_mlast,
+    input  wire [   3:0] b_udp_ipv6_axis_mready,
+
+    //// UDP/IPv6发送
+    input  wire [                 1023:0] b_udp_ipv6_axis_sdata,
+    input  wire [                  127:0] b_udp_ipv6_axis_skeep,
+    input  wire [2*UdpIpv6TxUsrWidth-1:0] b_udp_ipv6_axis_susr,
+    input  wire [                    1:0] b_udp_ipv6_axis_svalid,
+    input  wire [                    1:0] b_udp_ipv6_axis_slast,
+    output wire [                    1:0] b_udp_ipv6_axis_sready
 );
 
   // 分别连接A/B口协议栈与板级、用户业务接口。
@@ -209,7 +262,9 @@ module eth_stack_top #(
 
   // A口协议栈
   eth_stack_port_a #(
-      .ReqWidth(ReqWidth)
+      .ReqWidth(ReqWidth),
+      .InitClkFreqHz(InitClkFreqHz),
+      .ClkFreqHz(ClkFreqHz)
   ) eth_stack_port_a_inst (
       .init_clk  (init_clk),
       .clk       (clk),
@@ -233,6 +288,7 @@ module eth_stack_top #(
 
       .mac_axis_mdata (a_mac_axis_mdata),
       .mac_axis_mkeep (a_mac_axis_mkeep),
+      .mac_axis_musr  (a_mac_axis_musr),
       .mac_axis_mvalid(a_mac_axis_mvalid),
       .mac_axis_mlast (a_mac_axis_mlast),
       .mac_axis_mready(a_mac_axis_mready),
@@ -265,6 +321,13 @@ module eth_stack_top #(
       .icmp_axis_mlast (a_icmp_axis_mlast),
       .icmp_axis_mready(a_icmp_axis_mready),
 
+      .icmp_axis_sdata (a_icmp_axis_sdata),
+      .icmp_axis_skeep (a_icmp_axis_skeep),
+      .icmp_axis_susr  (a_icmp_axis_susr),
+      .icmp_axis_svalid(a_icmp_axis_svalid),
+      .icmp_axis_slast (a_icmp_axis_slast),
+      .icmp_axis_sready(a_icmp_axis_sready),
+
       .ipv6_axis_mdata (a_ipv6_axis_mdata),
       .ipv6_axis_mkeep (a_ipv6_axis_mkeep),
       .ipv6_axis_musr  (a_ipv6_axis_musr),
@@ -291,12 +354,28 @@ module eth_stack_top #(
       .udp_ipv4_axis_susr  (a_udp_ipv4_axis_susr),
       .udp_ipv4_axis_svalid(a_udp_ipv4_axis_svalid),
       .udp_ipv4_axis_slast (a_udp_ipv4_axis_slast),
-      .udp_ipv4_axis_sready(a_udp_ipv4_axis_sready)
+      .udp_ipv4_axis_sready(a_udp_ipv4_axis_sready),
+
+      .udp_ipv6_axis_mdata (a_udp_ipv6_axis_mdata),
+      .udp_ipv6_axis_mkeep (a_udp_ipv6_axis_mkeep),
+      .udp_ipv6_axis_musr  (a_udp_ipv6_axis_musr),
+      .udp_ipv6_axis_mvalid(a_udp_ipv6_axis_mvalid),
+      .udp_ipv6_axis_mlast (a_udp_ipv6_axis_mlast),
+      .udp_ipv6_axis_mready(a_udp_ipv6_axis_mready),
+
+      .udp_ipv6_axis_sdata (a_udp_ipv6_axis_sdata),
+      .udp_ipv6_axis_skeep (a_udp_ipv6_axis_skeep),
+      .udp_ipv6_axis_susr  (a_udp_ipv6_axis_susr),
+      .udp_ipv6_axis_svalid(a_udp_ipv6_axis_svalid),
+      .udp_ipv6_axis_slast (a_udp_ipv6_axis_slast),
+      .udp_ipv6_axis_sready(a_udp_ipv6_axis_sready)
   );
 
   // B口协议栈
   eth_stack_port_b #(
-      .ReqWidth(ReqWidth)
+      .ReqWidth(ReqWidth),
+      .InitClkFreqHz(InitClkFreqHz),
+      .ClkFreqHz(ClkFreqHz)
   ) eth_stack_port_b_inst (
       .init_clk  (init_clk),
       .clk       (clk),
@@ -320,6 +399,7 @@ module eth_stack_top #(
 
       .mac_axis_mdata (b_mac_axis_mdata),
       .mac_axis_mkeep (b_mac_axis_mkeep),
+      .mac_axis_musr  (b_mac_axis_musr),
       .mac_axis_mvalid(b_mac_axis_mvalid),
       .mac_axis_mlast (b_mac_axis_mlast),
       .mac_axis_mready(b_mac_axis_mready),
@@ -352,6 +432,13 @@ module eth_stack_top #(
       .icmp_axis_mlast (b_icmp_axis_mlast),
       .icmp_axis_mready(b_icmp_axis_mready),
 
+      .icmp_axis_sdata (b_icmp_axis_sdata),
+      .icmp_axis_skeep (b_icmp_axis_skeep),
+      .icmp_axis_susr  (b_icmp_axis_susr),
+      .icmp_axis_svalid(b_icmp_axis_svalid),
+      .icmp_axis_slast (b_icmp_axis_slast),
+      .icmp_axis_sready(b_icmp_axis_sready),
+
       .ipv6_axis_mdata (b_ipv6_axis_mdata),
       .ipv6_axis_mkeep (b_ipv6_axis_mkeep),
       .ipv6_axis_musr  (b_ipv6_axis_musr),
@@ -378,7 +465,21 @@ module eth_stack_top #(
       .udp_ipv4_axis_susr  (b_udp_ipv4_axis_susr),
       .udp_ipv4_axis_svalid(b_udp_ipv4_axis_svalid),
       .udp_ipv4_axis_slast (b_udp_ipv4_axis_slast),
-      .udp_ipv4_axis_sready(b_udp_ipv4_axis_sready)
+      .udp_ipv4_axis_sready(b_udp_ipv4_axis_sready),
+
+      .udp_ipv6_axis_mdata (b_udp_ipv6_axis_mdata),
+      .udp_ipv6_axis_mkeep (b_udp_ipv6_axis_mkeep),
+      .udp_ipv6_axis_musr  (b_udp_ipv6_axis_musr),
+      .udp_ipv6_axis_mvalid(b_udp_ipv6_axis_mvalid),
+      .udp_ipv6_axis_mlast (b_udp_ipv6_axis_mlast),
+      .udp_ipv6_axis_mready(b_udp_ipv6_axis_mready),
+
+      .udp_ipv6_axis_sdata (b_udp_ipv6_axis_sdata),
+      .udp_ipv6_axis_skeep (b_udp_ipv6_axis_skeep),
+      .udp_ipv6_axis_susr  (b_udp_ipv6_axis_susr),
+      .udp_ipv6_axis_svalid(b_udp_ipv6_axis_svalid),
+      .udp_ipv6_axis_slast (b_udp_ipv6_axis_slast),
+      .udp_ipv6_axis_sready(b_udp_ipv6_axis_sready)
   );
 
 endmodule

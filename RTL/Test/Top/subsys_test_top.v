@@ -6,7 +6,7 @@
 // -----------------------------------------------------------------------------
 // Description : eth_stack_top 双口板级测试，A/B 经外部光缆对接。
 // Note        : 每个测试器从本口发送，在对端对应的协议通道校验。
-//               VIO probe_out0..22 控制23路使能，probe_out23 配置共享包间隔。
+//               VIO probe_out0..22、24..27 控制27路使能，probe_out23 配置共享包间隔。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -43,7 +43,7 @@ module subsys_test_top (
     output wire       qsfp_led_port_b
 );
 
-  // 生成400MHz业务时钟，复位释放后由VIO独立启动23路测试流。
+  // 生成400MHz业务时钟，复位释放后由VIO独立启动27路测试流。
   // A/B口经外部光缆对接，每路测试器在对端对应通道校验。
 
   // 基础常量
@@ -96,24 +96,61 @@ module subsys_test_top (
   };
   localparam [107:0] UDP_USR_FB_B = {CFG_A_IP, CFG_B_IP, 16'h3412, 16'h0000, 8'h40, PRIO_FB};
 
+  // UDP/IPv6 TX 每包元数据（300位），目的端口2命中档0，0x1234走兜底。
+  localparam [299:0] UDP_IPV6_USR_DATA_A = {
+    DST_IPV6_A, SRC_IPV6_A, CHK_PORT, 16'h0100, 8'h40, PRIO_UDP_A
+  };
+  localparam [299:0] UDP_IPV6_USR_FB_A = {
+    DST_IPV6_A, SRC_IPV6_A, 16'h3412, 16'h0100, 8'h40, PRIO_FB
+  };
+  localparam [299:0] UDP_IPV6_USR_DATA_B = {
+    DST_IPV6_B, SRC_IPV6_B, CHK_PORT, 16'h0100, 8'h40, PRIO_UDP_B
+  };
+  localparam [299:0] UDP_IPV6_USR_FB_B = {
+    DST_IPV6_B, SRC_IPV6_B, 16'h3412, 16'h0100, 8'h40, PRIO_FB
+  };
+
   // MAC与IPv4测试头：低字节为线上第一字节。
   // 以太帧头 14B: dst_mac(6) src_mac(6) type(2)
   localparam [159:0] HDR_MAC_88B5_A = {16'hB588, CFG_A_MAC, CFG_B_MAC};  // 自定义类型 0x88B5
   localparam [159:0] HDR_MAC_88B5_B = {16'hB588, CFG_B_MAC, CFG_A_MAC};
-  localparam [159:0] HDR_MAC_88CC_B = {
-    16'hCC88, CFG_B_MAC, CFG_A_MAC
-  };  // 自定义类型 0x88CC(仅 B 发, 只落 A 的用户档)
-  localparam [159:0] HDR_MAC_FB_A = {
-    16'hDD88, CFG_A_MAC, CFG_B_MAC
-  };  // 0x88DD: 两口字典都没有 -> 落对端兜底档
+  // 自定义类型 0x88CC(仅 B 发, 只落 A 的用户档)
+  localparam [159:0] HDR_MAC_88CC_B = {16'hCC88, CFG_B_MAC, CFG_A_MAC};
+  // 0x88DD: 两口字典都没有 -> 落对端兜底档
+  localparam [159:0] HDR_MAC_FB_A = {16'hDD88, CFG_A_MAC, CFG_B_MAC};
   localparam [159:0] HDR_MAC_FB_B = {16'hDD88, CFG_B_MAC, CFG_A_MAC};
-  // 纯 IPv4 头 20B（protocol: icmp=0x01 / ospf=0x59 / 0x06 / 0x2F=兜底探测）
-  localparam [159:0] HDR_IP_ICMP_A = {
-    CFG_B_IP, CFG_A_IP, 16'h0000, 8'h01, 8'h40, 16'h0040, 16'h0000, IP_LEN_FULL_LE, 8'h00, 8'h45
+  // IPv4首部20字节，ICMPv4 Echo Reply首部8字节。
+  localparam [223:0] HDR_IP_ICMP_A = {
+    32'd0,
+    16'hFF87,
+    16'h0000,
+    CFG_B_IP,
+    CFG_A_IP,
+    16'h09B3,
+    8'h01,
+    8'h40,
+    16'h0040,
+    16'h0000,
+    IP_LEN_FULL_LE,
+    8'h00,
+    8'h45
   };
-  localparam [159:0] HDR_IP_ICMP_B = {
-    CFG_A_IP, CFG_B_IP, 16'h0000, 8'h01, 8'h40, 16'h0040, 16'h0000, IP_LEN_FULL_LE, 8'h00, 8'h45
+  localparam [223:0] HDR_IP_ICMP_B = {
+    32'd0,
+    16'hFF87,
+    16'h0000,
+    CFG_A_IP,
+    CFG_B_IP,
+    16'h09B3,
+    8'h01,
+    8'h40,
+    16'h0040,
+    16'h0000,
+    IP_LEN_FULL_LE,
+    8'h00,
+    8'h45
   };
+  // 其他IPv4测试头（protocol: ospf=0x59 / 0x06 / 0x2F=兜底探测）
   localparam [159:0] HDR_IP_OSPF_A = {
     CFG_B_IP, CFG_A_IP, 16'h0000, 8'h59, 8'h40, 16'h0040, 16'h0000, IP_LEN_FULL_LE, 8'h00, 8'h45
   };
@@ -191,10 +228,15 @@ module subsys_test_top (
   wire en_b_fb_ipv4;
   wire en_b_fb_ipv6;
   wire en_b_fb_udp;
+  wire en_a_udp_ipv6;
+  wire en_b_udp_ipv6;
+  wire en_a_fb_udp_ipv6;
+  wire en_b_fb_udp_ipv6;
 
   // A口MAC接收接口
   wire [1535:0] a_mac_axis_mdata;
   wire [191:0] a_mac_axis_mkeep;
+  wire [2:0] a_mac_axis_musr;
   wire [2:0] a_mac_axis_mvalid;
   wire [2:0] a_mac_axis_mlast;
   wire [2:0] a_mac_axis_mready;
@@ -229,6 +271,14 @@ module subsys_test_top (
   wire a_icmp_axis_mlast;
   wire a_icmp_axis_mready;
 
+  // A口ICMPv4发送接口
+  wire [511:0] a_icmp_axis_sdata;
+  wire [63:0] a_icmp_axis_skeep;
+  wire [3:0] a_icmp_axis_susr;
+  wire a_icmp_axis_svalid;
+  wire a_icmp_axis_slast;
+  wire a_icmp_axis_sready;
+
   // A口IPv6接收接口
   wire [2047:0] a_ipv6_axis_mdata;
   wire [255:0] a_ipv6_axis_mkeep;
@@ -244,14 +294,14 @@ module subsys_test_top (
   wire [2:0] a_ipv6_axis_slast;
   wire [2:0] a_ipv6_axis_sready;
 
-  // A口UDP接收接口
+  // A口UDP(IPV4)接收接口
   wire [2047:0] a_udp_ipv4_axis_mdata;
   wire [255:0] a_udp_ipv4_axis_mkeep;
   wire [3:0] a_udp_ipv4_axis_mvalid;
   wire [3:0] a_udp_ipv4_axis_mlast;
   wire [3:0] a_udp_ipv4_axis_mready;
 
-  // A口UDP发送接口
+  // A口UDP(IPV4)发送接口
   wire [4095:0] a_udp_ipv4_axis_sdata;
   wire [511:0] a_udp_ipv4_axis_skeep;
   wire [8*108-1:0] a_udp_ipv4_axis_susr;
@@ -259,9 +309,25 @@ module subsys_test_top (
   wire [7:0] a_udp_ipv4_axis_slast;
   wire [7:0] a_udp_ipv4_axis_sready;
 
+  // UDP(IPV6)接收
+  wire [2047:0] a_udp_ipv6_axis_mdata;
+  wire [255:0] a_udp_ipv6_axis_mkeep;
+  wire [3:0] a_udp_ipv6_axis_mvalid;
+  wire [3:0] a_udp_ipv6_axis_mlast;
+  wire [3:0] a_udp_ipv6_axis_mready;
+
+  // A口UDP(IPV6)发送接口
+  wire [1023:0] a_udp_ipv6_axis_sdata;
+  wire [127:0] a_udp_ipv6_axis_skeep;
+  wire [2*300-1:0] a_udp_ipv6_axis_susr;
+  wire [1:0] a_udp_ipv6_axis_svalid;
+  wire [1:0] a_udp_ipv6_axis_slast;
+  wire [1:0] a_udp_ipv6_axis_sready;
+
   // B口MAC接收接口
   wire [1023:0] b_mac_axis_mdata;
   wire [127:0] b_mac_axis_mkeep;
+  wire [1:0] b_mac_axis_musr;
   wire [1:0] b_mac_axis_mvalid;
   wire [1:0] b_mac_axis_mlast;
   wire [1:0] b_mac_axis_mready;
@@ -296,6 +362,14 @@ module subsys_test_top (
   wire b_icmp_axis_mlast;
   wire b_icmp_axis_mready;
 
+  // B口ICMPv4发送接口
+  wire [511:0] b_icmp_axis_sdata;
+  wire [63:0] b_icmp_axis_skeep;
+  wire [3:0] b_icmp_axis_susr;
+  wire b_icmp_axis_svalid;
+  wire b_icmp_axis_slast;
+  wire b_icmp_axis_sready;
+
   // B口IPv6接收接口
   wire [2047:0] b_ipv6_axis_mdata;
   wire [255:0] b_ipv6_axis_mkeep;
@@ -311,20 +385,35 @@ module subsys_test_top (
   wire [2:0] b_ipv6_axis_slast;
   wire [2:0] b_ipv6_axis_sready;
 
-  // B口UDP接收接口
+  // B口UDP(IPV4)接收接口
   wire [2047:0] b_udp_ipv4_axis_mdata;
   wire [255:0] b_udp_ipv4_axis_mkeep;
   wire [3:0] b_udp_ipv4_axis_mvalid;
   wire [3:0] b_udp_ipv4_axis_mlast;
   wire [3:0] b_udp_ipv4_axis_mready;
 
-  // B口UDP发送接口
+  // B口UDP(IPV4)发送接口
   wire [2047:0] b_udp_ipv4_axis_sdata;
   wire [255:0] b_udp_ipv4_axis_skeep;
   wire [4*108-1:0] b_udp_ipv4_axis_susr;
   wire [3:0] b_udp_ipv4_axis_svalid;
   wire [3:0] b_udp_ipv4_axis_slast;
   wire [3:0] b_udp_ipv4_axis_sready;
+
+  // UDP(IPV6)接收
+  wire [2047:0] b_udp_ipv6_axis_mdata;
+  wire [255:0] b_udp_ipv6_axis_mkeep;
+  wire [3:0] b_udp_ipv6_axis_mvalid;
+  wire [3:0] b_udp_ipv6_axis_mlast;
+  wire [3:0] b_udp_ipv6_axis_mready;
+
+  // B口UDP(IPV6)发送接口
+  wire [1023:0] b_udp_ipv6_axis_sdata;
+  wire [127:0] b_udp_ipv6_axis_skeep;
+  wire [2*300-1:0] b_udp_ipv6_axis_susr;
+  wire [1:0] b_udp_ipv6_axis_svalid;
+  wire [1:0] b_udp_ipv6_axis_slast;
+  wire [1:0] b_udp_ipv6_axis_sready;
 
   // 业务时钟生成
   clk_100_to_400m u_clk_100_to_400m (
@@ -368,6 +457,7 @@ module subsys_test_top (
 
       .a_mac_axis_mdata (a_mac_axis_mdata),
       .a_mac_axis_mkeep (a_mac_axis_mkeep),
+      .a_mac_axis_musr  (a_mac_axis_musr),
       .a_mac_axis_mvalid(a_mac_axis_mvalid),
       .a_mac_axis_mlast (a_mac_axis_mlast),
       .a_mac_axis_mready(a_mac_axis_mready),
@@ -400,6 +490,13 @@ module subsys_test_top (
       .a_icmp_axis_mlast (a_icmp_axis_mlast),
       .a_icmp_axis_mready(a_icmp_axis_mready),
 
+      .a_icmp_axis_sdata (a_icmp_axis_sdata),
+      .a_icmp_axis_skeep (a_icmp_axis_skeep),
+      .a_icmp_axis_susr  (a_icmp_axis_susr),
+      .a_icmp_axis_svalid(a_icmp_axis_svalid),
+      .a_icmp_axis_slast (a_icmp_axis_slast),
+      .a_icmp_axis_sready(a_icmp_axis_sready),
+
       .a_ipv6_axis_mdata (a_ipv6_axis_mdata),
       .a_ipv6_axis_mkeep (a_ipv6_axis_mkeep),
       .a_ipv6_axis_musr  (),
@@ -428,6 +525,20 @@ module subsys_test_top (
       .a_udp_ipv4_axis_slast (a_udp_ipv4_axis_slast),
       .a_udp_ipv4_axis_sready(a_udp_ipv4_axis_sready),
 
+      .a_udp_ipv6_axis_mdata (a_udp_ipv6_axis_mdata),
+      .a_udp_ipv6_axis_mkeep (a_udp_ipv6_axis_mkeep),
+      .a_udp_ipv6_axis_musr  (),
+      .a_udp_ipv6_axis_mvalid(a_udp_ipv6_axis_mvalid),
+      .a_udp_ipv6_axis_mlast (a_udp_ipv6_axis_mlast),
+      .a_udp_ipv6_axis_mready(a_udp_ipv6_axis_mready),
+
+      .a_udp_ipv6_axis_sdata (a_udp_ipv6_axis_sdata),
+      .a_udp_ipv6_axis_skeep (a_udp_ipv6_axis_skeep),
+      .a_udp_ipv6_axis_susr  (a_udp_ipv6_axis_susr),
+      .a_udp_ipv6_axis_svalid(a_udp_ipv6_axis_svalid),
+      .a_udp_ipv6_axis_slast (a_udp_ipv6_axis_slast),
+      .a_udp_ipv6_axis_sready(a_udp_ipv6_axis_sready),
+
       .b_gt_txp_out  (gt_txp_out_b),
       .b_gt_txn_out  (gt_txn_out_b),
       .b_gt_rxp_in   (gt_rxp_in_b),
@@ -443,6 +554,7 @@ module subsys_test_top (
 
       .b_mac_axis_mdata (b_mac_axis_mdata),
       .b_mac_axis_mkeep (b_mac_axis_mkeep),
+      .b_mac_axis_musr  (b_mac_axis_musr),
       .b_mac_axis_mvalid(b_mac_axis_mvalid),
       .b_mac_axis_mlast (b_mac_axis_mlast),
       .b_mac_axis_mready(b_mac_axis_mready),
@@ -475,6 +587,13 @@ module subsys_test_top (
       .b_icmp_axis_mlast (b_icmp_axis_mlast),
       .b_icmp_axis_mready(b_icmp_axis_mready),
 
+      .b_icmp_axis_sdata (b_icmp_axis_sdata),
+      .b_icmp_axis_skeep (b_icmp_axis_skeep),
+      .b_icmp_axis_susr  (b_icmp_axis_susr),
+      .b_icmp_axis_svalid(b_icmp_axis_svalid),
+      .b_icmp_axis_slast (b_icmp_axis_slast),
+      .b_icmp_axis_sready(b_icmp_axis_sready),
+
       .b_ipv6_axis_mdata (b_ipv6_axis_mdata),
       .b_ipv6_axis_mkeep (b_ipv6_axis_mkeep),
       .b_ipv6_axis_musr  (),
@@ -501,44 +620,68 @@ module subsys_test_top (
       .b_udp_ipv4_axis_susr  (b_udp_ipv4_axis_susr),
       .b_udp_ipv4_axis_svalid(b_udp_ipv4_axis_svalid),
       .b_udp_ipv4_axis_slast (b_udp_ipv4_axis_slast),
-      .b_udp_ipv4_axis_sready(b_udp_ipv4_axis_sready)
+      .b_udp_ipv4_axis_sready(b_udp_ipv4_axis_sready),
+
+      .b_udp_ipv6_axis_mdata (b_udp_ipv6_axis_mdata),
+      .b_udp_ipv6_axis_mkeep (b_udp_ipv6_axis_mkeep),
+      .b_udp_ipv6_axis_musr  (),
+      .b_udp_ipv6_axis_mvalid(b_udp_ipv6_axis_mvalid),
+      .b_udp_ipv6_axis_mlast (b_udp_ipv6_axis_mlast),
+      .b_udp_ipv6_axis_mready(b_udp_ipv6_axis_mready),
+
+      .b_udp_ipv6_axis_sdata (b_udp_ipv6_axis_sdata),
+      .b_udp_ipv6_axis_skeep (b_udp_ipv6_axis_skeep),
+      .b_udp_ipv6_axis_susr  (b_udp_ipv6_axis_susr),
+      .b_udp_ipv6_axis_svalid(b_udp_ipv6_axis_svalid),
+      .b_udp_ipv6_axis_slast (b_udp_ipv6_axis_slast),
+      .b_udp_ipv6_axis_sready(b_udp_ipv6_axis_sready)
   );
 
   // A口静态通道绑定
   //// 未测试接收通道持续接收。
   assign a_ipv4_axis_mready[0] = 1'b1;  // 协议 0xFD
-  assign a_ipv6_axis_mready[0] = 1'b1;  // Next Header 0x11
+  assign a_ipv6_axis_mready[0] = 1'b1;  // 原IPv6 UDP档，当前由内部UDP接收
   assign a_udp_ipv4_axis_mready[2:1] = 2'b11;
-
+  assign a_udp_ipv6_axis_mready[2:1] = 2'b11;
   //// 空闲发送通道关闭。
+  assign a_ipv4_axis_sdata[511:0] = 512'd0;
+  assign a_ipv4_axis_skeep[63:0] = 64'd0;
+  assign a_ipv4_axis_svalid[0] = 1'b0;
+  assign a_ipv4_axis_slast[0] = 1'b0;
   assign a_udp_ipv4_axis_sdata[4095:1024] = 3072'd0;
   assign a_udp_ipv4_axis_skeep[511:128] = 384'd0;
   assign a_udp_ipv4_axis_svalid[7:2] = 6'd0;
   assign a_udp_ipv4_axis_slast[7:2] = 6'd0;
-
   //// 发送usr。
   assign a_mac_axis_susr = {PRIO_FB, PRIO_MAC88B5_A};
-  assign a_ipv4_axis_susr = {PRIO_FB, PRIO_IP06_A, PRIO_OSPF_A, PRIO_ICMP_A};
+  assign a_ipv4_axis_susr = {PRIO_FB, PRIO_IP06_A, PRIO_OSPF_A, 4'd0};
+  assign a_icmp_axis_susr = PRIO_ICMP_A;
   assign a_ipv6_axis_susr = {PRIO_OSPFV3_A, PRIO_ICMPV6_A, PRIO_FB};
   assign a_udp_ipv4_axis_susr = {648'd0, UDP_USR_FB_A, UDP_USR_DATA_A};
+  assign a_udp_ipv6_axis_susr = {UDP_IPV6_USR_FB_A, UDP_IPV6_USR_DATA_A};
 
   // B口静态通道绑定
   //// 未测试接收通道持续接收。
   assign b_ipv4_axis_mready[1] = 1'b1;  // 协议 0xFD
-  assign b_ipv6_axis_mready[0] = 1'b1;  // Next Header 0x11
+  assign b_ipv6_axis_mready[0] = 1'b1;  // 原IPv6 UDP档，当前由内部UDP接收
   assign b_udp_ipv4_axis_mready[2:1] = 2'b11;
-
+  assign b_udp_ipv6_axis_mready[2:1] = 2'b11;
   //// 空闲发送通道关闭。
+  assign b_ipv4_axis_sdata[511:0] = 512'd0;
+  assign b_ipv4_axis_skeep[63:0] = 64'd0;
+  assign b_ipv4_axis_svalid[0] = 1'b0;
+  assign b_ipv4_axis_slast[0] = 1'b0;
   assign b_udp_ipv4_axis_sdata[2047:1024] = 1024'd0;
   assign b_udp_ipv4_axis_skeep[255:128] = 128'd0;
   assign b_udp_ipv4_axis_svalid[3:2] = 2'd0;
   assign b_udp_ipv4_axis_slast[3:2] = 2'd0;
-
   //// 发送usr。
   assign b_mac_axis_susr = {PRIO_FB, PRIO_MAC88B5_B, PRIO_MAC88B5_B};
-  assign b_ipv4_axis_susr = {PRIO_FB, PRIO_IP06_B, PRIO_OSPF_B, PRIO_ICMP_B};
+  assign b_ipv4_axis_susr = {PRIO_FB, PRIO_IP06_B, PRIO_OSPF_B, 4'd0};
+  assign b_icmp_axis_susr = PRIO_ICMP_B;
   assign b_ipv6_axis_susr = {PRIO_OSPFV3_B, PRIO_ICMPV6_B, PRIO_FB};
   assign b_udp_ipv4_axis_susr = {216'd0, UDP_USR_FB_B, UDP_USR_DATA_B};
+  assign b_udp_ipv6_axis_susr = {UDP_IPV6_USR_FB_B, UDP_IPV6_USR_DATA_B};
 
   // A口发送、B口校验
   //// UDP业务流
@@ -566,9 +709,7 @@ module subsys_test_top (
       .axis_slast (b_udp_ipv4_axis_mlast[0]),
       .axis_sready(b_udp_ipv4_axis_mready[0])
   );
-
-  //// IPv4业务流
-  ////// A 口 IPv4-icmp(非 echo) -> 口B ICMPv4 独立口 icmp_axis_m*(不含 echo)
+  //// A口ICMPv4 TX发送Echo Reply，B口ICMPv4 RX校验数据和包长。
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
       .PKT_LEN_BEATS (PKT_LEN_BEATS),
@@ -580,11 +721,11 @@ module subsys_test_top (
       .test_enable   (en_a_icmp),
       .cfg_gap_cycles(cfg_gap_cycles),
 
-      .axis_mdata (a_ipv4_axis_sdata[0*512+:512]),
-      .axis_mkeep (a_ipv4_axis_skeep[0*64+:64]),
-      .axis_mvalid(a_ipv4_axis_svalid[0]),
-      .axis_mlast (a_ipv4_axis_slast[0]),
-      .axis_mready(a_ipv4_axis_sready[0]),
+      .axis_mdata (a_icmp_axis_sdata),
+      .axis_mkeep (a_icmp_axis_skeep),
+      .axis_mvalid(a_icmp_axis_svalid),
+      .axis_mlast (a_icmp_axis_slast),
+      .axis_mready(a_icmp_axis_sready),
 
       .axis_sdata (b_icmp_axis_mdata),
       .axis_skeep (b_icmp_axis_mkeep),
@@ -592,7 +733,7 @@ module subsys_test_top (
       .axis_slast (b_icmp_axis_mlast),
       .axis_sready(b_icmp_axis_mready)
   );
-
+  //// IPv4业务流
   ////// A 口 IPv4-ospf -> 口B ch2(0x59)
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -617,7 +758,6 @@ module subsys_test_top (
       .axis_slast (b_ipv4_axis_mlast[2]),
       .axis_sready(b_ipv4_axis_mready[2])
   );
-
   ////// A 口 IPv4-协议0x06 -> 口B ch0(0x06)
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -642,7 +782,6 @@ module subsys_test_top (
       .axis_slast (b_ipv4_axis_mlast[0]),
       .axis_sready(b_ipv4_axis_mready[0])
   );
-
   //// MAC业务流
   ////// A 口 MAC-自定义类型 0x88B5 -> 口B ch0(0x88B5)
   subsys_100g_tester #(
@@ -668,7 +807,6 @@ module subsys_test_top (
       .axis_slast (b_mac_axis_mlast[0]),
       .axis_sready(b_mac_axis_mready[0])
   );
-
   //// IPv6业务流
   ////// A 口 IPv6-icmpv6 -> 口B ch2(0x3A)
   subsys_100g_tester #(
@@ -694,7 +832,6 @@ module subsys_test_top (
       .axis_slast (b_ipv6_axis_mlast[2]),
       .axis_sready(b_ipv6_axis_mready[2])
   );
-
   ////// A 口 IPv6-ospfv3 -> 口B ch1(0x59)
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -719,7 +856,6 @@ module subsys_test_top (
       .axis_slast (b_ipv6_axis_mlast[1]),
       .axis_sready(b_ipv6_axis_mready[1])
   );
-
   //// 默认通道探测
   ////// A 发 0x88DD(两口字典都无) -> 口B MAC 兜底档
   subsys_100g_tester #(
@@ -745,7 +881,6 @@ module subsys_test_top (
       .axis_slast (b_mac_axis_mlast[1]),
       .axis_sready(b_mac_axis_mready[1])
   );
-
   ////// A 发 IPv4 协议0x2F(未匹配) -> 口B IPv4 兜底档
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -770,7 +905,6 @@ module subsys_test_top (
       .axis_slast (b_ipv4_axis_mlast[3]),
       .axis_sready(b_ipv4_axis_mready[3])
   );
-
   ////// A 发 IPv6 NH=0x06(未匹配) -> 口B IPv6 兜底档
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -795,7 +929,6 @@ module subsys_test_top (
       .axis_slast (b_ipv6_axis_mlast[3]),
       .axis_sready(b_ipv6_axis_mready[3])
   );
-
   ////// A 发 UDP 端口0x1234(不在区间) -> 口B UDP 兜底档
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -847,9 +980,7 @@ module subsys_test_top (
       .axis_slast (a_udp_ipv4_axis_mlast[0]),
       .axis_sready(a_udp_ipv4_axis_mready[0])
   );
-
-  //// IPv4业务流
-  ////// B 口 IPv4-icmp(非 echo) -> 口A ICMPv4 独立口 icmp_axis_m*(不含 echo)
+  //// B口ICMPv4 TX发送Echo Reply，A口ICMPv4 RX校验数据和包长。
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
       .PKT_LEN_BEATS (PKT_LEN_BEATS),
@@ -861,11 +992,11 @@ module subsys_test_top (
       .test_enable   (en_b_icmp),
       .cfg_gap_cycles(cfg_gap_cycles),
 
-      .axis_mdata (b_ipv4_axis_sdata[0*512+:512]),
-      .axis_mkeep (b_ipv4_axis_skeep[0*64+:64]),
-      .axis_mvalid(b_ipv4_axis_svalid[0]),
-      .axis_mlast (b_ipv4_axis_slast[0]),
-      .axis_mready(b_ipv4_axis_sready[0]),
+      .axis_mdata (b_icmp_axis_sdata),
+      .axis_mkeep (b_icmp_axis_skeep),
+      .axis_mvalid(b_icmp_axis_svalid),
+      .axis_mlast (b_icmp_axis_slast),
+      .axis_mready(b_icmp_axis_sready),
 
       .axis_sdata (a_icmp_axis_mdata),
       .axis_skeep (a_icmp_axis_mkeep),
@@ -873,7 +1004,7 @@ module subsys_test_top (
       .axis_slast (a_icmp_axis_mlast),
       .axis_sready(a_icmp_axis_mready)
   );
-
+  //// IPv4业务流
   ////// B 口 IPv4-ospf -> 口A ch1(0x59)
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -898,7 +1029,6 @@ module subsys_test_top (
       .axis_slast (a_ipv4_axis_mlast[1]),
       .axis_sready(a_ipv4_axis_mready[1])
   );
-
   ////// B 口 IPv4-协议0x06 -> 口A ch2(0x06)
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -923,7 +1053,6 @@ module subsys_test_top (
       .axis_slast (a_ipv4_axis_mlast[2]),
       .axis_sready(a_ipv4_axis_mready[2])
   );
-
   //// MAC业务流
   ////// B 口 MAC-自定义类型 0x88B5 -> 口A ch0(0x88B5)
   subsys_100g_tester #(
@@ -949,7 +1078,6 @@ module subsys_test_top (
       .axis_slast (a_mac_axis_mlast[0]),
       .axis_sready(a_mac_axis_mready[0])
   );
-
   ////// B 口 MAC-自定义类型 0x88CC -> 口A ch1(0x88CC, 仅 A 配了该档)
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -974,7 +1102,6 @@ module subsys_test_top (
       .axis_slast (a_mac_axis_mlast[1]),
       .axis_sready(a_mac_axis_mready[1])
   );
-
   //// IPv6业务流
   ////// B 口 IPv6-icmpv6 -> 口A ch1(0x3A)
   subsys_100g_tester #(
@@ -1000,7 +1127,6 @@ module subsys_test_top (
       .axis_slast (a_ipv6_axis_mlast[1]),
       .axis_sready(a_ipv6_axis_mready[1])
   );
-
   ////// B 口 IPv6-ospfv3 -> 口A ch2(0x59)
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -1025,7 +1151,6 @@ module subsys_test_top (
       .axis_slast (a_ipv6_axis_mlast[2]),
       .axis_sready(a_ipv6_axis_mready[2])
   );
-
   //// 默认通道探测
   ////// B 发 0x88DD(两口字典都无) -> 口A MAC 兜底档
   subsys_100g_tester #(
@@ -1051,7 +1176,6 @@ module subsys_test_top (
       .axis_slast (a_mac_axis_mlast[2]),
       .axis_sready(a_mac_axis_mready[2])
   );
-
   ////// B 发 IPv4 协议0x2F(未匹配) -> 口A IPv4 兜底档
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -1076,7 +1200,6 @@ module subsys_test_top (
       .axis_slast (a_ipv4_axis_mlast[3]),
       .axis_sready(a_ipv4_axis_mready[3])
   );
-
   ////// B 发 IPv6 NH=0x06(未匹配) -> 口A IPv6 兜底档
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -1101,7 +1224,6 @@ module subsys_test_top (
       .axis_slast (a_ipv6_axis_mlast[3]),
       .axis_sready(a_ipv6_axis_mready[3])
   );
-
   ////// B 发 UDP 端口0x1234(不在区间) -> 口A UDP 兜底档
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
@@ -1127,33 +1249,136 @@ module subsys_test_top (
       .axis_sready(a_udp_ipv4_axis_mready[3])
   );
 
-  // VIO测试使能：探针0至22对应23路测试流。
+  // UDP(IPv6)业务与兜底测试
+  //// A发端口2 → B档0
+  subsys_100g_tester #(
+      .AXIS_WIDTH    (AXIS_WIDTH),
+      .PKT_LEN_BEATS (PKT_LEN_BEATS),
+      .ONE_SEC_CYCLES(ONE_SEC_CYCLES),
+      .HDR_BYTES     (320'd0)           // UDP: 纯载荷
+  ) u_ta_udp_ipv6 (
+      .clk           (clk_400m),
+      .rst           (usr_rst),
+      .test_enable   (en_a_udp_ipv6),
+      .cfg_gap_cycles(cfg_gap_cycles),
+
+      .axis_mdata (a_udp_ipv6_axis_sdata[0*512+:512]),
+      .axis_mkeep (a_udp_ipv6_axis_skeep[0*64+:64]),
+      .axis_mvalid(a_udp_ipv6_axis_svalid[0]),
+      .axis_mlast (a_udp_ipv6_axis_slast[0]),
+      .axis_mready(a_udp_ipv6_axis_sready[0]),
+
+      .axis_sdata (b_udp_ipv6_axis_mdata[0*512+:512]),
+      .axis_skeep (b_udp_ipv6_axis_mkeep[0*64+:64]),
+      .axis_svalid(b_udp_ipv6_axis_mvalid[0]),
+      .axis_slast (b_udp_ipv6_axis_mlast[0]),
+      .axis_sready(b_udp_ipv6_axis_mready[0])
+  );
+  //// B发端口2 → A档0
+  subsys_100g_tester #(
+      .AXIS_WIDTH    (AXIS_WIDTH),
+      .PKT_LEN_BEATS (PKT_LEN_BEATS),
+      .ONE_SEC_CYCLES(ONE_SEC_CYCLES),
+      .HDR_BYTES     (320'd0)           // UDP: 纯载荷
+  ) u_tb_udp_ipv6 (
+      .clk           (clk_400m),
+      .rst           (usr_rst),
+      .test_enable   (en_b_udp_ipv6),
+      .cfg_gap_cycles(cfg_gap_cycles),
+
+      .axis_mdata (b_udp_ipv6_axis_sdata[0*512+:512]),
+      .axis_mkeep (b_udp_ipv6_axis_skeep[0*64+:64]),
+      .axis_mvalid(b_udp_ipv6_axis_svalid[0]),
+      .axis_mlast (b_udp_ipv6_axis_slast[0]),
+      .axis_mready(b_udp_ipv6_axis_sready[0]),
+
+      .axis_sdata (a_udp_ipv6_axis_mdata[0*512+:512]),
+      .axis_skeep (a_udp_ipv6_axis_mkeep[0*64+:64]),
+      .axis_svalid(a_udp_ipv6_axis_mvalid[0]),
+      .axis_slast (a_udp_ipv6_axis_mlast[0]),
+      .axis_sready(a_udp_ipv6_axis_mready[0])
+  );
+  //// A发端口0x1234 → B兜底
+  subsys_100g_tester #(
+      .AXIS_WIDTH    (AXIS_WIDTH),
+      .PKT_LEN_BEATS (PKT_LEN_BEATS),
+      .ONE_SEC_CYCLES(ONE_SEC_CYCLES),
+      .HDR_BYTES     (320'd0)           // UDP: 纯载荷
+  ) u_ta_fb_udp_ipv6 (
+      .clk           (clk_400m),
+      .rst           (usr_rst),
+      .test_enable   (en_a_fb_udp_ipv6),
+      .cfg_gap_cycles(cfg_gap_cycles),
+
+      .axis_mdata (a_udp_ipv6_axis_sdata[1*512+:512]),
+      .axis_mkeep (a_udp_ipv6_axis_skeep[1*64+:64]),
+      .axis_mvalid(a_udp_ipv6_axis_svalid[1]),
+      .axis_mlast (a_udp_ipv6_axis_slast[1]),
+      .axis_mready(a_udp_ipv6_axis_sready[1]),
+
+      .axis_sdata (b_udp_ipv6_axis_mdata[3*512+:512]),
+      .axis_skeep (b_udp_ipv6_axis_mkeep[3*64+:64]),
+      .axis_svalid(b_udp_ipv6_axis_mvalid[3]),
+      .axis_slast (b_udp_ipv6_axis_mlast[3]),
+      .axis_sready(b_udp_ipv6_axis_mready[3])
+  );
+  //// B发端口0x1234 → A兜底
+  subsys_100g_tester #(
+      .AXIS_WIDTH    (AXIS_WIDTH),
+      .PKT_LEN_BEATS (PKT_LEN_BEATS),
+      .ONE_SEC_CYCLES(ONE_SEC_CYCLES),
+      .HDR_BYTES     (320'd0)           // UDP: 纯载荷
+  ) u_tb_fb_udp_ipv6 (
+      .clk           (clk_400m),
+      .rst           (usr_rst),
+      .test_enable   (en_b_fb_udp_ipv6),
+      .cfg_gap_cycles(cfg_gap_cycles),
+
+      .axis_mdata (b_udp_ipv6_axis_sdata[1*512+:512]),
+      .axis_mkeep (b_udp_ipv6_axis_skeep[1*64+:64]),
+      .axis_mvalid(b_udp_ipv6_axis_svalid[1]),
+      .axis_mlast (b_udp_ipv6_axis_slast[1]),
+      .axis_mready(b_udp_ipv6_axis_sready[1]),
+
+      .axis_sdata (a_udp_ipv6_axis_mdata[3*512+:512]),
+      .axis_skeep (a_udp_ipv6_axis_mkeep[3*64+:64]),
+      .axis_svalid(a_udp_ipv6_axis_mvalid[3]),
+      .axis_slast (a_udp_ipv6_axis_mlast[3]),
+      .axis_sready(a_udp_ipv6_axis_mready[3])
+  );
+
+  // VIO测试使能
   vio_enable u_test_vio_enable (
       .clk        (clk_400m),
-      .probe_out0 (en_a_udp),       // A 口 UDP(端口2)
-      .probe_out1 (en_a_icmp),      // A 口 IPv4-icmp
-      .probe_out2 (en_a_ospf),      // A 口 IPv4-ospf
-      .probe_out3 (en_a_ipv4_06),   // A 口 IPv4-协议0x06
-      .probe_out4 (en_a_mac_88b5),  // A 口 MAC-自定义0x88B5
-      .probe_out5 (en_b_udp),       // B 口 UDP(端口2)
-      .probe_out6 (en_b_icmp),      // B 口 IPv4-icmp
-      .probe_out7 (en_b_ospf),      // B 口 IPv4-ospf
-      .probe_out8 (en_b_ipv4_06),   // B 口 IPv4-协议0x06
-      .probe_out9 (en_b_mac_88b5),  // B 口 MAC-自定义0x88B5
-      .probe_out10(en_a_ip6icmp),   // A 口 IPv6-icmpv6
-      .probe_out11(en_a_ip6ospf),   // A 口 IPv6-ospfv3
-      .probe_out12(en_b_ip6icmp),   // B 口 IPv6-icmpv6
-      .probe_out13(en_b_ip6ospf),   // B 口 IPv6-ospfv3
-      .probe_out14(en_a_fb_mac),    // A 发 MAC兜底探测(0x88DD)->B兜底档
-      .probe_out15(en_a_fb_ipv4),   // A 发 IPv4兜底探测(0x2F)->B兜底档
-      .probe_out16(en_a_fb_ipv6),   // A 发 IPv6兜底探测(NH=06)->B兜底档
-      .probe_out17(en_a_fb_udp),    // A 发 UDP兜底探测(端口0x1234)->B兜底档
-      .probe_out18(en_b_mac_88cc),  // B 发 MAC-自定义0x88CC->A ch1
-      .probe_out19(en_b_fb_mac),    // B 发 MAC兜底探测->A兜底档
-      .probe_out20(en_b_fb_ipv4),   // B 发 IPv4兜底探测->A兜底档
-      .probe_out21(en_b_fb_ipv6),   // B 发 IPv6兜底探测->A兜底档
-      .probe_out22(en_b_fb_udp),    // B 发 UDP兜底探测->A兜底档
-      .probe_out23(cfg_gap_cycles)  // 共享包间隔，默认0拍
+      .probe_in0  (16'd0),
+      .probe_out0 (en_a_udp),          // A 口 UDP(端口2)
+      .probe_out1 (en_a_icmp),         // A 口 ICMPv4 TX
+      .probe_out2 (en_a_ospf),         // A 口 IPv4-ospf
+      .probe_out3 (en_a_ipv4_06),      // A 口 IPv4-协议0x06
+      .probe_out4 (en_a_mac_88b5),     // A 口 MAC-自定义0x88B5
+      .probe_out5 (en_b_udp),          // B 口 UDP(端口2)
+      .probe_out6 (en_b_icmp),         // B 口 ICMPv4 TX
+      .probe_out7 (en_b_ospf),         // B 口 IPv4-ospf
+      .probe_out8 (en_b_ipv4_06),      // B 口 IPv4-协议0x06
+      .probe_out9 (en_b_mac_88b5),     // B 口 MAC-自定义0x88B5
+      .probe_out10(en_a_ip6icmp),      // A 口 IPv6-icmpv6
+      .probe_out11(en_a_ip6ospf),      // A 口 IPv6-ospfv3
+      .probe_out12(en_b_ip6icmp),      // B 口 IPv6-icmpv6
+      .probe_out13(en_b_ip6ospf),      // B 口 IPv6-ospfv3
+      .probe_out14(en_a_fb_mac),       // A 发 MAC兜底探测(0x88DD)->B兜底档
+      .probe_out15(en_a_fb_ipv4),      // A 发 IPv4兜底探测(0x2F)->B兜底档
+      .probe_out16(en_a_fb_ipv6),      // A 发 IPv6兜底探测(NH=06)->B兜底档
+      .probe_out17(en_a_fb_udp),       // A 发 UDP兜底探测(端口0x1234)->B兜底档
+      .probe_out18(en_b_mac_88cc),     // B 发 MAC-自定义0x88CC->A ch1
+      .probe_out19(en_b_fb_mac),       // B 发 MAC兜底探测->A兜底档
+      .probe_out20(en_b_fb_ipv4),      // B 发 IPv4兜底探测->A兜底档
+      .probe_out21(en_b_fb_ipv6),      // B 发 IPv6兜底探测->A兜底档
+      .probe_out22(en_b_fb_udp),       // B 发 UDP兜底探测->A兜底档
+      .probe_out23(cfg_gap_cycles),    // 共享包间隔，默认0拍
+      .probe_out24(en_a_udp_ipv6),
+      .probe_out25(en_b_udp_ipv6),
+      .probe_out26(en_a_fb_udp_ipv6),
+      .probe_out27(en_b_fb_udp_ipv6)
   );
 
 endmodule

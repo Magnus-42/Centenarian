@@ -36,7 +36,7 @@
 # 示例：
 #   source -encoding utf-8 Centenarian.user/Scripts/hw_ila_vio.tcl
 #   hw_run sc1                               # 逐路连通性全自动核对
-#   hw_run gap 0 sc2 udp icmp ospf           # 取消包间隔并测三个通道的双向线速
+#   hw_run gap 0 sc2 udp udp_ipv6            # 取消包间隔，依次测 UDP/IPv4 和 UDP/IPv6 的双向线速
 #   hw_run scall 3                           # 全部场景，每步稳定 3 秒
 #   hw_run on en_a_udp monitor 10 rx_bw      # 手工：开 A 口 UDP，连采 10 次
 #   hw_run set 0                             # 手工：全部关闭
@@ -134,9 +134,8 @@ set ::CNT_KEYS {
 # ---- 通道分组 ----
 set ::DUAL_CHANS {udp udp_ipv6 icmp ospf ipv4_06 mac_88b5 ip6icmp ip6ospf} ;# A/B 两侧都有的
 set ::FB_CHANS   {fb_mac fb_ipv4 fb_ipv6 fb_udp fb_udp_ipv6}                   ;# 未匹配兜底探测
-# 场景 3 的通道优先级（自高向低）：取自 RTL/Test/Top/subsys_test_top.v 的 PRIO_* 常量
-#   OSPF 13 > ICMPv4 12(A)/11(B) > UDP 8(A)/9(B) > MAC-88B5 6(A)/5(B) > 兜底探测 2
-set ::PRIO_ORDER {ospf icmp udp mac_88b5 fb_ipv4}
+# 场景 3 选用不同优先级的通道，按 subsys_test_top.v 中的 PRIO_* 值从高到低排列。
+set ::SC3_PRIORITIES {ospf 12 icmp 10 udp 8 mac_88b5 6 fb_ipv4 2}
 
 proc log {m} { puts "\[hw\] $m" }
 
@@ -1170,7 +1169,7 @@ proc sc3 {{settle {}}} {
   if {$settle eq ""} { set settle $::DEFAULT_SETTLE }
   require_zero_gap
   ila_require_readable
-  set order $::PRIO_ORDER
+  set order [dict keys $::SC3_PRIORITIES]
   set n [llength $order]
   set npass 0; set nfail 0
   for {set k 0} {$k < $n} {incr k} {
@@ -1182,7 +1181,8 @@ proc sc3 {{settle {}}} {
     en_only $names
     sleep_s $settle
     snapi
-    log "步骤 [expr {$k + 1}]：已关 {$off}；当前最高优先级 = $win"
+    set priority [dict get $::SC3_PRIORITIES $win]
+    log "步骤 [expr {$k + 1}]：已关 {$off}，预期胜出 $win（优先级 $priority）"
     set step_ok 1
     foreach ch $order {
       foreach side {a b} {
@@ -1448,7 +1448,7 @@ if {[llength $argv] == 0} {
   log "  hw_run gap 0                         # 设置共享包间隔为 0 个周期"
   log "  hw_run sc1                           # ① 通道连通性（逐路全自动核对）"
   log "  hw_run sc2                           # ② 单通道线速（双向满载，换算线速）"
-  log "  hw_run sc2 udp icmp                  #    仅测指定通道"
+  log "  hw_run sc2 udp udp_ipv6              #    依次测 UDP/IPv4 和 UDP/IPv6"
   log "  hw_run sc3                           # ③ 严格优先级（逐路关闭 + 饿死判据）"
   log "  hw_run sc4                           # ④ 未匹配通道（各协议兜底探测）"
   log "  hw_run scall                         #  ①~④ 全跑 + 总判定表"

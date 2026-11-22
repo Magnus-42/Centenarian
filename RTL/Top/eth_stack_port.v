@@ -214,6 +214,7 @@ module eth_stack_port #(
 
   // 内部常量
   localparam [ReqWidth-1:0] ReplyPriority = 4'd9;
+  localparam integer AnnounceMaskWidth = LocalIpv4Count + 1;
 
   // 链路复位和状态同步
   wire                         gt_tx_arst;
@@ -239,6 +240,9 @@ module eth_stack_port #(
   //// ARP与ICMP策略
   wire [ PendingTimeWidth-1:0] cfg_pending_time;
   wire [         ReqWidth-1:0] cfg_arp_priority;
+  wire [AnnounceMaskWidth-1:0] cfg_arp_announce_mask;
+  wire                         cfg_arp_announce_valid;
+  wire                         cfg_arp_announce_ready;
   wire [         ReqWidth-1:0] cfg_icmp_priority;
   //// 管理配置
   wire [                 31:0] cfg_mgmt_ipv4_addr;
@@ -269,6 +273,11 @@ module eth_stack_port #(
   wire [                 47:0] arp_src_mac;
   wire                         arp_miss;
   wire                         arp_valid;
+  //// 免费ARP
+  reg                          arp_startup_submitted;
+  wire                         arp_announce_valid;
+  wire                         arp_announce_ready;
+  wire [AnnounceMaskWidth-1:0] arp_announce_mask;
 
   // 帧通路
   //// ARP接收
@@ -385,6 +394,17 @@ module eth_stack_port #(
   end
   assign stat_link_up = link_up_d2;
 
+  // 免费ARP
+  //// 复位后首次链路就绪时公告全表，随后受理配置命令。
+  assign arp_announce_valid = arp_startup_submitted ? cfg_arp_announce_valid : stat_link_up;
+  assign arp_announce_mask  =
+    arp_startup_submitted ? cfg_arp_announce_mask : {AnnounceMaskWidth{1'b1}};
+  assign cfg_arp_announce_ready = arp_startup_submitted && arp_announce_ready;
+  always @(posedge clk) begin
+    if (rst) arp_startup_submitted <= 1'b0;
+    else if (arp_announce_valid && arp_announce_ready) arp_startup_submitted <= 1'b1;
+  end
+
   // MAC：用户槽位在三个内部通道之后，接收末路为兜底。
   eth_port_top #(
       .CmacSelect         (CmacSelect),
@@ -445,6 +465,10 @@ module eth_stack_port #(
   ) arp_engine_top_inst (
       .clk(clk),
       .rst(rst),
+
+      .announce_mask (arp_announce_mask),
+      .announce_valid(arp_announce_valid),
+      .announce_ready(arp_announce_ready),
 
       .query_src_ip     (query_src_ip),
       .query_dst_ip     (query_dst_ip),
@@ -786,9 +810,12 @@ module eth_stack_port #(
       .cfg_mgmt_udp_port (cfg_mgmt_udp_port),
       .cfg_mgmt_mac      (cfg_mgmt_mac),
 
-      .cfg_arp_clear_cache  (cfg_arp_clear_cache),
-      .cfg_arp_clear_pending(cfg_arp_clear_pending),
-      .cfg_stat_clear       (cfg_stat_clear),
+      .cfg_arp_clear_cache   (cfg_arp_clear_cache),
+      .cfg_arp_clear_pending (cfg_arp_clear_pending),
+      .cfg_stat_clear        (cfg_stat_clear),
+      .cfg_arp_announce_mask (cfg_arp_announce_mask),
+      .cfg_arp_announce_valid(cfg_arp_announce_valid),
+      .cfg_arp_announce_ready(cfg_arp_announce_ready),
 
       .stat_link_up                        (stat_link_up),
       .stat_arp_rx_error                   (stat_arp_rx_error),

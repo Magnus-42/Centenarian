@@ -109,6 +109,11 @@ module cfg_port_top #(
     output wire cfg_arp_clear_pending,
     output wire cfg_stat_clear,
 
+    // 免费ARP
+    output wire [LocalIpv4Count:0] cfg_arp_announce_mask,
+    output wire                    cfg_arp_announce_valid,
+    input  wire                    cfg_arp_announce_ready,
+
     // 业务状态
     input wire stat_link_up,
     input wire stat_arp_rx_error,
@@ -237,9 +242,12 @@ module cfg_port_top #(
       .cfg_mgmt_udp_port (cfg_mgmt_udp_port),
       .cfg_mgmt_mac      (cfg_mgmt_mac),
 
-      .cfg_arp_clear_cache  (cfg_arp_clear_cache),
-      .cfg_arp_clear_pending(cfg_arp_clear_pending),
-      .cfg_stat_clear       (cfg_stat_clear),
+      .cfg_arp_clear_cache   (cfg_arp_clear_cache),
+      .cfg_arp_clear_pending (cfg_arp_clear_pending),
+      .cfg_stat_clear        (cfg_stat_clear),
+      .cfg_arp_announce_mask (cfg_arp_announce_mask),
+      .cfg_arp_announce_valid(cfg_arp_announce_valid),
+      .cfg_arp_announce_ready(cfg_arp_announce_ready),
 
       .stat_link_up                        (stat_link_up),
       .stat_arp_rx_error                   (stat_arp_rx_error),

@@ -28,6 +28,10 @@ module arp_engine_top #(
     input wire clk,
     input wire rst,
 
+    input  wire [LocalIpCount-1:0] announce_mask,
+    input  wire                    announce_valid,
+    output wire                    announce_ready,
+
     input  wire [31:0] query_src_ip,
     input  wire [31:0] query_dst_ip,
     input  wire        query_valid_pulse,
@@ -60,7 +64,7 @@ module arp_engine_top #(
     input wire [PendingTimeWidth-1:0] cfg_pending_time,   // 单位ms
     input wire                        cfg_clear_cache,    // 上游需要能缓存CacheDepth周期
     input wire                        cfg_clear_pending,  // FIFO需要能缓存PendingDepth周期
-    input wire                        cfg_stat_clear,     // 清锁存统计
+    input wire                        cfg_stat_clear,
 
     output wire stat_rx_error,
     output wire stat_ack_fifo_overflow_error,
@@ -74,7 +78,7 @@ module arp_engine_top #(
   // 本地路由配置在查询在途期间保持稳定，更新前停止查询并排空流水。
   // p2选择缓存查询IP，p3至p6完成四级缓存查询，随后寄存应答。
   // 未命中请求进入五级待决查询，许可后生成ARP请求。
-  // 接收帧用于缓存学习和应答，两类发送帧经FIFO、仲裁和封装输出。
+  // 接收帧用于缓存学习和应答，应答、待决请求和免费ARP公告经仲裁与封装输出。
 
   // 参数范围检查
   initial begin
@@ -201,8 +205,11 @@ module arp_engine_top #(
   wire                                 pending_fifo_rd_en;
 
   // 发送仲裁与缓存
-  wire [                          1:0] arb_req;
-  wire [                          1:0] arb_onehot;
+  wire [               FrameWidth-1:0] announce_frame_data;
+  wire                                 announce_frame_valid;
+  wire                                 announce_frame_ready;
+  wire [                          2:0] arb_req;
+  wire [                          2:0] arb_onehot;
   wire                                 arb_valid;
   wire                                 arb_refresh;
   wire                                 tx_frame_ready;
@@ -257,13 +264,15 @@ module arp_engine_top #(
   assign pending_frame_data = {
     pending_source_mac, 48'hffff_ffff_ffff, 16'h0100, 48'd0, permit_dst_ip, pending_source_ip
   };
-  assign arb_req = {!pending_fifo_empty, !ack_fifo_empty};
+  assign arb_req = {announce_frame_valid, !pending_fifo_empty, !ack_fifo_empty};
   assign arb_valid = |arb_req;
   assign tx_stage_ready = !tx_frame_valid_reg || tx_frame_ready;
   assign arb_take = arb_refresh && arb_valid;
   assign ack_fifo_rd_en = arb_take && arb_onehot[0];
   assign pending_fifo_rd_en = arb_take && arb_onehot[1];
-  assign arb_frame_data = arb_onehot[1] ? pending_fifo_dout : ack_fifo_dout;
+  assign announce_frame_ready = arb_take && arb_onehot[2];
+  assign arb_frame_data = arb_onehot[2] ? announce_frame_data :
+      (arb_onehot[1] ? pending_fifo_dout : ack_fifo_dout);
 
   // 本地配置与地址匹配
   //// 寄存配置
@@ -464,10 +473,25 @@ module arp_engine_top #(
       .full (pending_fifo_full),
       .empty(pending_fifo_empty)
   );
+  //// 免费ARP公告
+  arp_announce #(
+      .LocalIpCount(LocalIpCount)
+  ) arp_announce_inst (
+      .clk           (clk),
+      .rst           (rst),
+      .announce_mask (announce_mask),
+      .announce_valid(announce_valid),
+      .announce_ready(announce_ready),
+      .cfg_local_ip  (cfg_local_ip_d1),
+      .cfg_local_mac (cfg_local_mac_d1),
+      .frame_data    (announce_frame_data),
+      .frame_valid   (announce_frame_valid),
+      .frame_ready   (announce_frame_ready)
+  );
   //// 仲裁
   assign arb_refresh = tx_stage_ready && !rst;
   rr_arbiter #(
-      .Width(2),
+      .Width(3),
       .LowFirst(1)
   ) rr_arbiter_inst (
       .clk    (clk),

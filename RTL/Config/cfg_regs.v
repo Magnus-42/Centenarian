@@ -104,6 +104,11 @@ module cfg_regs #(
     output wire cfg_arp_clear_pending,
     output wire cfg_stat_clear,
 
+    // 免费ARP
+    output wire [LocalIpv4Count:0] cfg_arp_announce_mask,
+    output wire                    cfg_arp_announce_valid,
+    input  wire                    cfg_arp_announce_ready,
+
     // 业务状态
     input wire stat_link_up,
     input wire stat_arp_rx_error,
@@ -137,9 +142,13 @@ module cfg_regs #(
 
   // 权限常量
   // 权限掩码的位2、1、0依次对应EXEC、SET、GET。
-  localparam [2:0] ReadWrite  = 3'b011;
-  localparam [2:0] ReadOnly   = 3'b001;
+  localparam [2:0] ReadWrite = 3'b011;
+  localparam [2:0] ReadOnly = 3'b001;
   localparam [2:0] ActionOnly = 3'b100;
+
+  // 每个配置索引访问32位。槽0为管理地址，业务地址从槽1开始。
+  localparam integer AnnounceMaskWidth = LocalIpv4Count + 1;
+  localparam [AnnounceMaskWidth-1:0] DefaultArpAnnounceMask = {(LocalIpv4Count + 1) {1'b1}};
 
   // 配置寄存器
   reg  [32*LocalIpv4Count-1:0] cfg_local_ip_reg;
@@ -158,6 +167,10 @@ module cfg_regs #(
   reg  [                 31:0] cfg_mgmt_ipv4_addr_reg;
   reg  [                 15:0] cfg_mgmt_udp_port_reg;
   reg  [                 47:0] cfg_mgmt_mac_reg;
+  reg  [AnnounceMaskWidth-1:0] arp_announce_mask_reg;
+  reg  [AnnounceMaskWidth-1:0] arp_announce_req_mask_reg;
+  reg                          arp_announce_req_valid_reg;
+  wire                         arp_announce_commit;
 
   // 组合译码
   reg  [                  2:0] item_access;
@@ -284,6 +297,11 @@ module cfg_regs #(
         read_value[1:0] = {stat_arp_pending_clear_finish, stat_arp_cache_clear_finish};
       end
       `CFG_ARP_CLEAR_CACHE, `CFG_ARP_CLEAR_PENDING: item_access = ActionOnly;
+      `CFG_ARP_ANNOUNCE_MASK: begin
+        item_bytes = (AnnounceMaskWidth + 7) / 8;
+        read_value[AnnounceMaskWidth-1:0] = arp_announce_mask_reg;
+      end
+      `CFG_ARP_ANNOUNCE_SEND: item_access = ActionOnly;
       `CFG_ICMP_ECHO_PRIORITY: begin
         item_bytes = 8'd1;
         read_value[ReqWidth-1:0] = cfg_icmp_priority_reg;
@@ -422,6 +440,27 @@ module cfg_regs #(
     else cfg_stat_clear_reg <= action_commit && req_item_d2 == `CFG_CLEAR_PORT_FLAGS;
   end
   assign cfg_stat_clear = cfg_stat_clear_reg;
+  //// ARP掩码
+  assign arp_announce_commit = action_commit && req_item_d2 == `CFG_ARP_ANNOUNCE_SEND;
+  always @(posedge clk) begin
+    if (rst || restore_defaults) begin
+      arp_announce_mask_reg <= DefaultArpAnnounceMask;
+    end else if (write_commit && req_item_d2 == `CFG_ARP_ANNOUNCE_MASK) begin
+      arp_announce_mask_reg <= req_value_d2[AnnounceMaskWidth-1:0];
+    end
+  end
+  always @(posedge clk) begin
+    if (rst) begin
+      arp_announce_req_valid_reg <= 1'b0;
+    end else if (arp_announce_commit) begin
+      arp_announce_req_valid_reg <= 1'b1;
+      arp_announce_req_mask_reg  <= arp_announce_mask_reg;
+    end else if (cfg_arp_announce_ready) begin
+      arp_announce_req_valid_reg <= 1'b0;
+    end
+  end
+  assign cfg_arp_announce_mask  = arp_announce_req_mask_reg;
+  assign cfg_arp_announce_valid = arp_announce_req_valid_reg;
   //// IPv4地址配置
   always @(posedge clk) begin
     if (rst || restore_defaults) begin

@@ -58,11 +58,11 @@ module subsys_test_top (
   localparam [47:0] CFG_A_MAC = 48'h0300_3119_0000;
   localparam [47:0] CFG_B_MAC = 48'h8200_3119_0000;
 
-  // IPv6 发送查表分别匹配本口的源地址表和目的地址表。
+  // IPv6 测试流使用两口默认源/目的表的第0项。
   localparam [127:0] SRC_IPV6_A = 128'h1200_3119_0000_0000_0000_0000_0000_80fe;
   localparam [127:0] DST_IPV6_A = 128'h2300_3119_0000_0000_0000_0000_0000_80fe;
-  localparam [127:0] SRC_IPV6_B = 128'h9200_3119_0000_0000_0000_0000_0000_80fe;
-  localparam [127:0] DST_IPV6_B = 128'ha200_3119_0000_0000_0000_0000_0000_80fe;
+  localparam [127:0] SRC_IPV6_B = DST_IPV6_A;
+  localparam [127:0] DST_IPV6_B = SRC_IPV6_A;
 
   // 完整IPv4测试包的总长度。
   localparam [15:0] IP_LEN_FULL = PKT_LEN_BEATS * 64;

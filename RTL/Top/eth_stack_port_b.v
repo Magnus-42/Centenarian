@@ -29,13 +29,13 @@ module eth_stack_port_b #(
 
     // IPv6默认配置
     parameter [128*SrcIpv6Count-1:0] DefaultSrcIpv6 = {
-      128'h9100_3119_0000_0000_0000_0000_0000_80fe, 128'h9200_3119_0000_0000_0000_0000_0000_80fe
+      128'h2200_3119_0000_0000_0000_0000_0000_80fe, 128'h2300_3119_0000_0000_0000_0000_0000_80fe
     },
-    parameter [48*SrcIpv6Count-1:0] DefaultSrcMac = {48'h9100_3119_0000, 48'h9200_3119_0000},
+    parameter [48*SrcIpv6Count-1:0] DefaultSrcMac = {48'h2200_3119_0000, 48'h2300_3119_0000},
     parameter [128*DstIpv6Count-1:0] DefaultDstIpv6 = {
-      128'ha100_3119_0000_0000_0000_0000_0000_80fe, 128'ha200_3119_0000_0000_0000_0000_0000_80fe
+      128'h1100_3119_0000_0000_0000_0000_0000_80fe, 128'h1200_3119_0000_0000_0000_0000_0000_80fe
     },
-    parameter [48*DstIpv6Count-1:0] DefaultDstMac = {48'ha100_3119_0000, 48'ha200_3119_0000},
+    parameter [48*DstIpv6Count-1:0] DefaultDstMac = {48'h1100_3119_0000, 48'h1200_3119_0000},
 
     // UDP接收端口范围
     parameter [32*UdpIpv4RxCount-1:0] DefaultUdpIpv4Range = {

@@ -1,12 +1,12 @@
 // -----------------------------------------------------------------------------
-// File Name   : udp_ipv6_udp_header_add.v
-// Module Name : udp_ipv6_udp_header_add
+// File Name   : udp_ipv6_ip_header_add.v
+// Module Name : udp_ipv6_ip_header_add
 // Author      : LiXintao
 // Created     : 2026-11-22
 // Version     : v1.0
 
-// Description : 支持流水线设计，插入 8 字节 UDP 首部（应用载荷 -> UDP 数据报）
-// Note        : 1. 首部字 {校验和[63:48], 长度[47:32], 目的端口[31:16], 源端口[15:0]}
+// Description : 插入固定40字节IPv6首部（UDP数据报 -> IPv6报文）。
+// Note        : Payload Length取UDP长度，Next Header固定为17，Traffic Class和Flow Label置0。
 //               usr低ReqWidth位为请求，其上为Hop Limit、源端口、目的端口、128位源IP和128位目的IP。
 // -----------------------------------------------------------------------------
 
@@ -14,7 +14,7 @@
 `default_nettype none
 `timescale 1ns / 100ps
 
-module udp_ipv6_udp_header_add #(
+module udp_ipv6_ip_header_add #(
     parameter  integer ReqWidth = 4,
     localparam integer UsrWidth = ReqWidth + 296
 ) (
@@ -28,9 +28,6 @@ module udp_ipv6_udp_header_add #(
     input  wire [UsrWidth-1:0] axis_susr,
     output wire                axis_sready,
 
-    input wire [15:0] pkt_total_len,
-    input wire [15:0] pkt_head_checksum,
-
     output wire [       511:0] axis_mdata,
     output wire [        63:0] axis_mkeep,
     output wire                axis_mlast,
@@ -39,93 +36,85 @@ module udp_ipv6_udp_header_add #(
     input  wire                axis_mready
 );
 
-  // 入口skid同步缓存载荷、usr、UDP长度及校验和。
-  // p1缓存载荷、端口、UDP长度及校验和，计算是否需要插入拍
-  // 输出插入8字节UDP头，必要时补发高8字节尾拍。
+  // 入口skid同步缓存UDP报文与usr。
+  // p1缓存报文并拼接IPv6首部，必要时补发高40字节尾拍。
   // 出口skid保持完整数据和usr。
 
   // 参数范围检查
   initial begin
     if (ReqWidth < 1) begin
-      $display("错误：udp_ipv6_udp_header_add：ReqWidth必须不小于1。");
+      $display("错误：udp_ipv6_ip_header_add：ReqWidth必须不小于1。");
       $finish;
     end
   end
 
   // 内部常量
-  localparam integer UdpHeaderBits = 64;
-  localparam integer UsrSrcPortLsb = ReqWidth + 8;
-  localparam integer UsrDstPortLsb = ReqWidth + 24;
+  localparam integer Ipv6HeaderBits = 320;
+  localparam integer UsrHopLimitLsb = ReqWidth;
+  localparam integer UsrSrcIpLsb = ReqWidth + 40;
+  localparam integer UsrDstIpLsb = ReqWidth + 168;
 
   // 入口skid接口
-  wire [              511:0] axis_sdata_skid;
-  wire [               63:0] axis_skeep_skid;
-  wire [       UsrWidth-1:0] axis_susr_skid;
-  wire                       axis_slast_skid;
-  wire                       axis_svalid_skid;
-  wire                       axis_sready_skid;
-  wire [               15:0] pkt_total_len_skid;
-  wire [               15:0] pkt_head_checksum_skid;
-  wire                       s_handshake_skid;
+  wire [               511:0] axis_sdata_skid;
+  wire [                63:0] axis_skeep_skid;
+  wire [        UsrWidth-1:0] axis_susr_skid;
+  wire                        axis_slast_skid;
+  wire                        axis_svalid_skid;
+  wire                        axis_sready_skid;
+  wire                        s_handshake_skid;
 
   // p1 数据与边带
-  reg  [              511:0] p1_axis_sdata;
-  reg  [               63:0] p1_axis_skeep;
-  reg                        p1_axis_slast;
-  reg                        p1_axis_svalid;
-  reg  [       UsrWidth-1:0] p1_axis_susr;
+  reg  [               511:0] p1_axis_sdata;
+  reg  [                63:0] p1_axis_skeep;
+  reg                         p1_axis_slast;
+  reg                         p1_axis_svalid;
+  reg  [        UsrWidth-1:0] p1_axis_susr;
 
-  // p1 首拍字段
-  reg  [               15:0] p1_total_len;
-  reg  [               15:0] p1_src_port;
-  reg  [               15:0] p1_dst_port;
-
-  // UDP校验和
-  reg  [               15:0] p1_head_checksum;
-
+  // p1 IPv6首部
+  reg  [  Ipv6HeaderBits-1:0] p1_ipv6_header;
   // 首拍标志
-  reg                        is_first_beat;
+  reg                         is_first_beat;
 
   // 跨拍缓存
-  reg  [  UdpHeaderBits-1:0] data_held;
-  reg  [UdpHeaderBits/8-1:0] keep_held;
-  reg  [       UsrWidth-1:0] usr_held;
+  reg  [  Ipv6HeaderBits-1:0] data_held;
+  reg  [Ipv6HeaderBits/8-1:0] keep_held;
+  reg  [        UsrWidth-1:0] usr_held;
 
   // 尾拍补发控制
-  reg                        p1_is_insert_beat;
-  reg                        p2_is_insert_beat;
+  reg                         p1_is_insert_beat;
+  reg                         p2_is_insert_beat;
 
   // 出口skid接口
-  wire                       axis_mready_skid;
-  wire [              511:0] axis_mdata_skid;
-  wire [               63:0] axis_mkeep_skid;
-  wire [       UsrWidth-1:0] axis_musr_skid;
-  wire                       axis_mlast_skid;
-  wire                       axis_mvalid_skid;
+  wire                        axis_mready_skid;
+  wire [               511:0] axis_mdata_skid;
+  wire [                63:0] axis_mkeep_skid;
+  wire [        UsrWidth-1:0] axis_musr_skid;
+  wire                        axis_mlast_skid;
+  wire                        axis_mvalid_skid;
 
   // 流水控制
-  wire                       output_can_take;
-  wire                       insert_en;
-  wire                       p1_ready;
-  wire                       p1_handshake;
+  wire                        output_can_take;
+  wire                        insert_en;
+  wire                        p1_ready;
+  wire                        p1_handshake;
 
   // 入口skid
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth + 32)
+      .UsrWidth (UsrWidth)
   ) axis_skid_buffer_in (
       .clk        (clk),
       .rst        (rst),
       .axis_sready(axis_sready),
       .axis_sdata (axis_sdata),
       .axis_skeep (axis_skeep),
-      .axis_susr  ({pkt_total_len, pkt_head_checksum, axis_susr}),
+      .axis_susr  (axis_susr),
       .axis_slast (axis_slast),
       .axis_svalid(axis_svalid),
       .axis_mready(axis_sready_skid),
       .axis_mdata (axis_sdata_skid),
       .axis_mkeep (axis_skeep_skid),
-      .axis_musr  ({pkt_total_len_skid, pkt_head_checksum_skid, axis_susr_skid}),
+      .axis_musr  (axis_susr_skid),
       .axis_mlast (axis_slast_skid),
       .axis_mvalid(axis_svalid_skid)
   );
@@ -138,17 +127,21 @@ module udp_ipv6_udp_header_add #(
   assign p1_handshake     = p1_ready && p1_axis_svalid;
   assign axis_sready_skid = (!p1_axis_svalid || p1_ready) && !p1_is_insert_beat;
   // p1 输入缓存
-  //// 数据与UDP字段
+  //// 数据与IPv6首部
   always @(posedge clk) begin
     if (s_handshake_skid) begin
-      p1_axis_sdata    <= axis_sdata_skid;
-      p1_axis_skeep    <= axis_skeep_skid;
-      p1_axis_slast    <= axis_slast_skid;
-      p1_axis_susr     <= axis_susr_skid;
-      p1_total_len     <= pkt_total_len_skid;
-      p1_head_checksum <= pkt_head_checksum_skid;
-      p1_src_port      <= axis_susr_skid[UsrSrcPortLsb+:16];
-      p1_dst_port      <= axis_susr_skid[UsrDstPortLsb+:16];
+      p1_axis_sdata <= axis_sdata_skid;
+      p1_axis_skeep <= axis_skeep_skid;
+      p1_axis_slast <= axis_slast_skid;
+      p1_axis_susr <= axis_susr_skid;
+      p1_ipv6_header <= {
+        axis_susr_skid[UsrDstIpLsb+:128],
+        axis_susr_skid[UsrSrcIpLsb+:128],
+        axis_susr_skid[UsrHopLimitLsb+:8],
+        8'h11,
+        axis_sdata_skid[47:32],
+        32'h00000060
+      };
     end
   end
   //// 有效信号
@@ -165,7 +158,7 @@ module udp_ipv6_udp_header_add #(
       p1_is_insert_beat <= 'd0;
     end else begin
       if (s_handshake_skid) begin
-        p1_is_insert_beat <= axis_slast_skid && (|axis_skeep_skid[63-:UdpHeaderBits/8]);
+        p1_is_insert_beat <= axis_slast_skid && (|axis_skeep_skid[63-:Ipv6HeaderBits/8]);
       end else if (p1_handshake) begin
         p1_is_insert_beat <= 'd0;
       end
@@ -200,13 +193,13 @@ module udp_ipv6_udp_header_add #(
   //// data
   always @(posedge clk) begin
     if (p1_handshake) begin
-      data_held <= p1_axis_sdata[511-:UdpHeaderBits];
+      data_held <= p1_axis_sdata[511-:Ipv6HeaderBits];
     end
   end
   //// keep
   always @(posedge clk) begin
     if (p1_handshake) begin
-      keep_held <= p1_axis_skeep[63-:UdpHeaderBits/8];
+      keep_held <= p1_axis_skeep[63-:Ipv6HeaderBits/8];
     end
   end
   //// usr
@@ -217,12 +210,13 @@ module udp_ipv6_udp_header_add #(
   end
 
   // 输出拼接
-  assign axis_mdata_skid = p2_is_insert_beat ? {{448{1'b0}}, data_held} : (
-      is_first_beat ? {p1_axis_sdata[511-UdpHeaderBits:0], p1_head_checksum, p1_total_len,
-                       p1_dst_port, p1_src_port} : {p1_axis_sdata[511-UdpHeaderBits:0], data_held});
+  assign axis_mdata_skid = p2_is_insert_beat ? {192'd0, data_held}
+    : (is_first_beat
+        ? {p1_axis_sdata[511-Ipv6HeaderBits:0], p1_ipv6_header}
+        : {p1_axis_sdata[511-Ipv6HeaderBits:0], data_held});
   assign axis_mkeep_skid = p2_is_insert_beat ?
-      {{56{1'b0}}, keep_held} : (is_first_beat ? {p1_axis_skeep[63-UdpHeaderBits/8:0], {8{1'b1}}} :
-                                 {p1_axis_skeep[63-UdpHeaderBits/8:0], keep_held});
+      {24'd0, keep_held} : (is_first_beat ? {p1_axis_skeep[63-Ipv6HeaderBits/8:0], {40{1'b1}}} :
+                                 {p1_axis_skeep[63-Ipv6HeaderBits/8:0], keep_held});
   assign axis_musr_skid = p2_is_insert_beat ? usr_held : p1_axis_susr;
   assign axis_mlast_skid = p2_is_insert_beat || (!p1_is_insert_beat && p1_axis_slast);
   assign axis_mvalid_skid = p2_is_insert_beat || p1_axis_svalid;

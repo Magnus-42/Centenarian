@@ -138,7 +138,7 @@ module udp_ipv6_top #(
   };
 
   //// UDP头剥离
-  udp_ipv6_udp_header_strip udp_ipv6_udp_header_strip_inst (
+  udp_ipv6_header_strip udp_ipv6_header_strip_inst (
       .clk        (clk),
       .rst        (rst),
       .axis_sdata (rx_udp_data),

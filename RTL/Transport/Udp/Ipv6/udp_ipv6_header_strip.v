@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
-// File Name   : udp_ipv6_udp_header_strip.v
-// Module Name : udp_ipv6_udp_header_strip
+// File Name   : udp_ipv6_header_strip.v
+// Module Name : udp_ipv6_header_strip
 // Author      : LiXintao
 // Created     : 2026-11-22
 // Version     : v1.0
@@ -14,7 +14,7 @@
 `default_nettype none
 `timescale 1ns / 100ps
 
-module udp_ipv6_udp_header_strip #(
+module udp_ipv6_header_strip #(
     localparam integer UsrWidth = 385
 ) (
     input wire clk,

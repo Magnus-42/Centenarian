@@ -136,7 +136,7 @@ module udp_ipv4_top #(
     dst_ip, src_ip, ttl, total_len, protocol
   };
   //// UDP头剥离
-  udp_header_strip udp_header_strip_inst (
+  udp_ipv4_header_strip udp_ipv4_header_strip_inst (
       .clk        (clk),
       .rst        (rst),
       .axis_sdata (rx_udp_data),

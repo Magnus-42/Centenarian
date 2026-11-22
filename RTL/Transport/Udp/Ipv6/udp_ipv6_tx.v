@@ -95,9 +95,9 @@ module udp_ipv6_tx #(
   );
 
   // UDP头插入
-  udp_ipv6_udp_header_add #(
+  udp_ipv6_header_add #(
       .ReqWidth(ReqWidth)
-  ) udp_ipv6_udp_header_add_inst (
+  ) udp_ipv6_header_add_inst (
       .clk              (clk),
       .rst              (rst),
       .axis_sdata       (checksum_data),
@@ -117,9 +117,9 @@ module udp_ipv6_tx #(
   );
 
   // IPv6头插入
-  udp_ipv6_header_add #(
+  udp_ipv6_ip_header_add #(
       .ReqWidth(ReqWidth)
-  ) udp_ipv6_header_add_inst (
+  ) udp_ipv6_ip_header_add_inst (
       .clk        (clk),
       .rst        (rst),
       .axis_sdata (udp_header_data),

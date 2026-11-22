@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
-// File Name   : udp_header_strip.v
-// Module Name : udp_header_strip
+// File Name   : udp_ipv4_header_strip.v
+// Module Name : udp_ipv4_header_strip
 // Author      : LiXintao
 // Created     : 2026-10-19
 // Version     : v1.0
@@ -14,7 +14,7 @@
 `default_nettype none
 `timescale 1ns / 100ps
 
-module udp_header_strip #(
+module udp_ipv4_header_strip #(
     localparam integer UsrWidth = 193
 ) (
     input wire clk,

@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Centenarian FPGA 单口配置上位机">
+  <title>配置上位机 · Centenarian</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/audit.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-icon" aria-hidden="true"><i></i></span><div><strong>Centenarian</strong><span>FPGA 配置上位机</span></div></div>
+    <nav id="navigation" aria-label="配置栏目">
+      <button type="button" data-section="connection" aria-current="page">设备连接</button>
+      <details class="nav-group" open>
+        <summary>端口配置<span class="nav-disclosure" aria-hidden="true"></span></summary>
+        <div class="nav-items">
+          <button type="button" data-section="management">管理接口</button>
+          <button type="button" data-section="ipv4">IPv4 地址</button>
+          <button type="button" data-section="ipv6">IPv6 地址</button>
+          <button type="button" data-section="udp">UDP 分流</button>
+          <button type="button" data-section="policy">ARP 与 ICMP</button>
+        </div>
+      </details>
+      <details class="nav-group">
+        <summary>诊断<span class="nav-disclosure" aria-hidden="true"></span></summary>
+        <div class="nav-items">
+          <button type="button" data-section="status">链路与错误</button>
+          <button type="button" data-section="actions">维护动作</button>
+        </div>
+      </details>
+      <details class="nav-group">
+        <summary>日志<span class="nav-disclosure" aria-hidden="true"></span></summary>
+        <div class="nav-items">
+          <button type="button" data-section="log">UDP 报文日志</button>
+          <button type="button" data-section="audit">操作日志</button>
+        </div>
+      </details>
+      <button type="button" data-section="settings">设置</button>
+    </nav>
+    <div class="sidebar-footer"><span>配置协议标识</span><strong class="mono">0x1931</strong></div>
+  </aside>
+
+  <main>
+    <header class="page-head">
+      <div><h1 id="section-title">设备连接</h1><p id="section-note">每个端点对应一个物理网口。</p></div>
+      <div class="head-status">
+        <div class="theme-switch" role="group" aria-label="显示主题">
+          <button type="button" data-theme-choice="light" aria-pressed="true">白天</button>
+          <button type="button" data-theme-choice="dark" aria-pressed="false">黑夜</button>
+        </div>
+        <span class="mode" id="mode">本地 UDP</span>
+        <div class="connection-status">
+          <span class="pill" id="connection" role="status"><i aria-hidden="true"></i><span>未连接</span></span>
+          <time id="last-reply" class="secondary" hidden></time>
+        </div>
+      </div>
+    </header>
+
+    <p id="validation-notice" class="validation-notice field-warning" role="status" hidden></p>
+    <p id="audit-health" class="validation-notice field-warning" role="status" hidden></p>
+
+    <section id="connection-view" aria-labelledby="section-title">
+      <form class="card connection-card" id="connection-form">
+        <label class="field"><span>端点预设</span><select id="profile"><option value="A">A 口</option><option value="B">B 口</option><option value="custom">自定义</option></select></label>
+        <label class="field">
+          <span id="host-label">管理 IPv4</span>
+          <input id="host" class="mono" required spellcheck="false" autocomplete="off" maxlength="64" aria-labelledby="host-label" aria-describedby="host-error">
+          <span id="host-error" class="field-error" aria-live="polite"></span>
+        </label>
+        <label class="field">
+          <span id="port-label">UDP 端口</span>
+          <input id="port" class="mono" required spellcheck="false" autocomplete="off" maxlength="64" aria-labelledby="port-label" aria-describedby="port-error">
+          <span id="port-error" class="field-error" aria-live="polite"></span>
+        </label>
+        <div class="connect-buttons"><button class="button primary" id="connect">连接设备</button><button type="button" class="button quiet" id="disconnect" hidden>断开</button></div>
+        <button type="button" class="button compact preset-save" id="save-preset" hidden>保存为预设</button>
+      </form>
+      <section id="endpoint-recovery" class="card recovery-card" aria-labelledby="recovery-title" hidden>
+        <h2 id="recovery-title">管理端点待确认</h2>
+        <p id="recovery-message" role="status"></p>
+        <div class="recovery-targets">
+          <div><span>旧端点</span><strong id="old-endpoint" class="mono"></strong><button type="button" id="probe-old" class="button">探测旧端点</button></div>
+          <div><span>新端点</span><strong id="new-endpoint" class="mono"></strong><button type="button" id="probe-new" class="button primary">探测新端点</button></div>
+        </div>
+      </section>
+      <div class="overview-head">
+        <h2>设备概况</h2>
+        <button class="button" type="button" id="refresh-overview" disabled>刷新概况</button>
+      </div>
+      <div class="connection-overview">
+        <section class="card overview-card" aria-labelledby="overview-management-title">
+          <h3 id="overview-management-title">管理信息</h3>
+          <dl id="overview-management"></dl>
+        </section>
+        <section class="card overview-card" aria-labelledby="overview-status-title">
+          <h3 id="overview-status-title">端口状态</h3>
+          <dl id="overview-status"></dl>
+        </section>
+        <section class="card overview-card" aria-labelledby="overview-tables-title">
+          <h3 id="overview-tables-title">配置表项数</h3>
+          <dl id="overview-tables"></dl>
+          <button class="button compact retry-tables" type="button" id="retry-tables" hidden>重探未读表项</button>
+        </section>
+      </div>
+      <details class="card peer-settings">
+        <summary>跨口冲突检查</summary>
+        <p>标准 A/B 口会自动核对另一口。若另一口使用自定义端点，可在这里指定。</p>
+        <div class="peer-fields">
+          <label class="field">
+            <span id="peer-host-label">另一网口 IPv4</span>
+            <input id="peer-host" class="mono" spellcheck="false" autocomplete="off" maxlength="64" aria-labelledby="peer-host-label" aria-describedby="peer-host-error">
+            <span id="peer-host-error" class="field-error" aria-live="polite"></span>
+          </label>
+          <label class="field">
+            <span id="peer-port-label">另一网口 UDP 端口</span>
+            <input id="peer-port" class="mono" spellcheck="false" autocomplete="off" maxlength="64" aria-labelledby="peer-port-label" aria-describedby="peer-port-error">
+            <span id="peer-port-error" class="field-error" aria-live="polite"></span>
+          </label>
+        </div>
+      </details>
+    </section>
+
+    <section id="config-view" aria-labelledby="section-title" hidden>
+      <p class="view-hint" id="connection-required" hidden>请先在「设备连接」页连接设备。</p>
+      <div class="view-tools" id="config-tools"><button class="button" type="button" id="read-section" disabled>读取本页</button></div>
+      <div id="config-content" class="config-content"></div>
+    </section>
+
+    <section id="settings-view" aria-labelledby="section-title" hidden>
+      <div class="settings-layout">
+        <form class="card settings-card" id="settings-form" novalidate>
+          <h2>连接设置</h2>
+          <label class="setting-toggle">
+            <span><strong>拦截跨口重复地址</strong><small>关闭后，重复的本机 IP 和单播 MAC 只提示。</small></span>
+            <input type="checkbox" id="block-cross-port" checked>
+          </label>
+          <label class="setting-toggle">
+            <span><strong>启用链路心跳</strong><small>定期读取当前网口的链路状态。</small></span>
+            <input type="checkbox" id="heartbeat-enabled" checked>
+          </label>
+          <label class="field heartbeat-interval">
+            <span>心跳间隔（秒）</span>
+            <input type="number" id="heartbeat-interval" min="1" max="300" step="1" value="5" aria-describedby="heartbeat-interval-error">
+            <span class="field-error" id="heartbeat-interval-error" aria-live="polite"></span>
+          </label>
+          <div class="settings-footer">
+            <p id="heartbeat-status" role="status"></p>
+            <button type="submit" class="button primary">保存设置</button>
+          </div>
+        </form>
+        <section class="card settings-card" aria-labelledby="preset-title">
+          <h2 id="preset-title">端口预设</h2>
+          <p class="settings-note">在「设备连接」填写自定义端点后，可保存到此列表。</p>
+          <div id="preset-list"></div>
+        </section>
+        <form class="card settings-card" id="audit-settings-form">
+          <h2>操作日志</h2>
+          <p class="settings-note">到达容量上限时自动移除最早记录。</p>
+          <label class="field heartbeat-interval">
+            <span>日志文件上限（MiB）</span>
+            <input id="audit-capacity" type="number" min="1" max="64" step="1" required disabled>
+          </label>
+          <div class="settings-footer"><p id="audit-storage" role="status"></p><button type="submit" id="audit-save" class="button primary" disabled>保存日志设置</button></div>
+          <p id="audit-path" class="secondary mono"></p>
+        </form>
+      </div>
+    </section>
+
+    <section id="log-view" aria-labelledby="section-title" hidden>
+      <div class="view-tools log-tools">
+        <label class="log-filter"><input type="checkbox" id="hide-probe-log" checked>隐藏探测产生的越界报文<span id="hidden-probe-count"></span></label>
+        <button type="button" class="button" id="clear-log" disabled>清空日志</button>
+        <button type="button" class="button primary" id="export-log" title="导出全部保留的原始报文，含筛选隐藏项" disabled>导出 TXT</button>
+      </div>
+      <div id="packet-log" class="packet-log" tabindex="0" aria-label="UDP 收发记录"></div>
+      <section class="card packet-inspector" aria-labelledby="packet-inspector-title">
+        <header><h2 id="packet-inspector-title">报文拆解</h2><p id="packet-summary">点击一条记录，查看配置协议字段和对应字节。</p></header>
+        <div id="packet-details" class="packet-details" hidden>
+          <div id="packet-fields" class="packet-fields" aria-label="配置协议字段"></div>
+          <div>
+            <h3>UDP 载荷</h3>
+            <div id="packet-bytes" class="packet-bytes mono" aria-label="原始 UDP 载荷"></div>
+          </div>
+        </div>
+      </section>
+    </section>
+    <section id="audit-view" aria-labelledby="section-title" hidden>
+      <div class="view-tools audit-tools">
+        <label class="field"><span>来源</span><select id="audit-source"><option value="">全部</option><option value="ui">网页</option><option value="server">上位机服务</option><option value="udp">UDP 收发</option></select></label>
+        <button type="button" class="button" id="audit-refresh">刷新</button>
+        <button type="button" class="button primary" id="audit-download">导出 JSONL</button>
+      </div>
+      <div id="audit-filter" class="audit-selection" hidden><span id="audit-filter-label" class="mono"></span><button id="audit-unfilter" type="button" class="button compact">清除筛选</button></div>
+      <p id="audit-status" class="view-hint" role="status"></p>
+      <div class="audit-layout">
+        <div class="card audit-list" id="audit-list" aria-label="操作记录"></div>
+        <section class="card audit-detail" aria-labelledby="audit-detail-title">
+          <h2 id="audit-detail-title">操作详情</h2>
+          <p id="audit-detail-hint" class="settings-note">选择一条记录查看详情。</p>
+          <div id="audit-detail-actions" class="audit-selection" hidden><button type="button" class="button compact" id="audit-related">查看同一次操作</button><button type="button" class="button compact" id="audit-copy">复制记录</button></div>
+          <pre id="audit-detail-json" class="mono" hidden></pre>
+        </section>
+      </div>
+      <button type="button" class="button" id="audit-older" hidden>加载更早记录</button>
+    </section>
+  </main>
+
+  <div class="feedback" id="feedback">
+    <p id="feedback-message" role="status"></p>
+    <button type="button" class="feedback-close" id="feedback-close" aria-label="关闭提示" hidden>×</button>
+  </div>
+
+  <dialog id="confirm" aria-labelledby="confirm-title" aria-describedby="confirm-note">
+    <form method="dialog">
+      <h2 id="confirm-title">确认操作</h2>
+      <p id="confirm-note"></p>
+      <div class="dialog-buttons"><button class="button" value="cancel" autofocus>取消</button><button class="button primary" value="ok">确认执行</button></div>
+    </form>
+  </dialog>
+  <dialog id="preset-dialog" aria-labelledby="preset-dialog-title">
+    <form id="preset-form">
+      <h2 id="preset-dialog-title">保存端口预设</h2>
+      <p id="preset-endpoint" class="mono"></p>
+      <label class="field"><span>预设名称</span><input id="preset-name" type="text" required maxlength="32" autocomplete="off" autofocus></label>
+      <div class="dialog-buttons">
+        <button type="button" class="button" id="cancel-preset">取消</button>
+        <button type="submit" class="button primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

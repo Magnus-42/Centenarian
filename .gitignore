@@ -1,4 +1,5 @@
 RTL/Backup
+__pycache__/
 build
 BIT
 Doc

@@ -18,6 +18,7 @@ module cfg_port_top #(
     parameter integer SrcIpv6Count = 2,
     parameter integer DstIpv6Count = 3,
     parameter integer UdpIpv4RxCount = 3,
+    parameter integer UdpIpv6RxCount = 3,
     parameter integer ReqWidth = 4,
     parameter integer PendingTimeWidth = 24,
     parameter [32*LocalIpv4Count-1:0] DefaultLocalIp = {
@@ -46,6 +47,9 @@ module cfg_port_top #(
     },
     parameter [32*UdpIpv4RxCount-1:0] DefaultUdpIpv4Range = {
       32'h3000_2000, 32'h1000_1000, 32'h0800_0000
+    },
+    parameter [32*UdpIpv6RxCount-1:0] DefaultUdpIpv6Range = {
+      32'h3000_2000, 32'h1100_1100, 32'h0900_0000
     },
     parameter [PendingTimeWidth-1:0] DefaultPendingTime = 24'd1000,
     parameter [ReqWidth-1:0] DefaultArpPriority = 4'd15,
@@ -88,6 +92,7 @@ module cfg_port_top #(
 
     // UDP接收端口配置
     output wire [32*UdpIpv4RxCount-1:0] cfg_udp_ipv4_dst_port_range,
+    output wire [32*UdpIpv6RxCount-1:0] cfg_udp_ipv6_dst_port_range,
 
     // ARP与ICMP配置
     output wire [PendingTimeWidth-1:0] cfg_pending_time,
@@ -178,6 +183,7 @@ module cfg_port_top #(
       .SrcIpv6Count       (SrcIpv6Count),
       .DstIpv6Count       (DstIpv6Count),
       .UdpIpv4RxCount     (UdpIpv4RxCount),
+      .UdpIpv6RxCount     (UdpIpv6RxCount),
       .ReqWidth           (ReqWidth),
       .DefaultLocalIp     (DefaultLocalIp),
       .DefaultLocalMac    (DefaultLocalMac),
@@ -188,6 +194,7 @@ module cfg_port_top #(
       .DefaultDstIpv6     (DefaultDstIpv6),
       .DefaultDstMac      (DefaultDstMac),
       .DefaultUdpIpv4Range(DefaultUdpIpv4Range),
+      .DefaultUdpIpv6Range(DefaultUdpIpv6Range),
       .DefaultPendingTime (DefaultPendingTime),
       .DefaultArpPriority (DefaultArpPriority),
       .DefaultIcmpPriority(DefaultIcmpPriority),
@@ -220,6 +227,7 @@ module cfg_port_top #(
       .cfg_dst_mac (cfg_dst_mac),
 
       .cfg_udp_ipv4_dst_port_range(cfg_udp_ipv4_dst_port_range),
+      .cfg_udp_ipv6_dst_port_range(cfg_udp_ipv6_dst_port_range),
 
       .cfg_pending_time (cfg_pending_time),
       .cfg_arp_priority (cfg_arp_priority),

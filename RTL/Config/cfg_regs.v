@@ -20,6 +20,7 @@ module cfg_regs #(
     parameter integer SrcIpv6Count = 2,
     parameter integer DstIpv6Count = 3,
     parameter integer UdpIpv4RxCount = 3,
+    parameter integer UdpIpv6RxCount = 3,
     parameter integer ReqWidth = 4,
     parameter integer PendingTimeWidth = 24,
     parameter [32*LocalIpv4Count-1:0] DefaultLocalIp = {
@@ -47,6 +48,9 @@ module cfg_regs #(
       48'h2100_3119_0000, 48'h2200_3119_0000, 48'h2300_3119_0000
     },
     parameter [32*UdpIpv4RxCount-1:0] DefaultUdpIpv4Range = {
+      32'h3000_2000, 32'h1000_1000, 32'h0800_0000
+    },
+    parameter [32*UdpIpv6RxCount-1:0] DefaultUdpIpv6Range = {
       32'h3000_2000, 32'h1000_1000, 32'h0800_0000
     },
     parameter [PendingTimeWidth-1:0] DefaultPendingTime = 24'd1000,
@@ -83,6 +87,7 @@ module cfg_regs #(
 
     // UDP接收端口配置
     output wire [32*UdpIpv4RxCount-1:0] cfg_udp_ipv4_dst_port_range,
+    output wire [32*UdpIpv6RxCount-1:0] cfg_udp_ipv6_dst_port_range,
 
     // ARP与ICMP配置
     output wire [PendingTimeWidth-1:0] cfg_pending_time,
@@ -124,7 +129,7 @@ module cfg_regs #(
     end
     if (LocalIpv4Count < 1 || LocalIpv4Count >= 255 || SrcIpv6Count < 1 || SrcIpv6Count >= 255 ||
         DstIpv6Count < 1 || DstIpv6Count >= 255 || UdpIpv4RxCount < 1 ||
-        UdpIpv4RxCount >= 255) begin
+        UdpIpv4RxCount >= 255 || UdpIpv6RxCount < 1 || UdpIpv6RxCount >= 255) begin
       $display("错误：cfg_regs：地址表和端口范围数量必须为1至254。");
       $finish;
     end
@@ -146,6 +151,7 @@ module cfg_regs #(
   reg  [ 128*DstIpv6Count-1:0] cfg_dst_ipv6_reg;
   reg  [  48*DstIpv6Count-1:0] cfg_dst_mac_reg;
   reg  [32*UdpIpv4RxCount-1:0] cfg_udp_ipv4_dst_port_range_reg;
+  reg  [32*UdpIpv6RxCount-1:0] cfg_udp_ipv6_dst_port_range_reg;
   reg  [ PendingTimeWidth-1:0] cfg_pending_time_reg;
   reg  [         ReqWidth-1:0] cfg_arp_priority_reg;
   reg  [         ReqWidth-1:0] cfg_icmp_priority_reg;
@@ -292,6 +298,13 @@ module cfg_regs #(
         item_count = UdpIpv4RxCount[7:0];
         if (req_index < item_count) begin
           read_value[31:0] = cfg_udp_ipv4_dst_port_range_reg[req_index*32+:32];
+        end
+      end
+      `CFG_UDP_IPV6_RX_PORT_RANGE: begin
+        item_bytes = 8'd4;
+        item_count = UdpIpv6RxCount[7:0];
+        if (req_index < item_count) begin
+          read_value[31:0] = cfg_udp_ipv6_dst_port_range_reg[req_index*32+:32];
         end
       end
       `CFG_IPV6_SRC_IP: begin
@@ -490,6 +503,14 @@ module cfg_regs #(
     end
   end
   assign cfg_udp_ipv4_dst_port_range = cfg_udp_ipv4_dst_port_range_reg;
+  always @(posedge clk) begin
+    if (rst || restore_defaults) begin
+      cfg_udp_ipv6_dst_port_range_reg <= DefaultUdpIpv6Range;
+    end else if (write_commit && req_item_d2 == `CFG_UDP_IPV6_RX_PORT_RANGE) begin
+      cfg_udp_ipv6_dst_port_range_reg[req_index_d2*32+:32] <= req_value_d2[31:0];
+    end
+  end
+  assign cfg_udp_ipv6_dst_port_range = cfg_udp_ipv6_dst_port_range_reg;
   //// ARP与ICMP配置
   always @(posedge clk) begin
     if (rst || restore_defaults) begin

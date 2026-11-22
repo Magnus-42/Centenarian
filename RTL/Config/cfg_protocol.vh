@@ -32,7 +32,7 @@
 `define CFG_CLEAR_PORT_FLAGS 8'h15
 `define CFG_RESTORE_PORT_DEFAULTS 8'h16
 
-// 0x20～0x3F IPv4相关配置，0x30～0x3F预留给新增模块。
+// 0x20～0x2F IPv4、ARP、ICMPv4 和 UDP 分流配置。
 //// IPv4地址配置
 `define CFG_IPV4_LOCAL_IP 8'h20
 `define CFG_IPV4_LOCAL_MAC 8'h21
@@ -53,12 +53,12 @@
 
 //// UDP接收端口配置
 `define CFG_UDP_IPV4_RX_PORT_RANGE 8'h2c
+`define CFG_UDP_IPV6_RX_PORT_RANGE 8'h2d
 
 // 0x40～0x5F IPv6相关配置，0x50～0x5F预留给新增模块。
 `define CFG_IPV6_SRC_IP 8'h40
 `define CFG_IPV6_SRC_MAC 8'h41
 `define CFG_IPV6_DST_IP 8'h42
 `define CFG_IPV6_DST_MAC 8'h43
-// 0x4C预留给UDP/IPv6接收端口范围，通路接入时启用。
 
 `endif

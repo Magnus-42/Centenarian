@@ -121,7 +121,9 @@ def udp_bounds(code, value):
     return tuple(map(int, value.split("-")))
 
 
-def udp_peer_warnings(code, value, peer, peer_label):
+def peer_udp_notes(code, value, peer, peer_label):
+    if code not in (*UDP_IPV4, *UDP_IPV6):
+        return []
     low, high = udp_bounds(code, value)
     family = UDP_IPV4 if code in UDP_IPV4 else UDP_IPV6
     matches = []
@@ -134,10 +136,11 @@ def udp_peer_warnings(code, value, peer, peer_label):
             continue
         ports = str(overlap_low) if overlap_low == overlap_high else f"{overlap_low}–{overlap_high}"
         label = "管理端口" if other == 0x12 else f"业务索引 {slot}"
-        matches.append(f"{label} {configured}（重叠端口 {ports}）")
+        matches.append(f"{ports}（{label}）")
     if not matches:
         return []
-    return [f"与{peer_label}的{'、'.join(matches)}重叠。两口独立分流，可以共用这些端口号。"]
+    ports = "、".join(matches)
+    return [f"{peer_label}也使用 UDP 端口 {ports}。两个物理网口可以共用这些端口号。"]
 
 
 def check_conflicts(code, index, value, current, peer, peer_label, *, audit=False, block_cross_port=True):
@@ -172,5 +175,4 @@ def check_conflicts(code, index, value, current, peer, peer_label, *, audit=Fals
                     errors.append(f"IPv6 目的地址 {address} 已在本口索引 {other} 绑定到不同的 MAC：{other_mac}。")
     if code in (*UDP_IPV4, *UDP_IPV6):
         warnings.extend(udp_warnings(values, code, index))
-        warnings.extend(udp_peer_warnings(code, value, peer, peer_label))
     return errors, warnings

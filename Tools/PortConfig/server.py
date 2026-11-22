@@ -15,10 +15,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from audit import AuditLog, SOURCES, default_directory, event, identifier, timestamp
-from conflicts import check_conflicts, read_config, related_items
+from conflicts import check_conflicts, peer_udp_notes, read_config, related_items
 from demo import DemoDevice
 from protocol import (
-    EXEC, GET, ITEMS, OK, PROFILES, SET, STATUS, TABLES, Client,
+    ARP_ANNOUNCE_MASK, EXEC, GET, ICMP_ERROR_FLAGS, ITEMS, OK, PROFILES, SET, STATUS, TABLES, Client,
     big_endian_hex, decode_value, encode_value, is_management_address, unsigned,
 )
 
@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent
 ASSETS = {"/": ("index.html", "text/html"), "/style.css": ("style.css", "text/css"),
           "/app.js": ("app.js", "text/javascript"), "/audit.js": ("audit.js", "text/javascript")}
 DEVICE_POST = {"/api/probe", "/api/probe-tables", "/api/read", "/api/check", "/api/write", "/api/action", "/api/heartbeat"}
-SUMMARY = (0x10, 0x11, 0x12, 0x13, 0x14, 0x26, 0x27, 0x2B)
+SUMMARY = (0x10, 0x11, 0x12, 0x13, 0x14, 0x26, 0x27, ICMP_ERROR_FLAGS)
 READ_LIMIT = sum(254 if item.table else 1 for item in ITEMS.values() if item.access != "exec")
 
 
@@ -50,7 +50,8 @@ def checked_item(row, access):
     if type(code) is not int or code not in ITEMS:
         raise ValueError("未知配置项")
     item = ITEMS[code]
-    if type(index) is not int or not 0 <= index <= (253 if item.table else 0):
+    max_index = 253 if item.table and code != ARP_ANNOUNCE_MASK else 0
+    if type(index) is not int or not 0 <= index <= max_index:
         raise ValueError("该配置项的索引无效")
     if item.access not in access:
         raise ValueError("该配置项不支持所请求的操作")
@@ -58,6 +59,7 @@ def checked_item(row, access):
 
 
 def read_row(client, item, index):
+    item = client.item_for_index(item, index)
     reply = client.exchange(GET, item, index)
     row = {"code": item.code, "index": index, "status": status_text(reply)}
     if reply is not None and reply[0] == OK:
@@ -128,6 +130,8 @@ class Bridge(ThreadingHTTPServer):
                         or any(not isinstance(name, str) or name not in TABLES for name in tables)):
                     raise ValueError("请选择需要重新探测的配置表")
                 counts = {name: client.count(TABLES[name]) for name in dict.fromkeys(tables)}
+                if "arp_announce" in counts and "ipv4" not in counts:
+                    counts["ipv4"] = client.count(TABLES["ipv4"])
                 return {"counts": counts, "trace": trace}
             if path == "/api/read":
                 entries = body["items"]
@@ -141,6 +145,7 @@ class Bridge(ThreadingHTTPServer):
                 item, index = checked_item(body, ("exec",))
                 return {"status": status_text(client.exchange(EXEC, item, index)), "trace": trace}
             item, index = checked_item(body, ("rw",))
+            item = client.item_for_index(item, index)
             value = encode_value(item, body["value"], self.pending_width, self.priority_width)
             normalized = decode_value(item, value)
             review = self.review(client, target, item.code, index, normalized, peer, block_cross_port)
@@ -195,10 +200,13 @@ class Bridge(ThreadingHTTPServer):
                 continue
             errors, warnings = check_conflicts(code, row["index"], row["value"], current, peer, label,
                                                audit=True, block_cross_port=block_cross_port)
-            if errors or warnings:
+            notes = peer_udp_notes(code, row["value"], peer, label)
+            if errors or warnings or notes:
                 validation = row.setdefault("validation", {"errors": [], "warnings": []})
                 validation["errors"].extend(errors)
                 validation["warnings"].extend(warnings)
+                if notes:
+                    validation["notes"] = notes
         return coverage
 
     def review(self, client, target, code, index, value, requested_peer, block_cross_port):
@@ -213,7 +221,8 @@ class Bridge(ThreadingHTTPServer):
         warnings = [] if local_complete else ["本口有配置项未能读取，冲突检查不完整。"]
         errors, issues = check_conflicts(code, index, value, current, peer_values, peer_label,
                                          block_cross_port=block_cross_port)
-        return {"errors": errors, "warnings": [*issues, *warnings, *coverage]}
+        return {"errors": errors, "warnings": [*issues, *warnings, *coverage],
+                "notes": peer_udp_notes(code, value, peer_values, peer_label)}
 
     def write(self, client, target, demo, item, index, value, normalized, trace, peer, block_cross_port):
         next_target = target

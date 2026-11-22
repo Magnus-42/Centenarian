@@ -160,10 +160,10 @@ select { appearance: none; padding-right: 29px; background-image: linear-gradien
 input[aria-invalid="true"], .parameter-value input.edited[aria-invalid="true"] { border-color: var(--red); background: #fdf0f2; }
 .field-error { color: var(--red); font-size: .875rem; overflow-wrap: anywhere; }
 .field-warning { color: var(--amber); font-size: .875rem; overflow-wrap: anywhere; }
-.field-error:empty, .field-warning:empty { display: none; }
+.field-error:empty, .field-warning:empty, .field-note:empty { display: none; }
 .validation-notice { margin: 0 0 12px; padding: 8px 12px; border-radius: 7px; background: #fff3e2; }
 .parameter-value .field-error { margin-top: 4px; }
-.parameter-value .field-warning { margin-top: 4px; }
+.parameter-value .field-warning, .parameter-value .field-note { margin-top: 4px; }
 .parameter-value .readback { margin-top: 4px; }
 .parameter-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .parameter-actions .button { min-width: 50px; padding-inline: 8px; }

@@ -4,15 +4,20 @@ import ipaddress
 import re
 import socket
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 STAMP = bytes.fromhex("19 31")
+VALUE_BYTES = 16
 GET, SET, EXEC, RESPONSE = 1, 2, 3, 4
 OK, BAD_OP, BAD_ITEM, BAD_INDEX, ACCESS_DENIED, BAD_VALUE_LENGTH = range(6)
 STATUS = ("OK", "BAD_OP", "BAD_ITEM", "BAD_INDEX", "ACCESS_DENIED", "BAD_VALUE_LENGTH")
-UDP_IPV4_RX_PORT_RANGE = 0x2C
-UDP_IPV6_RX_PORT_RANGE = 0x2D
+ARP_ANNOUNCE_MASK = 0x2A
+ARP_ANNOUNCE_SEND = 0x2B
+ICMP_ECHO_PRIORITY = 0x2C
+ICMP_ERROR_FLAGS = 0x2D
+UDP_IPV4_RX_PORT_RANGE = 0x2E
+UDP_IPV6_RX_PORT_RANGE = 0x2F
 PROFILES = {"A": ("192.168.1.9", 6), "B": ("192.168.1.137", 134)}
 
 
@@ -28,6 +33,7 @@ class Item:
     table: str = ""
     note: str = ""
     bits: tuple[str, ...] = ()
+    value_bits: int = 0
 
 
 ITEMS = {item.code: item for item in (
@@ -56,8 +62,12 @@ ITEMS = {item.code: item for item in (
          note="清除本口已学习的 ARP 表项。"),
     Item(0x29, "ARP_CLEAR_PENDING", "清除 ARP 待决队列", "actions", 0, "action", "exec",
          note="清除本口等待 ARP 解析的报文。"),
-    Item(0x2A, "ICMP_ECHO_PRIORITY", "ICMP 回显优先级", "policy", 1, "priority"),
-    Item(0x2B, "ICMP_ERROR_FLAGS", "ICMP 错误标志", "status", 1, "flags", "ro",
+    Item(ARP_ANNOUNCE_MASK, "ARP_ANNOUNCE_MASK", "免费 ARP 发送掩码", "policy", 0, "bitmask",
+         table="arp_announce", note="索引固定为 0。bit 0 对应管理地址，bit 1 起依次对应业务 IPv4 地址。"),
+    Item(ARP_ANNOUNCE_SEND, "ARP_ANNOUNCE_SEND", "发送免费 ARP", "actions", 0, "action", "exec",
+         note="使用「ARP 与 ICMP」中本口已保存的掩码。新请求覆盖待发送的旧请求，已经开始的一轮继续发送。"),
+    Item(ICMP_ECHO_PRIORITY, "ICMP_ECHO_PRIORITY", "ICMP 回显优先级", "policy", 1, "priority"),
+    Item(ICMP_ERROR_FLAGS, "ICMP_ERROR_FLAGS", "ICMP 错误标志", "status", 1, "flags", "ro",
          bits=("TTL 错误",)),
     Item(UDP_IPV4_RX_PORT_RANGE, "UDP_IPV4_RX_PORT_RANGE", "UDP(IPV4) 目的端口区间", "udp", 4, "range", table="udp",
          note="格式为起始端口-结束端口，包含两端。"),
@@ -71,8 +81,15 @@ ITEMS = {item.code: item for item in (
 TABLES = {item.table: item for item in ITEMS.values() if item.table}
 
 
+def announce_mask_item(ipv4_count):
+    bits = ipv4_count + 1
+    if bits > VALUE_BYTES * 8:
+        raise ValueError(f"免费 ARP 掩码最多支持 {VALUE_BYTES * 8} 个 IPv4 地址（含管理地址）。")
+    return replace(ITEMS[ARP_ANNOUNCE_MASK], width=(bits + 7) // 8, value_bits=bits)
+
+
 def unsigned(text, maximum, minimum=0):
-    if not re.fullmatch(r"[0-9]+|0[xX][0-9a-fA-F]+", text) or len(text) > 22:
+    if len(text) > max(22, len(str(maximum))) or not re.fullmatch(r"[0-9]+|0[xX][0-9a-fA-F]+", text):
         raise ValueError("请输入十进制整数或 0x 开头的十六进制整数")
     value = int(text, 16 if text.lower().startswith("0x") else 10)
     if not minimum <= value <= maximum:
@@ -122,8 +139,10 @@ def encode_value(item, text, pending_width=24, priority_width=4):
         if low > high:
             raise ValueError("起始端口不能大于结束端口。")
         return low.to_bytes(2, "big") + high.to_bytes(2, "big")
-    if item.kind in ("timeout", "priority"):
-        width = pending_width if item.kind == "timeout" else priority_width
+    if item.kind in ("timeout", "priority", "bitmask"):
+        if item.kind == "bitmask" and not item.value_bits:
+            raise ValueError("尚未确定本口免费 ARP 掩码长度。")
+        width = {"timeout": pending_width, "priority": priority_width, "bitmask": item.value_bits}[item.kind]
         return unsigned(text, (1 << width) - 1).to_bytes(item.width, "little")
     raise ValueError("该配置项不可写")
 
@@ -139,12 +158,14 @@ def decode_value(item, raw):
         return f"{int.from_bytes(raw[:2], 'big')}-{int.from_bytes(raw[2:], 'big')}"
     if item.kind == "flags":
         return f"0x{raw[0]:02X}"
+    if item.kind == "bitmask":
+        return f"0x{int.from_bytes(raw, 'little'):0{len(raw) * 2}X}"
     return str(int.from_bytes(raw, "little"))
 
 
 def big_endian_hex(item, raw):
-    # The timeout is the only multi-byte scalar encoded low byte first on the wire.
-    ordered = raw[::-1] if item.kind == "timeout" else raw
+    # Configuration scalars sent low byte first are displayed high byte first.
+    ordered = raw[::-1] if item.kind in ("timeout", "bitmask") else raw
     return ordered.hex(" ").upper()
 
 
@@ -161,7 +182,7 @@ def readback_error(item, raw, pending_width, priority_width):
 
 
 def request_frame(op, seq, code, index, value=b""):
-    return STAMP + bytes((seq << 3 | op, code, index, len(value))) + value.ljust(16, b"\0")
+    return STAMP + bytes((seq << 3 | op, code, index, len(value))) + value.ljust(VALUE_BYTES, b"\0")
 
 
 def response_error(frame, seq, item, index, op):
@@ -218,8 +239,8 @@ def packet_fields(frame, item, is_reply):
         unit = " ms" if item.kind == "timeout" else ""
         add("配置值", f"{decode_value(item, raw)}{unit} · {big_endian_hex(item, raw)}",
             value_offset, length)
-    if length < 16:
-        add("填充", f"{16 - length} 字节", value_offset + length, 16 - length)
+    if length < VALUE_BYTES:
+        add("填充", f"{VALUE_BYTES - length} 字节", value_offset + length, VALUE_BYTES - length)
     return fields
 
 
@@ -232,6 +253,7 @@ class Client:
         self.priority_width = priority_width
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.seq = 0
+        self.table_counts = {}
 
     def __enter__(self):
         return self
@@ -242,7 +264,20 @@ class Client:
     def value_error(self, item, raw):
         return readback_error(item, raw, self.pending_width, self.priority_width)
 
+    def item_for_index(self, item, index):
+        if item.code != ARP_ANNOUNCE_MASK:
+            return item
+        if index != 0:
+            raise ValueError("免费 ARP 掩码的索引必须为 0。")
+        if item.width:
+            return item
+        ipv4_count = self.count(TABLES["ipv4"])
+        if ipv4_count is None:
+            raise ValueError("无法探测本口 IPv4 地址表项数，不能确定免费 ARP 掩码长度。")
+        return announce_mask_item(ipv4_count)
+
     def exchange(self, op, item, index=0, value=b"", new_target=None, *, probing=False):
+        item = self.item_for_index(item, index)
         self.seq = (self.seq + 1) % 32
         frame = request_frame(op, self.seq, item.code, index, value)
         destination = self.demo or self.target
@@ -304,6 +339,18 @@ class Client:
         return None
 
     def count(self, item):
+        if item.code in self.table_counts:
+            return self.table_counts[item.code]
+        if item.code == ARP_ANNOUNCE_MASK:
+            ipv4_count = self.count(TABLES["ipv4"])
+            if ipv4_count is None or ipv4_count + 1 > VALUE_BYTES * 8:
+                return None
+            mask = announce_mask_item(ipv4_count)
+            reply = self.exchange(GET, mask, probing=True)
+            if reply is None or reply[0] != OK:
+                return None
+            self.table_counts[item.code] = 1
+            return 1
         lower, upper = 0, 254
         while lower < upper:
             index = (lower + upper) // 2
@@ -314,4 +361,6 @@ class Client:
                 lower = index + 1
             else:
                 upper = index
+        if lower:
+            self.table_counts[item.code] = lower
         return lower or None

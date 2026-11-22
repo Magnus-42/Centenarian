@@ -10,15 +10,15 @@ const sections = {
   ipv4: ["IPv4 地址", "按索引配置本机地址、MAC、网关与子网掩码。"],
   ipv6: ["IPv6 地址", "源地址表与目的地址表各自使用独立索引。"],
   udp: ["UDP 分流", "区间包含两端。多个业务区间重叠时，索引较小的区间优先。"],
-  policy: ["ARP 与 ICMP", "设置 ARP 待决超时与发送优先级。"],
+  policy: ["ARP 与 ICMP", "设置 ARP 策略、免费 ARP 的发送范围和 ICMP 发送优先级。"],
   status: ["链路与错误", "显示最近一次读取的状态。错误记录可在「维护动作」中清除。"],
-  actions: ["维护动作", "清除状态、ARP 表项和待决队列，或恢复当前端口的默认值。"],
+  actions: ["维护动作", "发送免费 ARP、清除状态或缓存，或恢复当前端口的默认值。"],
   log: ["UDP 报文日志", ""],
   audit: ["操作日志", "查看网页操作、服务处理结果和相关 UDP 收发。"],
   settings: ["设置", ""],
 };
 const tableGroups = {ipv4: "IPv4 地址表", ipv6_source: "源地址表", ipv6_destination: "目的地址表",
-  udp: "UDP(IPV4) 接收区间表", udp_ipv6: "UDP(IPV6) 接收区间表"};
+  udp: "UDP(IPV4) 接收区间表", udp_ipv6: "UDP(IPV6) 接收区间表", arp_announce: "免费 ARP 发送掩码"};
 const statusNames = {TIMEOUT: "应答超时", BAD_OP: "操作码无效", BAD_ITEM: "配置项无效", BAD_INDEX: "索引越界", ACCESS_DENIED: "访问方式不支持", BAD_VALUE_LENGTH: "值长度无效"};
 const arpClearStates = [
   "未完成",
@@ -27,16 +27,16 @@ const arpClearStates = [
   "已完成",
 ];
 const diagnostics = {
-  0x13: {
+  LINK_STATE: {
     title: "网口链路",
     description: "查看物理网口的接收链路是否就绪。",
   },
-  0x14: {
+  IP_TX_DROP_FLAGS: {
     title: "发送丢包",
     description: "设备记录了哪些类型的报文在发送前被丢弃。",
     checks: ["IPv4 发送丢包", "IPv6 发送丢包"],
   },
-  0x26: {
+  ARP_ERROR_FLAGS: {
     title: "局域网地址解析（ARP）",
     description: "设备通过地址解析查找目标设备或网关的网卡地址。",
     checks: [
@@ -46,12 +46,12 @@ const diagnostics = {
       "查询使用了本口未配置的源 IP 地址",
     ],
   },
-  0x27: {
+  ARP_CLEAR_STATE: {
     title: "ARP 清除状态",
     description: "查看已保存的网卡地址和等待查找地址的报文是否已清除。",
     checks: ["地址缓存", "等待查找地址的报文"],
   },
-  0x2B: {
+  ICMP_ERROR_FLAGS: {
     title: "ping 请求检查",
     description: "ping 用于测试网络连通性。可转发次数用完的请求会被丢弃。",
     checks: ["收到可转发次数已用完的请求"],
@@ -287,6 +287,7 @@ function overviewRow(label, value, kind, validation) {
   const row = node("div", undefined, "overview-row");
   const details = node("dd", value, kind);
   appendReadbackValidation(details, validation);
+  if (validation?.notes?.length) details.append(node("div", validation.notes.join(" "), "secondary"));
   row.append(node("dt", label), details);
   return row;
 }
@@ -315,7 +316,7 @@ function renderOverview() {
 function renderDiagnostics(content) {
   content.classList.add("split");
   for (const item of sectionItems("status")) {
-    const {title, description, checks} = diagnostics[item.code];
+    const {title, description, checks} = diagnostics[item.name];
     const info = state.values.get(keyFor(item.code, 0));
     const card = node("article", undefined, "card diagnostic-card");
     const heading = node("div", undefined, "diagnostic-head");
@@ -330,7 +331,7 @@ function renderDiagnostics(content) {
 
     const entries = node("dl");
     const flags = Number(info.value);
-    const isClearState = item.code === 0x27;
+    const isClearState = item.name === "ARP_CLEAR_STATE";
     for (const [bit, check] of checks.entries()) {
       const set = Boolean(flags & (1 << bit));
       const text = isClearState ? (set ? "已完成" : "未完成") : (set ? "有记录" : "无记录");
@@ -426,7 +427,7 @@ function renderSection() {
   }
   const groups = new Map();
   for (const item of sectionItems()) {
-    const name = item.group === "policy" ? item.name.split("_")[0] : item.table;
+    const name = item.table || (item.group === "policy" ? item.name.split("_")[0] : "");
     if (!groups.has(name)) groups.set(name, []);
     groups.get(name).push(item);
   }
@@ -468,7 +469,8 @@ function unsignedValue(text, label, min, max) {
   if (!/^(?:[0-9]+|0x[0-9a-f]+)$/i.test(value)) {
     throw new Error(`${label}须为非负整数，可使用十进制或以 0x 开头的十六进制。`);
   }
-  if (value.length > 22) throw new Error(`${label}最多输入 22 个字符。`);
+  const maxLength = Math.max(22, max.toString().length);
+  if (value.length > maxLength) throw new Error(`${label}最多输入 ${maxLength} 个字符。`);
   const number = BigInt(value);
   if (number < min || number > max) throw new Error(`${label}必须在 ${min} 到 ${max} 之间。`);
   return number;
@@ -499,7 +501,7 @@ function ipv4Value(item, value) {
   return value;
 }
 
-function normalizedValue(item, text) {
+function normalizedValue(item, text, index = 0) {
   const value = text.trim();
   if (!value) throw new Error(`请输入${item.label}。`);
   switch (item.kind) {
@@ -536,14 +538,24 @@ function normalizedValue(item, text) {
       return unsignedValue(value, item.label, 0n, BigInt(state.meta.pendingMax)).toString();
     case "priority":
       return unsignedValue(value, item.label, 0n, BigInt(state.meta.priorityMax)).toString();
+    case "bitmask": {
+      const count = state.counts.ipv4;
+      if (count == null) throw new Error("请先探测本口 IPv4 地址表项数。");
+      if (index !== 0) throw new Error("免费 ARP 掩码的索引必须为 0。");
+      const bits = count + 1;
+      if (bits > 128) throw new Error("免费 ARP 掩码最多支持 128 个 IPv4 地址（含管理地址）。");
+      const mask = unsignedValue(value, item.label, 0n, (1n << BigInt(bits)) - 1n);
+      const digits = Math.ceil(bits / 8) * 2;
+      return `0x${mask.toString(16).toUpperCase().padStart(digits, "0")}`;
+    }
     default:
       return value;
   }
 }
 
-function checkValue(item, input) {
+function checkValue(item, input, index = 0) {
   try {
-    return {value: normalizedValue(item, input), error: ""};
+    return {value: normalizedValue(item, input, index), error: ""};
   } catch (error) {
     return {error: error.message};
   }
@@ -633,9 +645,12 @@ function parameterRow(item, index, label) {
   const warning = node("div", undefined, "field-warning");
   warning.id = `item-warning-${item.code}-${index}`;
   warning.setAttribute("aria-live", "polite");
-  input.setAttribute("aria-describedby", `${errorMessage.id} ${warning.id}`);
+  const note = node("div", undefined, "secondary field-note");
+  note.id = `item-note-${item.code}-${index}`;
+  note.setAttribute("aria-live", "polite");
+  input.setAttribute("aria-describedby", `${errorMessage.id} ${warning.id} ${note.id}`);
   const original = saved?.value ?? "";
-  const originalValue = checkValue(item, original).value;
+  const originalValue = checkValue(item, original, index).value;
   input.value = state.drafts.get(key) ?? original;
   const accept = control("确定", () => writeItem(item, index, input.value));
   accept.classList.add("primary");
@@ -654,7 +669,7 @@ function parameterRow(item, index, label) {
   const actions = node("div", undefined, "parameter-actions");
   actions.append(accept, cancel);
   const update = () => {
-    const checked = checkValue(item, input.value);
+    const checked = checkValue(item, input.value, index);
     const dirty = input.value.trim() !== original && (Boolean(checked.error) || checked.value !== originalValue);
     const review = dirty && !checked.error ? state.reviews.get(key) : null;
     const error = dirty ? checked.error || review?.errors.join(" ") || "" : "";
@@ -664,6 +679,8 @@ function parameterRow(item, index, label) {
     showFieldError(input, errorMessage, error);
     const caution = review?.warnings.join(" ") ?? "";
     if (warning.textContent !== caution) warning.textContent = caution;
+    const information = (dirty ? review : saved?.validation)?.notes?.join(" ") ?? "";
+    if (note.textContent !== information) note.textContent = information;
     const canEdit = dirty && state.target && !state.busy;
     accept.dataset.unavailable = String(!dirty || Boolean(error));
     accept.disabled = !canEdit || Boolean(error);
@@ -679,6 +696,7 @@ function parameterRow(item, index, label) {
   value.append(input, errorMessage, warning);
   if (readback) value.append(readback);
   appendReadbackValidation(value, saved?.validation);
+  value.append(note);
   const hint = item.kind === "timeout" ? `0–${state.meta.pendingMax} ms`
     : item.kind === "priority" ? `0–${state.meta.priorityMax}` : item.note;
   if (saved && saved.status !== "OK") value.append(node("div", statusNames[saved.status] || saved.status, "secondary"));
@@ -1081,7 +1099,7 @@ function confirmOperation(title, description, operation, details) {
 async function writeItem(item, index, value) {
   if (!state.target || state.busy) return;
   const operation = OperationLog.current() || OperationLog.newId();
-  const {error} = checkValue(item, value);
+  const {error} = checkValue(item, value, index);
   if (error) {
     feedback(error, "warn");
     return;
@@ -1161,6 +1179,11 @@ async function executeAction(item) {
       resetConnection();
       feedback(result.status === "OK" ? "设备已确认恢复。请选择对应网口的出厂端点并重新连接。"
         : "设备未应答，恢复结果待核对。请在该网口的出厂端点重新连接。", result.status === "OK" ? "success" : "warn");
+      return;
+    }
+    if (item.name === "ARP_ANNOUNCE_SEND") {
+      feedback(result.status === "OK" ? "设备已保存本次免费 ARP 发送请求。"
+        : "设备未应答，发送请求是否已接收待核对。", result.status === "OK" ? "success" : "warn");
       return;
     }
     if (result.status === "TIMEOUT") {

@@ -1,151 +1,46 @@
-# 02 · 参数与配置
+# 参数和默认值
 
-## 三层参数体系
+## 综合期参数
 
-```text
-全局 *_MAX      → 决定边界位宽（所有口一致）
-逐口 *_ARR      → 槽位打包的逐口配置（口 0 在最低段，新增口往高位拼）
-逐口 IDX_*      → 顶层接线的索引常量（改完字典核对这张表即可）
-```
+| 参数 | 影响 |
+| --- | --- |
+| `CmacSelect` | `0` 选 A 侧 CMAC，`1` 选 B 侧 CMAC |
+| `MacRxCount`、`Ipv4RxCount`、`Ipv6RxCount`、`UdpIpv4RxCount`、`UdpIpv6RxCount` | 业务匹配规则数，公开 RX 总线另有 1 路兜底 |
+| `MacTxCount`、`Ipv4TxCount`、`Ipv6TxCount`、`UdpIpv4TxCount`、`UdpIpv6TxCount` | 公开 TX 通道数量 |
+| `LocalIpv4Count`、`SrcIpv6Count`、`DstIpv6Count` | 本口业务地址表深度，管理 IPv4/MAC 独立接入 |
+| `MacTypeDict`、`Ipv4TypeDict`、`Ipv6TypeDict` | EtherType、IPv4 Protocol、IPv6 Next Header 业务匹配字典 |
+| `ClkFreqHz`、`ReqWidth`、`PendingTimeWidth` | 业务时钟频率、请求优先级位宽、ARP 待决超时位宽 |
+| `MgmtGatewayIp`、`MgmtSubnetMask` | 管理 IPv4 的网关和掩码 |
+| `Default*`、`MgmtMac` | 复位时装载的管理地址、业务表、UDP 区间和 ARP/ICMP 策略 |
 
-每口只用槽内低 `N` 段；槽内多余的通道由循环自动补零 / 排水，**加端口不改变已有端口的索引**。
+各类收发通道数至少为 1。自定义单口实例的通道数后，按每路位宽重算业务侧总线。 [接线与位宽](03-integration.md#2-接业务-axi-stream)
 
-## 参数一览
+## 参考设计默认值
 
-| 参数                           | 含义                                                  |
-| ---------------------------- | --------------------------------------------------- |
-| `ETH_PORT_NUM`               | 网口数                                                 |
-| `CFG_NUM_WIDTH`              | 计数项位宽 ⇒ 单口通道数上限 `2^N - 1`                           |
-| `PENDING_TIME_WIDTH`         | ARP 待发超时计数位宽                                        |
-| `ARBITER_VAL_WIDTH`          | `usr` 优先级位宽                                         |
-| `ARP_PRIORITY`               | ARP 应答帧的发送优先级，默认 `{ARBITER_VAL_WIDTH{1'b1}}`（最高）    |
-| `ICMPV4_PRIORITY`            | ICMPv4 echo 应答帧的发送优先级，默认 12                          |
-| `*_RX_TYPE_NUM_MAX` / `_ARR` | 每口接收用户通道数（不含内部通道与未匹配通道）                             |
-| `*_RX_TYPE_DICT_ARR`         | 每口接收分发规则：MAC 16bit/项、IPv4 与 IPv6 8bit/项、UDP 32bit/项 |
-| `*_TX_TYPE_NUM_ARR`          | 每口发送路数                                              |
-| `UDP_DST_PORT_RANGE_ARR`     | 每口 UDP 目的端口区间 `[hi，lo]`（区间不可重叠）                     |
-| `CFG_PENDING_TIME_ARR`       | 每口 ARP 待发超时（单位为用户时钟周期）                              |
-| `LOCAL_*_NUM_ARR`            | 本口 MAC、IPv6 目的 / 源 MAC 表项数                          |
+| 项目 | A 口 | B 口 |
+| --- | --- | --- |
+| 管理端点 | `192.168.1.9:6` | `192.168.1.137:134` |
+| 管理 MAC | `00:00:19:31:00:f1` | `00:00:19:31:80:f1` |
+| 管理网关 / 掩码 | `192.168.1.1` / `255.255.255.0` | `192.168.1.1` / `255.255.255.0` |
+| 业务 IPv4 / IPv6 源 / IPv6 目的表深度 | 3 / 2 / 3 | 2 / 2 / 2 |
+| MAC RX / TX | 3 / 2 | 2 / 3 |
+| IPv4 RX / TX | 4 / 4 | 4 / 4 |
+| ICMPv4 RX / TX | 1 / 1 | 1 / 1 |
+| IPv6 RX / TX | 4 / 3 | 4 / 3 |
+| UDP(IPV4) RX / TX | 4 / 8 | 4 / 4 |
+| UDP(IPV4) RX 业务档 0 / 1 / 2 | 0–8 / 16 / 32–48 | 0–8 / 16 / 32–48 |
+| UDP(IPV6) RX / TX | 4 / 2 | 4 / 2 |
+| UDP(IPV6) RX 业务档 0 / 1 / 2 | 0–8 / 16 / 32–48 | 0–8 / 16 / 32–48 |
+| ARP 待决超时 | 1000 ms | 2000 ms |
+| ARP / ICMPv4 回显发送优先级 | 15 / 12 | 15 / 12 |
 
-## 分发规则（字典）书写规则
+表中各分流接口的 RX 数包含最后一路兜底。使用参考打流机时，保留测试流对应的业务地址和 UDP 端口区间。 [A 口参数](../RTL/Top/eth_stack_port_a.v) · [B 口参数](../RTL/Top/eth_stack_port_b.v)
 
-- **排列**：书写序 `{左..右}`，**最右端 = 通道 0**；
-- **字节序**：按**小端序**（least-significant byte first）书写 —— 配置值 `V` 的最低字节对应线上第一个字节。小端序的定义可参考[Endianness — Wikipedia](https://en.wikipedia.org/wiki/Endianness#Little-endian)。
+## 排列规则与地址
 
-  例：EtherType `0x0800` 写作 `16'h0008`；IP 地址 `192.168.1.100` 写作 `32'h6401A8C0`；
-- **只填用户项**：内部通道（MAC 层的 ARP / IPv4 / IPv6、IPv4 层的 UDP）不要写进字典。
+- RTL 中，地址和端口字段的首个线上字节放在最低 8 位。通道 0 和表项 0 放在各自向量的低位。例：`192.168.1.9` 写为 `32'h0901_a8c0`。
+- UDP 端口闭区间在 RTL 中拼成 `{上界, 下界}`，每个端点 16 位。例：32–48 写为 `32'h3000_2000`。
 
-## 通道数必须写足位宽
+## 修改运行时配置
 
-`*_NUM_ARR` 每个通道占 `CFG_NUM_WIDTH` 位。仅写 `4'd3` 而 `CFG_NUM_WIDTH = 8` 时会被零扩展，导致通道整体错位且**编译不报错**。推荐写法：
-
-```verilog
-{ETH_PORT_NUM{ {CFG_NUM_WIDTH{1'b0}} | 4'd3 }}     // 宽度 = max(CFG_NUM_WIDTH, 4)
-```
-
-## 关闭某一层（N = 0）
-
-某层不启用时，该口只占位一条哑通道：不接收、不参与发送调度，无需条件编译。
-
-## 配置示例一：单网口，IPv4 + UDP 为主
-
-需求：
-
-| 层        | 通道数                             | 内容                                  |
-| -------- | ------------------------------- | ----------------------------------- |
-| MAC 接收   | 1                               | 自定义类型 `0x88B5`                      |
-| IPv4 接收  | 3                               | ICMP（`0x01`）、OSPF（`0x59`）、协议 `0x06` |
-| IPv6 接收  | 0                               | 不启用                                 |
-| UDP 接收   | 3                               | 端口区间 `[0,0]`、`[1,1]`、`[2,8]`        |
-| 发送路数     | MAC 1 / IPv4 3 / IPv6 0 / UDP 8 | 与 `*_axis_susr` 一一对应                |
-| ARP 待发超时 | 1 秒（按用户时钟周期数填）                  |                                     |
-
-参考实现（参数部分；端口连接见 README「用法」节）：
-
-```verilog
-net_stack_top #(
-  .ETH_PORT_NUM        (1),
-  .CFG_NUM_WIDTH       (8),
-  .ARBITER_VAL_WIDTH      (4),
-  .MAC_RX_TYPE_NUM_ARR    ({ {8{1'b0}}|4'd1 }),
-  .MAC_RX_TYPE_DICT_ARR   (16'hB588),
-  .MAC_TX_TYPE_NUM_ARR    ({ {8{1'b0}}|4'd1 }),
-  .IPV4_RX_TYPE_NUM_ARR   ({ {8{1'b0}}|4'd3 }),
-  .IPV4_RX_TYPE_DICT_ARR  ({8'h06, 8'h59, 8'h01}),          // ch0=icmp ch1=ospf ch2=0x06
-  .IPV4_TX_TYPE_NUM_ARR   ({ {8{1'b0}}|4'd3 }),
-  .IPV6_RX_TYPE_NUM_ARR   ({ {8{1'b0}}|4'd0 }),              // 不启用 IPv6
-  .IPV6_TX_TYPE_NUM_ARR   ({ {8{1'b0}}|4'd0 }),
-  .UDP_RX_PORT_NUM_ARR    ({ {8{1'b0}}|4'd3 }),
-  .UDP_DST_PORT_RANGE_ARR ({32'h00080002, 32'h00010001, 32'h00000000}),
-  .UDP_TX_PORT_NUM_ARR    ({ {8{1'b0}}|4'd8 }),
-  .CFG_PENDING_TIME_ARR   (57'd400_000_000)
-) u_dut ( /* 端口连接略 */ );
-```
-
-## 配置示例二：双网口自测配置（`subsys_test_top` 实配）
-
-需求：两口交叉对接自发自收，每口配齐各协议的用户通道与"未匹配"探测通道——这是验证环境 `RTL/Test/Top/subsys_test_top.v` 的实际配置，可直接对照上板。
-
-| 层          | 口 A                                      | 口 B                                      |
-| ---------- | ---------------------------------------- | ---------------------------------------- |
-| MAC 接收     | 2：`0x88B5`、`0x88CC`                      | 1：`0x88B5`                               |
-| IPv4 接收    | 3：icmp、ospf、`0x06`                       | 3：`0x06`、icmp、ospf                       |
-| IPv6 接收    | 3：udp、icmpv6、ospfv3                      | 3：udp、ospfv3、icmpv6                      |
-| UDP 接收     | 3 区间：`[0,0]` `[1,1]` `[2,8]`             | 2 区间：`[2,2]` `[4,8]`                     |
-| 发送路数       | MAC 2 / IPv4 4 / IPv6 3 / UDP 8          | MAC 3 / IPv4 4 / IPv6 3 / UDP 4          |
-| 本机地址       | IP `192.168.1.9`，MAC `00:19:31:00:00:01` | IP `192.168.1.8`，MAC `00:19:31:00:00:02` |
-| 网关 / 子网    | `192.168.1.1` / `255.255.255.0`（两口同）     | 同左                                       |
-| IPv6 MAC 表 | 目的 2 项 / 源 2 项                           | 目的 2 项 / 源 2 项                           |
-| ARP 待发超时   | 1.0 s                                    | 0.5 s                                    |
-
-参考实现（摘自 `subsys_test_top.v`，`*_ARR` 的打包顺序为 `{口B 槽位, 口A 槽位}`，口 A 在低位）：
-
-```verilog
-localparam ETH_PORT_NUM     = 2;
-localparam CFG_NUM_WIDTH    = 8;
-localparam ARBITER_VAL_WIDTH   = 4;
-localparam PENDING_TIME_WIDTH = 57;
-
-localparam [CFG_NUM_WIDTH-1:0] MAC_RX_TYPE_NUM_MAX  = 2;
-localparam [CFG_NUM_WIDTH-1:0] MAC_TX_TYPE_NUM_MAX  = 3;
-localparam [CFG_NUM_WIDTH-1:0] IPV4_RX_TYPE_NUM_MAX = 3;
-localparam [CFG_NUM_WIDTH-1:0] IPV4_TX_TYPE_NUM_MAX = 4;
-localparam [CFG_NUM_WIDTH-1:0] IPV6_RX_TYPE_NUM_MAX = 3;
-localparam [CFG_NUM_WIDTH-1:0] IPV6_TX_TYPE_NUM_MAX = 3;
-localparam [CFG_NUM_WIDTH-1:0] UDP_RX_PORT_NUM_MAX  = 3;
-localparam [CFG_NUM_WIDTH-1:0] UDP_TX_PORT_NUM_MAX  = 8;
-
-localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0] MAC_RX_TYPE_NUM_ARR
-  = { {CFG_NUM_WIDTH{1'b0}}|4'd1 , {CFG_NUM_WIDTH{1'b0}}|4'd2 };            // B:1  A:2
-localparam [(MAC_RX_TYPE_NUM_MAX*16)*ETH_PORT_NUM-1:0] MAC_RX_TYPE_DICT_ARR
-  = { {16'h0000,16'hB588} , {16'hCC88,16'hB588} };                          // B ch0=88B5 ; A ch0=88B5 ch1=88CC
-localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0] MAC_TX_TYPE_NUM_ARR
-  = { {CFG_NUM_WIDTH{1'b0}}|4'd3 , {CFG_NUM_WIDTH{1'b0}}|4'd2 };            // B:3  A:2
-localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0] IPV4_RX_TYPE_NUM_ARR
-  = { {CFG_NUM_WIDTH{1'b0}}|4'd3 , {CFG_NUM_WIDTH{1'b0}}|4'd3 };
-localparam [(IPV4_RX_TYPE_NUM_MAX*8)*ETH_PORT_NUM-1:0] IPV4_RX_TYPE_DICT_ARR
-  = { {8'h59,8'h01,8'h06} , {8'h06,8'h59,8'h01} };                          // B ch0=06 ch1=01 ch2=59 ; A ch0=01 ch1=59 ch2=06
-localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0] IPV4_TX_TYPE_NUM_ARR
-  = { {CFG_NUM_WIDTH{1'b0}}|4'd4 , {CFG_NUM_WIDTH{1'b0}}|4'd4 };
-localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0] IPV6_RX_TYPE_NUM_ARR
-  = { {CFG_NUM_WIDTH{1'b0}}|4'd3 , {CFG_NUM_WIDTH{1'b0}}|4'd3 };
-localparam [(IPV6_RX_TYPE_NUM_MAX*8)*ETH_PORT_NUM-1:0] IPV6_RX_TYPE_DICT_ARR
-  = { {8'h3A,8'h59,8'h11} , {8'h59,8'h3A,8'h11} };                          // B ch0=11 ch1=59 ch2=3A ; A ch0=11 ch1=3A ch2=59
-localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0] IPV6_TX_TYPE_NUM_ARR
-  = { {CFG_NUM_WIDTH{1'b0}}|4'd3 , {CFG_NUM_WIDTH{1'b0}}|4'd3 };
-localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0] UDP_RX_PORT_NUM_ARR
-  = { {CFG_NUM_WIDTH{1'b0}}|4'd2 , {CFG_NUM_WIDTH{1'b0}}|4'd3 };
-localparam [(UDP_RX_PORT_NUM_MAX*32)*ETH_PORT_NUM-1:0] UDP_DST_PORT_RANGE_ARR
-  = { {32'd0,32'h00080004,32'h00020002} , {32'h00080002,32'h00010001,32'h00000000} };
-                                                                            // B ch0=[2,2] ch1=[4,8] ; A ch0=[0,0] ch1=[1,1] ch2=[2,8]
-localparam [CFG_NUM_WIDTH*ETH_PORT_NUM-1:0] UDP_TX_PORT_NUM_ARR
-  = { {CFG_NUM_WIDTH{1'b0}}|4'd4 , {CFG_NUM_WIDTH{1'b0}}|4'd8 };            // B:4  A:8
-localparam [PENDING_TIME_WIDTH*ETH_PORT_NUM-1:0] CFG_PENDING_TIME_ARR
-  = { 57'd200_000_000 , 57'd400_000_000 };                                  // B:0.5s@400MHz  A:1.0s@400MHz
-```
-
-> 发送路数可以大于实际使用的路数：多余的路保持空闲（不发送、不参与调度），无需裁剪。
->
-> 本机 IP / MAC、网关 / 子网与 IPv6 MAC 表的完整写法，以及逐口通道索引表（`IDX_*`），
->
-> 见 `RTL/Test/Top/subsys_test_top.v` 源文件。
+复位或执行 `RESTORE_PORT_DEFAULTS` 会把本口配置恢复为综合时设定的默认值。 [网页读写步骤](05-config-command.md#用网页读写配置)

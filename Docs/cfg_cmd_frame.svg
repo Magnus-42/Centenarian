@@ -1,91 +1,58 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 660" width="1260" height="660" role="img">
-<title>配置命令 · 请求帧结构</title>
-<desc>一帧由若干根 TLV 首尾相连组成，每根 TLV 自带 OP、SEQ、TAG、LEN、VALUE 五个字段，共 5+LEN 字节；TAG 为 2 字节，位域为 {SET[3:0], PORT[3:0], ITEM[7:0]}。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1092" height="197" viewBox="0 0 1092 197" id="cfg_cmd_frame-root" role="img" aria-labelledby="cent-cfg-req-title cent-cfg-req-desc">
+  <title id="cent-cfg-req-title">配置请求</title>
+  <desc id="cent-cfg-req-desc">配置请求的 UDP 载荷固定为 22 字节，图中列出六个字段的字节偏移。</desc>
+  <style>
+    #cfg_cmd_frame-root text {
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+      font-weight: 400;
+      fill: #152942;
+    }
+    #cfg_cmd_frame-root .title { font-size: 28px; font-weight: 600; }
+    #cfg_cmd_frame-root .field-label { font-size: 18px; text-anchor: middle; }
+    #cfg_cmd_frame-root .note { font-size: 16px; fill: #465b73; }
+    #cfg_cmd_frame-root .offset {
+      font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+      font-size: 15px;
+      text-anchor: middle;
+      fill: #465b73;
+    }
+    #cfg_cmd_frame-root .field { fill: #f3f6fa; stroke: #b8c7d6; }
+    #cfg_cmd_frame-root .op-field { fill: #e8f2fe; stroke: #9bb7d5; }
+  </style>
 
-<rect x="0" y="0" width="1260" height="660" fill="#FFFFFF"/>
-
-<text x="26" y="38" font-family="Helvetica,Arial,sans-serif" font-size="21" font-weight="600" fill="#111111">配置命令 · 请求帧结构</text>
-<text x="26" y="62" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#5F5E5A">一帧 = 若干根 TLV 首尾相连，每根自带 OP + SEQ ｜ 单根 = 5 + LEN 字节 ｜ 配置值小端（首字节在最低位）</text>
-
-<!-- ================= ① 帧总览 ================= -->
-<rect x="14" y="84" width="1232" height="142" rx="12" fill="#FAFAF8" stroke="#D3D1C7" stroke-width="1"/>
-<circle cx="46" cy="113" r="5" fill="#854F0B"/>
-<text x="60" y="118" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#111111">帧总览</text>
-<text x="1220" y="117" text-anchor="end" font-family="Consolas,Menlo,monospace" font-size="11.5" fill="#444441">N 根 TLV 连排  ·  N ≥ 1  ·  无独立帧头</text>
-
-<rect x="40" y="146" width="250" height="50" rx="8" fill="#FAEEDA" stroke="#854F0B" stroke-width="1.2"/>
-<text x="165" y="167" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#412402">TLV #1</text>
-<text x="165" y="184" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">OP + SEQ + TAG + LEN + VAL</text>
-
-<rect x="306" y="146" width="250" height="50" rx="8" fill="#FAEEDA" stroke="#854F0B" stroke-width="1.2"/>
-<text x="431" y="167" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#412402">TLV #2</text>
-<text x="431" y="184" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">OP + SEQ + TAG + LEN + VAL</text>
-
-<rect x="572" y="146" width="250" height="50" rx="8" fill="#FAEEDA" stroke="#854F0B" stroke-width="1.2"/>
-<text x="697" y="167" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#412402">TLV #3</text>
-<text x="697" y="184" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">OP + SEQ + TAG + LEN + VAL</text>
-
-<rect x="838" y="146" width="250" height="50" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="1.2" stroke-dasharray="4 3"/>
-<text x="963" y="167" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#2C2C2A">…  TLV #N</text>
-<text x="963" y="184" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">同构，可连排任意根</text>
-
-<text x="40" y="216" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#5F5E5A">同一帧内各根 TLV 的 OP / SEQ 可各不相同（例如一帧里前几根 SET、后几根 GET）；解析按顺序逐根进行，互不影响</text>
-
-<!-- ================= ② 单根 TLV ================= -->
-<rect x="14" y="242" width="1232" height="182" rx="12" fill="#FAFAF8" stroke="#D3D1C7" stroke-width="1"/>
-<circle cx="46" cy="271" r="5" fill="#185FA5"/>
-<text x="60" y="276" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#111111">单根 TLV</text>
-<text x="1220" y="275" text-anchor="end" font-family="Consolas,Menlo,monospace" font-size="11.5" fill="#444441">5 + LEN 字节  ·  LEN ∈ [0, 16]</text>
-
-<rect x="40" y="304" width="160" height="72" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
-<text x="120" y="332" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53">OP</text>
-<text x="120" y="351" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">SET = 01 / GET = 02</text>
-<text x="120" y="367" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#185FA5">1 B</text>
-
-<rect x="216" y="304" width="160" height="72" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
-<text x="296" y="332" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53">SEQ</text>
-<text x="296" y="351" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">应答原样回显</text>
-<text x="296" y="367" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#185FA5">1 B</text>
-
-<rect x="392" y="304" width="340" height="72" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="1.2"/>
-<text x="562" y="332" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#26215C">TAG</text>
-<text x="562" y="351" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">{SET[3:0], PORT[3:0], ITEM[7:0]}</text>
-<text x="562" y="367" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#534AB7">2 B</text>
-
-<rect x="748" y="304" width="140" height="72" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
-<text x="818" y="332" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53">LEN</text>
-<text x="818" y="351" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">VALUE 字节数</text>
-<text x="818" y="367" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#185FA5">1 B</text>
-
-<rect x="904" y="304" width="316" height="72" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.2"/>
-<text x="1062" y="332" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#042C53">VALUE</text>
-<text x="1062" y="351" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">小端；LEN = 0 时该字段整体省略</text>
-<text x="1062" y="367" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10" fill="#185FA5">LEN B</text>
-
-<text x="40" y="404" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#5F5E5A">SET 的 LEN 按 ITEM 精确校验（见 §LEN 规则），GET 只校验上界；LEN 越界一律回 BAD_LEN</text>
-
-<!-- ================= ③ TAG 位域 ================= -->
-<rect x="14" y="440" width="1232" height="196" rx="12" fill="#FAFAF8" stroke="#D3D1C7" stroke-width="1"/>
-<circle cx="46" cy="469" r="5" fill="#0F6E56"/>
-<text x="60" y="474" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#111111">TAG 位域（2 字节）</text>
-<text x="1220" y="473" text-anchor="end" font-family="Consolas,Menlo,monospace" font-size="11.5" fill="#444441">TAG = { SET[3:0], PORT[3:0], ITEM[7:0] }</text>
-
-<text x="150" y="504" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10.5" fill="#5F5E5A">TAG[15:12]</text>
-<text x="386" y="504" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10.5" fill="#5F5E5A">TAG[11:8]</text>
-<text x="772" y="504" text-anchor="middle" font-family="Consolas,Menlo,monospace" font-size="10.5" fill="#5F5E5A">TAG[7:0]</text>
-
-<rect x="40" y="512" width="220" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.2"/>
-<text x="150" y="536" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#04342C">SET</text>
-<text x="150" y="554" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">套 / 档索引</text>
-
-<rect x="276" y="512" width="220" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.2"/>
-<text x="386" y="536" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#04342C">PORT</text>
-<text x="386" y="554" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">网口号</text>
-
-<rect x="512" y="512" width="520" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.2"/>
-<text x="772" y="536" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#04342C">ITEM</text>
-<text x="772" y="554" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#5F5E5A">配置项编号，见 §ITEM 表</text>
-
-<text x="40" y="592" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#5F5E5A">PORT 取值 [0, ETH_PORT_NUM)，越界回 BAD_PORT ｜ PORT / SET / ITEM 越界都在 LEN 之前判，命中第一个错误即返回</text>
-<text x="40" y="614" font-family="Helvetica,Arial,sans-serif" font-size="11" fill="#5F5E5A">校验顺序（cfg_demux）：OP → ITEM → SET → PORT → LEN → 读写权限</text>
+  <rect width="1092" height="197" fill="#ffffff"/>
+  <text x="40" y="49" class="title">配置请求</text>
+  <g aria-label="请求字段">
+    <g data-field="标识 19 31" data-range="0–1">
+      <rect x="40" y="68" width="128" height="68" class="field"/>
+      <text x="104" y="93" class="offset">0–1</text>
+      <text x="104" y="117" class="field-label">标识 19 31</text>
+    </g>
+    <g data-field="序号 + 操作码" data-range="2">
+      <rect x="168" y="68" width="180" height="68" class="field op-field"/>
+      <text x="258" y="93" class="offset">2</text>
+      <text x="258" y="117" class="field-label">序号 + 操作码</text>
+    </g>
+    <g data-field="配置项" data-range="3">
+      <rect x="348" y="68" width="112" height="68" class="field"/>
+      <text x="404" y="93" class="offset">3</text>
+      <text x="404" y="117" class="field-label">配置项</text>
+    </g>
+    <g data-field="索引" data-range="4">
+      <rect x="460" y="68" width="88" height="68" class="field"/>
+      <text x="504" y="93" class="offset">4</text>
+      <text x="504" y="117" class="field-label">索引</text>
+    </g>
+    <g data-field="有效值长度" data-range="5">
+      <rect x="548" y="68" width="140" height="68" class="field"/>
+      <text x="618" y="93" class="offset">5</text>
+      <text x="618" y="117" class="field-label">有效值长度</text>
+    </g>
+    <g data-field="值区（16 字节）" data-range="6–21">
+      <rect x="688" y="68" width="364" height="68" class="field"/>
+      <text x="870" y="93" class="offset">6–21</text>
+      <text x="870" y="117" class="field-label">值区（16 字节）</text>
+    </g>
+  </g>
+  <text x="40" y="167" class="note">字节 2 · 位 [7:3] 为请求序号，位 [2:0] 为请求操作码</text>
 </svg>

@@ -1,49 +1,46 @@
-# 03 · 集成指南
+# 集成指南
 
-## 端口位宽公式
+单口集成例化 `eth_stack_port`，双口接线参考 `eth_stack_top`。 [单口接口](../RTL/Top/eth_stack_port.v) · [双口封装](../RTL/Top/eth_stack_top.v) · [参考板接线](../RTL/Test/Top/subsys_test_top.v)
 
-| 信号族            | 位宽                                                  |
-| -------------- | --------------------------------------------------- |
-| `mac_axis_m*`  | `(MAC_RX_TYPE_NUM_MAX + 1) * ETH_PORT_NUM` 通道       |
-| `ipv4_axis_m*` | `(IPV4_RX_TYPE_NUM_MAX + 1) * ETH_PORT_NUM` 通道      |
-| `icmp_axis_m*` | **`ETH_PORT_NUM` 通道**（每口 1 路，只含非 echo 的 ICMP）        |
-| `ipv6_axis_m*` | `(IPV6_RX_TYPE_NUM_MAX + 1) * ETH_PORT_NUM` 通道      |
-| `udp_axis_m*`  | `(UDP_RX_PORT_NUM_MAX + 1) * ETH_PORT_NUM` 通道       |
-| `*_axis_s*`    | `*_TX_N_MAX * ETH_PORT_NUM` 路                       |
-| `*_axis_susr`  | `ARBITER_VAL_WIDTH * *_TX_N_MAX * ETH_PORT_NUM`        |
-| `*_axis_musr`  | 每通道位宽由顶层常量给出：MAC `MAC_RX_USR_WIDTH`(1) / IPv4·IPv6 `*_RX_USR_WIDTH`(97) / UDP `UDP_RX_USR_WIDTH`(193) |
-| `AXIS_ARBITER_WIDTH` | TX 侧优先级/仲裁值位宽 = `ARBITER_VAL_WIDTH`（默认 4） |
+## 1. 接时钟、复位和物理口
 
-数据 / `keep` 按通道（或路）展开：`data` 通道 k = `[k*512 +: 512]`，`keep` = `[k*64 +: 64]`。
+| 信号或参数 | 接法 |
+| --- | --- |
+| `CmacSelect` | `0` 选 A 侧 CMAC，`1` 选 B 侧。核对四条 GT lane、差分参考时钟和 QSFP 控制脚 |
+| `init_clk`、`InitClkFreqHz` | 接初始化时钟，参数填实际频率（Hz）。参考设计使用 100 MHz |
+| `clk`、`ClkFreqHz` | 接业务时钟，参数填实际频率（Hz）。双口参考设计使用 400 MHz |
+| `clk_locked`、`rst` | 接业务时钟锁定信号，复位高有效并在 `clk` 域同步释放 |
 
-> `icmp_axis_m*` 是 IPv4 之下 ICMP **单独引出的出口**（每口 1 路），`usr` 为 IPv4 层 **97bit**。
-> 该口 **不包含 echo 请求**：Echo Request 在 `icmpv4_top` 内部直接转成 Echo Reply，从 IPv4 发送链路发出，不会出现在此口；此口只输出 ICMP 的其它类型（目的不可达 / 时间超时 / 重定向等）。若不需要 ICMP 边界出口，把 `icmp_axis_mready` 接 `1'b1` 排空即可。
+参考 CMAC 的 GT 参考时钟为 322.265625 MHz。更换板卡时，一起核对 CMAC XCI、目标板原理图和 XDC。
 
-## 时钟与复位
+## 2. 接业务 AXI-Stream
 
-| 时钟         | 频率            | 说明                                              |
-| ---------- | ------------- | ----------------------------------------------- |
-| `sys_clk`  | 100 MHz       | 板级输入                                            |
-| `clk`（用户域） | 200 / 400 MHz | **由外部时钟方案提供**（示例工程用时钟向导从 100 MHz 倍频），全部内部逻辑的工作域 |
-| GT 参考时钟    | 322.269 MHz   | 由 CMAC 自带约束定义                                   |
+- `*_axis_m*` 是协议栈送给业务的 RX，`*_axis_s*` 是业务送给协议栈的 TX。每路 `data` 为 512 位，`keep` 为 64 位，`valid`、`ready`、`last` 各 1 位。
+- 第 `i` 路取 `data[i*512 +: 512]`、`keep[i*64 +: 64]`、控制位 `[i]` 和 `usr[i*W +: W]`，其中 `W` 为单路 `usr` 位宽。
+- 未用的 RX 路（含兜底档）将 `ready` 置 1。未用的 TX 路将 `valid` 置 0，并给其余输入确定值。
 
-复位：外部复位建议在顶层做两级同步后释放；GT 域复位由 CMAC 输出提供
+### usr 位段
 
-（`usr_tx_reset` / `usr_rx_reset`），时钟域跨越处已由 CDC 处理。
+![AXI-Stream 侧带位段与各接口位宽](usr_layers.svg)
 
-## 约束
+图中 `R` 为发送优先级位宽，参考值为 4。优先级为 0 时不参与仲裁，数值越大越优先。MAC RX 在 `valid && ready && last` 时读取坏帧标志，值为 1 表示坏帧。
 
-- 引脚与时钟：`XDC/*.xdc`（按顶层同名生效），可作为模板改写；
-- 布局：按每个网口的以太网层划分 pblock（SLR 边界）。
+多字节地址、端口和长度字段的首个线上字节放在字段低 8 位。例如端口 2 的线上字节是 `00 02`，写入对应侧带字段时用 `16'h0200`。
 
-## 时序
+下例为单路 UDP(IPV4) TX 的 `usr`。业务数据口给 UDP 载荷，A 口 `192.168.1.18` 发往 B 口 `192.168.1.145`，目的端口为 2，源端口为 4660。
 
-- 设计在 VU37P 上以 400 MHz 用户时钟完成实现，无时序违例（数据见 README 安装节）；换器件或大幅增加通道数后请重新评估；
-- 跨 SLR 的路径已统一插入寄存级，新增跨 SLR 逻辑时请同样处理；
+```verilog
+localparam [107:0] UDP_TX_USR = {
+    32'h9101_a8c0, 32'h1201_a8c0, // 目的 IPv4、源 IPv4
+    16'h0200,      16'h3412,      // 目的端口、源端口
+    8'd64,         4'd8          // TTL、发送优先级
+};
+```
 
-## 建议的最小集成自检
+保留参考 A/B 地址和分流设置时，用上面的侧带发送已知载荷。待 ARP 解析后再发一帧，确认 B 口业务档 0 收到相同载荷，且目的端口字段为 `16'h0200`。
 
-1. 先对 `net_stack_top` 单独跑一次综合，确认时序收敛；
-2. 顶层综合后检查「端口未连接 / 无驱动」类告警 —— 它们通常对应某条通道被静默优化；
-3. 用 ILA 挂各层统计口与调度授予信号，确认流量落到预期通道。
+## 3. 检查实现约束
 
+使用自己的顶层时，把建工程命令中的 `-top subsys_test_top` 换成模块名。`-xdc my_board` 选择 `XDC/my_board.xdc`，并加载同名的 `my_board_impl.xdc`（如有）。
+
+运行实现前，核对目标板的引脚、时钟和布局约束。手动建工程时，在 `impl_1` 的 `OPT_DESIGN` 前置 Tcl 脚本中指定 FIFO 约束加载器。建工程脚本会自动设置该项。 [参考板 XDC](../XDC/subsys_test_top.xdc) · [实现 XDC](../XDC/subsys_test_top_impl.xdc) · [FIFO 约束加载器](../RTL/Bsp/Fifo/load_fifo_async_constraints.tcl)

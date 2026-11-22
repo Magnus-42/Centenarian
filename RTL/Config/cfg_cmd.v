@@ -17,10 +17,9 @@
 `include "cfg_protocol.vh"
 
 module cfg_cmd #(
-    parameter          [         7:0] ReplyTtl      = 8'd64,
-    parameter  integer                ReqWidth      = 4,
-    parameter          [ReqWidth-1:0] ReplyPriority = 4'd14,
-    localparam integer                TxUsrWidth    = 104 + ReqWidth
+    parameter          [7:0] ReplyTtl   = 8'd64,
+    parameter  integer       ReqWidth   = 4,
+    localparam integer       TxUsrWidth = 104 + ReqWidth
 ) (
     input wire clk,
     input wire rst,
@@ -39,8 +38,9 @@ module cfg_cmd #(
     output wire                  axis_mlast,
     input  wire                  axis_mready,
 
-    input wire [31:0] cfg_mgmt_ipv4_addr,
-    input wire [15:0] cfg_mgmt_udp_port,
+    input wire [        31:0] cfg_mgmt_ipv4_addr,
+    input wire [        15:0] cfg_mgmt_udp_port,
+    input wire [ReqWidth-1:0] cfg_mgmt_priority,
 
     output wire         exec_valid,
     output wire [  2:0] req_op,
@@ -59,8 +59,8 @@ module cfg_cmd #(
 
   // 参数范围检查
   initial begin
-    if (ReplyTtl == 8'd0 || ReplyPriority == 4'd0) begin
-      $display("错误：cfg_cmd：应答TTL和优先级必须非零。");
+    if (ReplyTtl == 8'd0) begin
+      $display("错误：cfg_cmd：应答TTL必须非零。");
       $finish;
     end
   end
@@ -99,6 +99,11 @@ module cfg_cmd #(
   reg  [           7:0] index_reg;
   reg  [           7:0] len_reg;
   reg  [         127:0] value_reg;
+
+  // 管理配置输入缓存
+  reg  [          31:0] cfg_mgmt_ipv4_addr_d1;
+  reg  [          15:0] cfg_mgmt_udp_port_d1;
+  reg  [  ReqWidth-1:0] cfg_mgmt_priority_d1;
 
   // 应答缓存
   reg  [         511:0] axis_mdata_reg;
@@ -177,10 +182,17 @@ module cfg_cmd #(
   assign req_len    = len_reg;
   assign req_value  = value_reg;
 
+  // 寄存管理配置
+  always @(posedge clk) begin
+    cfg_mgmt_ipv4_addr_d1 <= cfg_mgmt_ipv4_addr;
+    cfg_mgmt_udp_port_d1  <= cfg_mgmt_udp_port;
+    cfg_mgmt_priority_d1  <= cfg_mgmt_priority;
+  end
+
   // 回复
   //// 应答目的地址提取
-  assign dest_ip    = req_src_ip_held;
-  assign dest_port  = req_src_port_held;
+  assign dest_ip   = req_src_ip_held;
+  assign dest_port = req_src_port_held;
   //// 应答数据与usr
   always @(posedge clk) begin
     if (state == StateReply && !axis_mvalid_reg) begin
@@ -197,7 +209,12 @@ module cfg_cmd #(
       };
       axis_mkeep_reg <= {41'd0, {23{1'b1}}};
       axis_musr_reg <= {
-        dest_ip, cfg_mgmt_ipv4_addr, dest_port, cfg_mgmt_udp_port, ReplyTtl, ReplyPriority
+        dest_ip,
+        cfg_mgmt_ipv4_addr_d1,
+        dest_port,
+        cfg_mgmt_udp_port_d1,
+        ReplyTtl,
+        cfg_mgmt_priority_d1
       };
       axis_mlast_reg <= 1'b1;
     end

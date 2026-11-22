@@ -77,7 +77,8 @@ module eth_stack_port #(
 
     // 管理IP与端口默认值
     parameter [31:0] DefaultMgmtIpv4Addr = 32'h0901_a8c0,
-    parameter [15:0] DefaultMgmtUdpPort  = 16'hc0de
+    parameter [15:0] DefaultMgmtUdpPort = 16'hc0de,
+    parameter [ReqWidth-1:0] DefaultMgmtPriority = 4'd14
 ) (
     // 时钟与复位
     input wire init_clk,
@@ -213,7 +214,6 @@ module eth_stack_port #(
   end
 
   // 内部常量
-  localparam [ReqWidth-1:0] ReplyPriority = 4'd14;
   localparam integer AnnounceMaskWidth = LocalIpv4Count + 1;
 
   // 链路复位和状态同步
@@ -769,8 +769,8 @@ module eth_stack_port #(
       .DefaultMgmtUdpPort (DefaultMgmtUdpPort),
       .DefaultMgmtMac     (MgmtMac),
 
-      .ReplyTtl     (8'd64),
-      .ReplyPriority(ReplyPriority)
+      .ReplyTtl           (8'd64),
+      .DefaultMgmtPriority(DefaultMgmtPriority)
   ) cfg_port_top_inst (
       .clk(clk),
       .rst(rst),

@@ -58,7 +58,7 @@ module cfg_port_top #(
     parameter [15:0] DefaultMgmtUdpPort = 16'h0600,
     parameter [47:0] DefaultMgmtMac = 48'hf100_3119_0000,
     parameter [7:0] ReplyTtl = 8'd64,
-    parameter [ReqWidth-1:0] ReplyPriority = 4'd14,
+    parameter [ReqWidth-1:0] DefaultMgmtPriority = 4'd14,
     localparam integer TxUsrWidth = 104 + ReqWidth
 ) (
     input wire clk,
@@ -127,27 +127,28 @@ module cfg_port_top #(
     input wire stat_icmp_ttl_error
 );
 
+  wire [ReqWidth-1:0] cfg_mgmt_priority;
+
   // cfg_cmd接收UDP配置请求并生成应答。
   // cfg_regs执行配置读写，保存配置并采样业务状态。
 
   // 配置执行请求
-  wire         exec_valid;
-  wire [  2:0] req_op;
-  wire [  7:0] req_item;
-  wire [  7:0] req_index;
-  wire [  7:0] req_len;
-  wire [127:0] req_value;
+  wire                exec_valid;
+  wire [         2:0] req_op;
+  wire [         7:0] req_item;
+  wire [         7:0] req_index;
+  wire [         7:0] req_len;
+  wire [       127:0] req_value;
 
   // 配置执行应答
-  wire [  7:0] rsp_status;
-  wire [  7:0] rsp_len;
-  wire [127:0] rsp_value;
+  wire [         7:0] rsp_status;
+  wire [         7:0] rsp_len;
+  wire [       127:0] rsp_value;
 
   // UDP配置命令
   cfg_cmd #(
-      .ReplyTtl     (ReplyTtl),
-      .ReplyPriority(ReplyPriority),
-      .ReqWidth     (ReqWidth)
+      .ReplyTtl(ReplyTtl),
+      .ReqWidth(ReqWidth)
   ) cfg_cmd_inst (
       .clk(clk),
       .rst(rst),
@@ -168,6 +169,7 @@ module cfg_port_top #(
 
       .cfg_mgmt_ipv4_addr(cfg_mgmt_ipv4_addr),
       .cfg_mgmt_udp_port (cfg_mgmt_udp_port),
+      .cfg_mgmt_priority (cfg_mgmt_priority),
 
       .exec_valid(exec_valid),
       .req_op    (req_op),
@@ -203,6 +205,7 @@ module cfg_port_top #(
       .DefaultPendingTime (DefaultPendingTime),
       .DefaultArpPriority (DefaultArpPriority),
       .DefaultIcmpPriority(DefaultIcmpPriority),
+      .DefaultMgmtPriority(DefaultMgmtPriority),
       .DefaultMgmtIpv4Addr(DefaultMgmtIpv4Addr),
       .DefaultMgmtUdpPort (DefaultMgmtUdpPort),
       .DefaultMgmtMac     (DefaultMgmtMac)
@@ -241,6 +244,7 @@ module cfg_port_top #(
       .cfg_mgmt_ipv4_addr(cfg_mgmt_ipv4_addr),
       .cfg_mgmt_udp_port (cfg_mgmt_udp_port),
       .cfg_mgmt_mac      (cfg_mgmt_mac),
+      .cfg_mgmt_priority (cfg_mgmt_priority),
 
       .cfg_arp_clear_cache   (cfg_arp_clear_cache),
       .cfg_arp_clear_pending (cfg_arp_clear_pending),

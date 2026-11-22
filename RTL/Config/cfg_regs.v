@@ -56,6 +56,7 @@ module cfg_regs #(
     parameter [PendingTimeWidth-1:0] DefaultPendingTime = 24'd1000,
     parameter [ReqWidth-1:0] DefaultArpPriority = {ReqWidth{1'b1}},
     parameter [ReqWidth-1:0] DefaultIcmpPriority = 4'd13,
+    parameter [ReqWidth-1:0] DefaultMgmtPriority = 4'd14,
     parameter [31:0] DefaultMgmtIpv4Addr = 32'h0901_a8c0,
     parameter [15:0] DefaultMgmtUdpPort = 16'h0600,
     parameter [47:0] DefaultMgmtMac = 48'hf100_3119_0000
@@ -94,10 +95,11 @@ module cfg_regs #(
     output wire [ReqWidth-1:0] cfg_arp_priority,
     output wire [ReqWidth-1:0] cfg_icmp_priority,
 
-    // 管理地址与端口配置
-    output wire [31:0] cfg_mgmt_ipv4_addr,
-    output wire [15:0] cfg_mgmt_udp_port,
-    output wire [47:0] cfg_mgmt_mac,
+    // 管理配置
+    output wire [        31:0] cfg_mgmt_ipv4_addr,
+    output wire [        15:0] cfg_mgmt_udp_port,
+    output wire [        47:0] cfg_mgmt_mac,
+    output wire [ReqWidth-1:0] cfg_mgmt_priority,
 
     // 清除命令
     output wire cfg_arp_clear_cache,
@@ -129,7 +131,11 @@ module cfg_regs #(
   // 参数范围检查
   initial begin
     if (ReqWidth < 3 || ReqWidth > 8) begin
-      $display("错误：cfg_regs：ARP优先级位宽必须为3至8位。");
+      $display("错误：cfg_regs：优先级位宽必须为3至8位。");
+      $finish;
+    end
+    if (DefaultMgmtPriority == 0) begin
+      $display("错误：cfg_regs：默认配置应答优先级必须非零。");
       $finish;
     end
     if (LocalIpv4Count < 1 || LocalIpv4Count >= 255 || SrcIpv6Count < 1 || SrcIpv6Count >= 255 ||
@@ -167,6 +173,7 @@ module cfg_regs #(
   reg  [                 31:0] cfg_mgmt_ipv4_addr_reg;
   reg  [                 15:0] cfg_mgmt_udp_port_reg;
   reg  [                 47:0] cfg_mgmt_mac_reg;
+  reg  [         ReqWidth-1:0] cfg_mgmt_priority_reg;
   reg  [AnnounceMaskWidth-1:0] arp_announce_mask_reg;
   reg  [AnnounceMaskWidth-1:0] arp_announce_req_mask_reg;
   reg                          arp_announce_req_valid_reg;
@@ -241,6 +248,10 @@ module cfg_regs #(
         read_value[1:0] = {stat_ipv6_tx_drop, stat_ipv4_tx_drop};
       end
       `CFG_CLEAR_PORT_FLAGS, `CFG_RESTORE_PORT_DEFAULTS: item_access = ActionOnly;
+      `CFG_MGMT_PRIORITY: begin
+        item_bytes = 8'd1;
+        read_value[ReqWidth-1:0] = cfg_mgmt_priority_reg;
+      end
       `CFG_MGMT_MAC_ADDR: begin
         item_bytes = 8'd6;
         read_value[47:0] = cfg_mgmt_mac_reg;
@@ -577,7 +588,17 @@ module cfg_regs #(
     end
   end
   assign cfg_icmp_priority = cfg_icmp_priority_reg;
+
   //// 管理配置
+  always @(posedge clk) begin
+    if (rst || restore_defaults) begin
+      cfg_mgmt_priority_reg <= DefaultMgmtPriority;
+    end else if (write_commit && req_item_d2 == `CFG_MGMT_PRIORITY) begin
+      cfg_mgmt_priority_reg <= req_value_d2[ReqWidth-1:0];
+    end
+  end
+  assign cfg_mgmt_priority = cfg_mgmt_priority_reg;
+
   always @(posedge clk) begin
     if (rst || restore_defaults) begin
       cfg_mgmt_ipv4_addr_reg <= DefaultMgmtIpv4Addr;

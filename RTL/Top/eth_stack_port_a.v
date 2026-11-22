@@ -73,6 +73,8 @@ module eth_stack_port_a #(
     parameter [15:0] DefaultMgmtUdpPort  = 16'h0600,
     parameter [47:0] DefaultMgmtMac      = 48'hf100_3119_0000,
 
+    parameter [ReqWidth-1:0] DefaultMgmtPriority = 4'd14,
+
     // 固定通道数与发送usr位宽
     localparam integer MacRxCount        = 2,
     localparam integer MacTxCount        = 2,
@@ -263,6 +265,7 @@ module eth_stack_port_a #(
 
       .DefaultMgmtIpv4Addr(DefaultMgmtIpv4Addr),
       .DefaultMgmtUdpPort (DefaultMgmtUdpPort),
+      .DefaultMgmtPriority(DefaultMgmtPriority),
 
       .DefaultUdpIpv4Range(DefaultUdpIpv4Range),
       .DefaultUdpIpv6Range(DefaultUdpIpv6Range)

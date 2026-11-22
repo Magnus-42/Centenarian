@@ -73,7 +73,7 @@ module eth_stack_port #(
     parameter integer                        PendingTimeWidth    = 24,
     parameter         [PendingTimeWidth-1:0] DefaultPendingTime  = 24'd1000,
     parameter         [        ReqWidth-1:0] DefaultArpPriority  = 4'd15,
-    parameter         [        ReqWidth-1:0] DefaultIcmpPriority = 4'd12,
+    parameter         [        ReqWidth-1:0] DefaultIcmpPriority = 4'd13,
 
     // 管理IP与端口默认值
     parameter [31:0] DefaultMgmtIpv4Addr = 32'h0901_a8c0,
@@ -213,7 +213,7 @@ module eth_stack_port #(
   end
 
   // 内部常量
-  localparam [ReqWidth-1:0] ReplyPriority = 4'd9;
+  localparam [ReqWidth-1:0] ReplyPriority = 4'd14;
   localparam integer AnnounceMaskWidth = LocalIpv4Count + 1;
 
   // 链路复位和状态同步

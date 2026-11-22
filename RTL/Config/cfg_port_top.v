@@ -53,12 +53,12 @@ module cfg_port_top #(
     },
     parameter [PendingTimeWidth-1:0] DefaultPendingTime = 24'd1000,
     parameter [ReqWidth-1:0] DefaultArpPriority = 4'd15,
-    parameter [ReqWidth-1:0] DefaultIcmpPriority = 4'd12,
+    parameter [ReqWidth-1:0] DefaultIcmpPriority = 4'd13,
     parameter [31:0] DefaultMgmtIpv4Addr = 32'h0901_a8c0,
     parameter [15:0] DefaultMgmtUdpPort = 16'h0600,
     parameter [47:0] DefaultMgmtMac = 48'hf100_3119_0000,
     parameter [7:0] ReplyTtl = 8'd64,
-    parameter [ReqWidth-1:0] ReplyPriority = 4'd9,
+    parameter [ReqWidth-1:0] ReplyPriority = 4'd14,
     localparam integer TxUsrWidth = 104 + ReqWidth
 ) (
     input wire clk,

@@ -19,7 +19,7 @@
 module cfg_cmd #(
     parameter          [         7:0] ReplyTtl      = 8'd64,
     parameter  integer                ReqWidth      = 4,
-    parameter          [ReqWidth-1:0] ReplyPriority = 4'd9,
+    parameter          [ReqWidth-1:0] ReplyPriority = 4'd14,
     localparam integer                TxUsrWidth    = 104 + ReqWidth
 ) (
     input wire clk,

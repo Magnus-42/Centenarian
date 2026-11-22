@@ -66,7 +66,7 @@ module eth_stack_port_a #(
     parameter integer                        PendingTimeWidth    = 24,
     parameter         [PendingTimeWidth-1:0] DefaultPendingTime  = 24'd1000,
     parameter         [        ReqWidth-1:0] DefaultArpPriority  = {ReqWidth{1'b1}},
-    parameter         [        ReqWidth-1:0] DefaultIcmpPriority = 4'd12,
+    parameter         [        ReqWidth-1:0] DefaultIcmpPriority = 4'd13,
 
     // 管理配置
     parameter [31:0] DefaultMgmtIpv4Addr = 32'h0901_a8c0,

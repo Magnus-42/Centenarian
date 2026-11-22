@@ -70,41 +70,34 @@ module subsys_test_top (
 
   // 发送优先级：user低4位，0禁用，1至15有效。
   // ARP默认优先级为15，可通过配置通路修改。
-  localparam [3:0] PRIO_UDP_A = 4'd8;  // 口A UDP(v4)
-  localparam [3:0] PRIO_UDP_B = 4'd9;  // 口B UDP(v4)
-  localparam [3:0] PRIO_ICMP_A = 4'd12;  // 口A ICMPv4
-  localparam [3:0] PRIO_ICMP_B = 4'd11;  // 口B ICMPv4
-  localparam [3:0] PRIO_OSPF_A = 4'd13;  // 口A OSPF(v4)
-  localparam [3:0] PRIO_OSPF_B = 4'd13;  // 口B OSPF(v4)
-  localparam [3:0] PRIO_IP06_A = 4'd7;  // 口A 协议 0x06
-  localparam [3:0] PRIO_IP06_B = 4'd6;  // 口B 协议 0x06
-  localparam [3:0] PRIO_ICMPV6_A = 4'd14;  // 口A ICMPv6(NDP)
-  localparam [3:0] PRIO_ICMPV6_B = 4'd14;  // 口B ICMPv6(NDP)
-  localparam [3:0] PRIO_OSPFV3_A = 4'd13;  // 口A OSPFv3
-  localparam [3:0] PRIO_OSPFV3_B = 4'd12;  // 口B OSPFv3
-  localparam [3:0] PRIO_MAC88B5_A = 4'd6;  // 口A 自定义类型 0x88B5
-  localparam [3:0] PRIO_MAC88B5_B = 4'd5;  // 口B 自定义类型 0x88B5
-  localparam [3:0] PRIO_FB = 4'd2;  // 兜底探测流(最低, 不抢业务流)
+  localparam [3:0] PRIO_OSPF = 4'd12;  // OSPFv4测试
+  localparam [3:0] PRIO_OSPFV3 = 4'd12;  // OSPFv3测试
+  localparam [3:0] PRIO_ICMP = 4'd10;  // ICMPv4 Echo Reply测试
+  localparam [3:0] PRIO_ICMPV6 = 4'd10;  // IPv6 Next Header 0x3A分流测试
+  localparam [3:0] PRIO_UDP = 4'd8;  // UDP(v4/v6)业务测试
+  localparam [3:0] PRIO_IP06 = 4'd7;  // 原始IPv4协议0x06
+  localparam [3:0] PRIO_MAC = 4'd6;  // 自定义类型0x88B5和0x88CC
+  localparam [3:0] PRIO_FB = 4'd2;  // 各层兜底探测流
 
   // UDP TX 每包元数据(108bit, {dst_ip,src_ip,dport,sport,ttl,prio})
   localparam [107:0] UDP_USR_DATA_A = {
-    CFG_B_IP, CFG_A_IP, CHK_PORT[15:0], 16'h0000, 8'h40, PRIO_UDP_A
+    CFG_B_IP, CFG_A_IP, CHK_PORT[15:0], 16'h0000, 8'h40, PRIO_UDP
   };
   localparam [107:0] UDP_USR_FB_A = {CFG_B_IP, CFG_A_IP, 16'h3412, 16'h0000, 8'h40, PRIO_FB};
   localparam [107:0] UDP_USR_DATA_B = {
-    CFG_A_IP, CFG_B_IP, CHK_PORT[15:0], 16'h0000, 8'h40, PRIO_UDP_B
+    CFG_A_IP, CFG_B_IP, CHK_PORT[15:0], 16'h0000, 8'h40, PRIO_UDP
   };
   localparam [107:0] UDP_USR_FB_B = {CFG_A_IP, CFG_B_IP, 16'h3412, 16'h0000, 8'h40, PRIO_FB};
 
   // UDP/IPv6 TX 每包元数据（300位），目的端口2命中档0，0x1234走兜底。
   localparam [299:0] UDP_IPV6_USR_DATA_A = {
-    DST_IPV6_A, SRC_IPV6_A, CHK_PORT, 16'h0100, 8'h40, PRIO_UDP_A
+    DST_IPV6_A, SRC_IPV6_A, CHK_PORT, 16'h0100, 8'h40, PRIO_UDP
   };
   localparam [299:0] UDP_IPV6_USR_FB_A = {
     DST_IPV6_A, SRC_IPV6_A, 16'h3412, 16'h0100, 8'h40, PRIO_FB
   };
   localparam [299:0] UDP_IPV6_USR_DATA_B = {
-    DST_IPV6_B, SRC_IPV6_B, CHK_PORT, 16'h0100, 8'h40, PRIO_UDP_B
+    DST_IPV6_B, SRC_IPV6_B, CHK_PORT, 16'h0100, 8'h40, PRIO_UDP
   };
   localparam [299:0] UDP_IPV6_USR_FB_B = {
     DST_IPV6_B, SRC_IPV6_B, 16'h3412, 16'h0100, 8'h40, PRIO_FB
@@ -653,10 +646,10 @@ module subsys_test_top (
   assign a_udp_ipv4_axis_svalid[7:2] = 6'd0;
   assign a_udp_ipv4_axis_slast[7:2] = 6'd0;
   //// 发送usr。
-  assign a_mac_axis_susr = {PRIO_FB, PRIO_MAC88B5_A};
-  assign a_ipv4_axis_susr = {PRIO_FB, PRIO_IP06_A, PRIO_OSPF_A, 4'd0};
-  assign a_icmp_axis_susr = PRIO_ICMP_A;
-  assign a_ipv6_axis_susr = {PRIO_OSPFV3_A, PRIO_ICMPV6_A, PRIO_FB};
+  assign a_mac_axis_susr = {PRIO_FB, PRIO_MAC};
+  assign a_ipv4_axis_susr = {PRIO_FB, PRIO_IP06, PRIO_OSPF, 4'd0};
+  assign a_icmp_axis_susr = PRIO_ICMP;
+  assign a_ipv6_axis_susr = {PRIO_OSPFV3, PRIO_ICMPV6, PRIO_FB};
   assign a_udp_ipv4_axis_susr = {648'd0, UDP_USR_FB_A, UDP_USR_DATA_A};
   assign a_udp_ipv6_axis_susr = {UDP_IPV6_USR_FB_A, UDP_IPV6_USR_DATA_A};
 
@@ -676,10 +669,10 @@ module subsys_test_top (
   assign b_udp_ipv4_axis_svalid[3:2] = 2'd0;
   assign b_udp_ipv4_axis_slast[3:2] = 2'd0;
   //// 发送usr。
-  assign b_mac_axis_susr = {PRIO_FB, PRIO_MAC88B5_B, PRIO_MAC88B5_B};
-  assign b_ipv4_axis_susr = {PRIO_FB, PRIO_IP06_B, PRIO_OSPF_B, 4'd0};
-  assign b_icmp_axis_susr = PRIO_ICMP_B;
-  assign b_ipv6_axis_susr = {PRIO_OSPFV3_B, PRIO_ICMPV6_B, PRIO_FB};
+  assign b_mac_axis_susr = {PRIO_FB, PRIO_MAC, PRIO_MAC};
+  assign b_ipv4_axis_susr = {PRIO_FB, PRIO_IP06, PRIO_OSPF, 4'd0};
+  assign b_icmp_axis_susr = PRIO_ICMP;
+  assign b_ipv6_axis_susr = {PRIO_OSPFV3, PRIO_ICMPV6, PRIO_FB};
   assign b_udp_ipv4_axis_susr = {216'd0, UDP_USR_FB_B, UDP_USR_DATA_B};
   assign b_udp_ipv6_axis_susr = {UDP_IPV6_USR_FB_B, UDP_IPV6_USR_DATA_B};
 

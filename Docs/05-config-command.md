@@ -64,14 +64,14 @@ python -B Tools/PortConfig/server.py --open
 | `0x16` | `RESTORE_PORT_DEFAULTS` | EXEC | 0 | 恢复本口寄存器默认值，可能改变管理端点 |
 | `0x20–0x23` | `IPV4_LOCAL_IP`、`IPV4_LOCAL_MAC`、`IPV4_GATEWAY`、`IPV4_MASK` | GET/SET | 4 / 6 / 4 / 4 | 本口业务 IPv4 表 |
 | `0x24` | `ARP_PENDING_TIMEOUT_MS` | GET/SET | 8 | 毫秒，无符号小端，保存低 `PendingTimeWidth` 位 |
-| `0x25` | `ARP_TX_PRIORITY` | GET/SET | 1 | ARP 数值优先级，保存低 `ReqWidth` 位 |
+| `0x25` | `ARP_TX_PRIORITY` | GET/SET | 1 | ARP 数值优先级，保存低 `ReqWidth` 位，参考设计默认值为 15 |
 | `0x26` | `ARP_ERROR_FLAGS` | GET | 1 | bit 0–3 依次为接收错误、应答 FIFO 溢出、待决 FIFO 溢出、查询源 IP 非本机 |
 | `0x27` | `ARP_CLEAR_STATE` | GET | 1 | bit 0、bit 1 分别为缓存、待决解析清除完成 |
 | `0x28` | `ARP_CLEAR_CACHE` | EXEC | 0 | 发起 ARP 缓存清除 |
 | `0x29` | `ARP_CLEAR_PENDING` | EXEC | 0 | 发起 ARP 待决解析状态清除 |
 | `0x2A` | `ARP_ANNOUNCE_MASK` | GET/SET | 1–16 | 索引为 0，整份掩码低字节先传 |
 | `0x2B` | `ARP_ANNOUNCE_SEND` | EXEC | 0 | 索引为 0，锁存当前掩码，覆盖尚未被发送模块接收的请求 |
-| `0x2C` | `ICMP_ECHO_PRIORITY` | GET/SET | 1 | ICMPv4 回显回复优先级，保存低 `ReqWidth` 位 |
+| `0x2C` | `ICMP_ECHO_PRIORITY` | GET/SET | 1 | ICMPv4 自动回显应答优先级，保存低 `ReqWidth` 位，参考设计默认值为 13 |
 | `0x2D` | `ICMP_ERROR_FLAGS` | GET | 1 | bit 0 为 TTL 错误 |
 | `0x2E` | `UDP_IPV4_RX_PORT_RANGE` | GET/SET | 4 | UDP(IPV4) 目的端口下界、上界，各 2 字节 |
 | `0x2F` | `UDP_IPV6_RX_PORT_RANGE` | GET/SET | 4 | UDP(IPV6) 目的端口下界、上界，各 2 字节 |

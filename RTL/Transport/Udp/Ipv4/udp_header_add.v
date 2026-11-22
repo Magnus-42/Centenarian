@@ -151,14 +151,15 @@ module udp_header_add #(
       p1_dst_port      <= axis_susr_skid[UsrDstPortLsb+:16];
     end
   end
-
+  //// 有效信号
   always @(posedge clk) begin
     if (rst) p1_axis_svalid <= 1'b0;
     else if (s_handshake_skid) p1_axis_svalid <= 1'b1;
     else if (p1_handshake) p1_axis_svalid <= 1'b0;
   end
 
-  // p1 补尾需求
+  // 补尾需求
+  //// p1
   always @(posedge clk) begin
     if (rst) begin
       p1_is_insert_beat <= 'd0;
@@ -170,8 +171,7 @@ module udp_header_add #(
       end
     end
   end
-
-  // p2 补尾需求
+  //// p2
   always @(posedge clk) begin
     if (rst) begin
       p2_is_insert_beat <= 'd0;
@@ -196,21 +196,20 @@ module udp_header_add #(
     end
   end
 
-  // 跨拍数据保持
+  // 跨拍保持
+  //// data
   always @(posedge clk) begin
     if (p1_handshake) begin
       data_held <= p1_axis_sdata[511-:UdpHeaderBits];
     end
   end
-
-  // 跨拍keep保持
+  //// keep
   always @(posedge clk) begin
     if (p1_handshake) begin
       keep_held <= p1_axis_skeep[63-:UdpHeaderBits/8];
     end
   end
-
-  // 跨拍usr保持
+  //// usr
   always @(posedge clk) begin
     if (p1_handshake) begin
       usr_held <= p1_axis_susr;
@@ -218,7 +217,6 @@ module udp_header_add #(
   end
 
   // 输出拼接
-
   assign axis_mdata_skid = p2_is_insert_beat ? {{448{1'b0}}, data_held} : (
       is_first_beat ? {p1_axis_sdata[511-UdpHeaderBits:0], p1_head_checksum, p1_total_len,
                        p1_dst_port, p1_src_port} : {p1_axis_sdata[511-UdpHeaderBits:0], data_held});

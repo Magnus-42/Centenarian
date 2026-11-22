@@ -149,7 +149,6 @@ module udp_header_strip #(
       p1_axis_susr  <= axis_susr_skid;
     end
   end
-
   //// 有效位
   always @(posedge clk) begin
     if (rst) begin
@@ -186,7 +185,6 @@ module udp_header_strip #(
       end
     end
   end
-
   //// 有效位
   always @(posedge clk) begin
     if (rst) begin

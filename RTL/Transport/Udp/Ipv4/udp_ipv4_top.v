@@ -132,11 +132,9 @@ module udp_ipv4_top #(
       .dst_ip     (dst_ip),
       .stat_is_df (stat_is_df)                       // 禁止分片
   );
-
   assign rx_udp_usr[Ipv4RxUsrWidth+:Ipv4HeaderUsrWidth] = {
     dst_ip, src_ip, ttl, total_len, protocol
   };
-
   //// UDP头剥离
   udp_header_strip udp_header_strip_inst (
       .clk        (clk),
@@ -160,7 +158,6 @@ module udp_ipv4_top #(
   assign rx_payload_usr[RxUsrWidth-1:Ipv4RxUsrWidth+Ipv4HeaderUsrWidth] = {
     udp_len, src_port, dst_port
   };
-
   //// 目的端口分流
   udp_ipv4_port_demux #(
       .PortCount(RxPortCount)
@@ -205,7 +202,6 @@ module udp_ipv4_top #(
       .axis_musr  (tx_mux_usr),
       .axis_mready(tx_mux_ready)
   );
-
   //// UDP与IPv4封装
   udp_ipv4_tx #(
       .ReqWidth(TxReqWidth)

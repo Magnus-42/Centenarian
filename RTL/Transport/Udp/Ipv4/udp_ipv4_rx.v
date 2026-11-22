@@ -139,7 +139,6 @@ module udp_ipv4_rx #(
       p1_axis_susr  <= axis_susr_skid;
     end
   end
-
   //// 有效位
   always @(posedge clk) begin
     if (rst) begin
@@ -175,7 +174,6 @@ module udp_ipv4_rx #(
       end
     end
   end
-
   //// 有效位
   always @(posedge clk) begin
     if (rst) begin
@@ -192,7 +190,6 @@ module udp_ipv4_rx #(
       end
     end
   end
-
   //// IPv4字段
   always @(posedge clk) begin
     if (p1_handshake) begin

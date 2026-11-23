@@ -3,8 +3,8 @@
 
 // ============================================================================
 // axis_slr_crossing —— SLR 跨片寄存 IP 的仿真桩（仅 xsim，不参与综合）
-//   真实 IP 是单时钟（aclk）的深 FIFO，只做 SLR 边界打拍；
-//   仿真用 axis_fifo_sync(512 深) 等价替代：
+//   仿真用单时钟 axis_fifo_sync(512 深) 缓冲数据；
+//   仅检查功能连接，不模拟真实 IP 的时延、容量与物理行为：
 //     - 上游 s_axis_tready 在 eth_port_top 里是悬空的（设计假定 IP 不反压）
 //     - 下游 m_axis_tready 正常反压
 // ============================================================================
@@ -28,15 +28,11 @@ module axis_slr_crossing (
 );
 
   axis_fifo_sync #(
-    .FIFO_DEPTH      (512           ),
-    .AXIS_WIDTH      (512           ),
-    .AXIS_USER_WIDTH (1             ),
-    .AXIS_ID_WIDTH   (1             ),
-    .AXIS_DEST_WIDTH (1             ),
-    .PACKET_FIFO     (0             ),
-    .FIFO_MEMORY_TYPE("auto"        ),
-    .BRAM_DO_REG     (2             ),
-    .DEADLOCK_RISK   (0             )
+    .Depth         (512),
+    .DataWidth     (512),
+    .UsrWidth      (1),
+    .PacketFifo    (0),
+    .DataMemoryType("block")
   ) u_fifo (
     .rst             (~aresetn      ),
     .clk             (aclk          ),
@@ -46,23 +42,12 @@ module axis_slr_crossing (
     .axis_slast      (s_axis_tlast  ),
     .axis_sready     (s_axis_tready ),
     .axis_susr       (s_axis_tuser  ),
-    .axis_sstrb      (64'd0         ),
-    .axis_sid        (1'b0          ),
-    .axis_sdest      (1'b0          ),
     .axis_mdata      (m_axis_tdata  ),
     .axis_mkeep      (m_axis_tkeep  ),
     .axis_mvalid     (m_axis_tvalid ),
     .axis_mlast      (m_axis_tlast  ),
     .axis_mready     (m_axis_tready ),
-    .axis_musr       (m_axis_tuser  ),
-    .axis_mstrb      (              ),
-    .axis_mid        (              ),
-    .axis_mdest      (              ),
-    .prog_empty      (              ),
-    .prog_full       (              ),
-    .empty           (              ),
-    .full            (              ),
-    .remain_count    (              )
+    .axis_musr       (m_axis_tuser  )
   );
 
 endmodule

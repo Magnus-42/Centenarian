@@ -1,100 +1,113 @@
-hw_run scall
-[hw] =================== 全场景自动验证开始（每步稳定 3.0 s）===================
+hw_run scall 2
+[hw] =================== 全场景自动验证开始（每步稳定 2 s）===================
 [hw] --- sc1 · 通道连通性 ---
-[hw] 探针取值走 CSV 导出: 23 份（每个 ILA 核一份），合并 115 项 -> /tmp/hw_ila_snap_3314614_1795327911_hw_ila_1.csv 等
+[hw] 探针取值走 CSV 导出: 27 份（每个 ILA 核一份），合并 135 项 -> /tmp/hw_ila_snap_3314614_1795404609_hw_ila_1.csv 等
 [hw] VIO 使能位图 -> 0x000001（1 路）
-   0  en_a_udp       → u_ta_udp       PASS pkt=11468043     bw=11743275520    线速=100.001330600 Gbps err=0     len_err=0    
+   0  en_a_udp       → u_ta_udp       PASS pkt=11468043     bw=11743276032    线速=100.001334960 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000002（1 路）
-   1  en_a_icmp      → u_ta_icmp      PASS pkt=11770401     bw=12052891456    线速=100.001333799 Gbps err=0     len_err=0    
+   1  en_a_icmp      → u_ta_icmp      PASS pkt=11770402     bw=12052891584    线速=100.001334861 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000004（1 路）
-   2  en_a_ospf      → u_ta_ospf      PASS pkt=11770402     bw=12052891520    线速=100.001334330 Gbps err=0     len_err=0    
+   2  en_a_ospf      → u_ta_ospf      PASS pkt=11770402     bw=12052891712    线速=100.001335923 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000008（1 路）
-   3  en_a_ipv4_06   → u_ta_ipv4_06   PASS pkt=11770402     bw=12052891264    线速=100.001332206 Gbps err=0     len_err=0    
+   3  en_a_ipv4_06   → u_ta_ipv4_06   PASS pkt=11770403     bw=12052891776    线速=100.001336454 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000010（1 路）
-   4  en_a_mac_88b5  → u_ta_mac_88b5  PASS pkt=11927640     bw=12213903424    线速=100.001334284 Gbps err=0     len_err=0    
+   4  en_a_mac_88b5  → u_ta_mac_88b5  PASS pkt=11927640     bw=12213903744    线速=100.001336904 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000020（1 路）
-   5  en_b_udp       → u_tb_udp       PASS pkt=11468043     bw=11743276032    线速=100.001334960 Gbps err=0     len_err=0    
+   5  en_b_udp       → u_tb_udp       PASS pkt=11468043     bw=11743276096    线速=100.001335505 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000040（1 路）
-   6  en_b_icmp      → u_tb_icmp      PASS pkt=11770401     bw=12052891200    线速=100.001331675 Gbps err=0     len_err=0    
+   6  en_b_icmp      → u_tb_icmp      PASS pkt=11770402     bw=12052891520    线速=100.001334330 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000080（1 路）
-   7  en_b_ospf      → u_tb_ospf      PASS pkt=11770402     bw=12052891520    线速=100.001334330 Gbps err=0     len_err=0    
+   7  en_b_ospf      → u_tb_ospf      PASS pkt=11770401     bw=12052891392    线速=100.001333268 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000100（1 路）
-   8  en_b_ipv4_06   → u_tb_ipv4_06   PASS pkt=11770401     bw=12052891520    线速=100.001334330 Gbps err=0     len_err=0    
+   8  en_b_ipv4_06   → u_tb_ipv4_06   PASS pkt=11770402     bw=12052891584    线速=100.001334861 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000200（1 路）
    9  en_b_mac_88b5  → u_tb_mac_88b5  PASS pkt=11927640     bw=12213903488    线速=100.001334808 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000400（1 路）
-  10  en_a_ip6icmp   → u_ta_ip6icmp   PASS pkt=11770402     bw=12052892224    线速=100.001340171 Gbps err=0     len_err=0    
+  10  en_a_ip6icmp   → u_ta_ip6icmp   PASS pkt=11770402     bw=12052891456    线速=100.001333799 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000800（1 路）
-  11  en_a_ip6ospf   → u_ta_ip6ospf   PASS pkt=11770401     bw=12052890496    线速=100.001325834 Gbps err=0     len_err=0    
+  11  en_a_ip6ospf   → u_ta_ip6ospf   PASS pkt=11770402     bw=12052892224    线速=100.001340171 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x001000（1 路）
   12  en_b_ip6icmp   → u_tb_ip6icmp   PASS pkt=11770402     bw=12052891392    线速=100.001333268 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x002000（1 路）
-  13  en_b_ip6ospf   → u_tb_ip6ospf   PASS pkt=11770402     bw=12052891392    线速=100.001333268 Gbps err=0     len_err=0    
+  13  en_b_ip6ospf   → u_tb_ip6ospf   PASS pkt=11770402     bw=12052891520    线速=100.001334330 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x004000（1 路）
-  14  en_a_fb_mac    → u_ta_fb_mac    PASS pkt=11927640     bw=12213903232    线速=100.001332712 Gbps err=184   len_err=92   
+  14  en_a_fb_mac    → u_ta_fb_mac    PASS pkt=11927640     bw=12213903168    线速=100.001332188 Gbps err=252   len_err=126  
        注：MAC 层通道——错误计数可能来自交换机其它帧，请确认交换机是否有其它帧发到该网口
 [hw] VIO 使能位图 -> 0x008000（1 路）
-  15  en_a_fb_ipv4   → u_ta_fb_ipv4   PASS pkt=11770408     bw=12052897664    线速=100.001385306 Gbps err=0     len_err=0    
+  15  en_a_fb_ipv4   → u_ta_fb_ipv4   PASS pkt=11770412     bw=12052902784    线速=100.001427786 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x010000（1 路）
-  16  en_a_fb_ipv6   → u_ta_fb_ipv6   PASS pkt=11770402     bw=12052891520    线速=100.001334330 Gbps err=0     len_err=0    
+  16  en_a_fb_ipv6   → u_ta_fb_ipv6   PASS pkt=11770402     bw=12052891328    线速=100.001332737 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x020000（1 路）
-  17  en_a_fb_udp    → u_ta_fb_udp    PASS pkt=11468043     bw=11743275648    线速=100.001331690 Gbps err=0     len_err=0    
+  17  en_a_fb_udp    → u_ta_fb_udp    PASS pkt=11468042     bw=11743275840    线速=100.001333325 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x040000（1 路）
-  18  en_b_mac_88cc  → u_tb_mac_88cc  PASS pkt=11927640     bw=12213903040    线速=100.001331140 Gbps err=0     len_err=0    
+  18  en_b_mac_88cc  → u_tb_mac_88cc  PASS pkt=11927641     bw=12213903616    线速=100.001335856 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x080000（1 路）
-  19  en_b_fb_mac    → u_tb_fb_mac    PASS pkt=11927640     bw=12213902912    线速=100.001330092 Gbps err=226   len_err=113  
+  19  en_b_fb_mac    → u_tb_fb_mac    PASS pkt=11927640     bw=12213903360    线速=100.001333760 Gbps err=304   len_err=152  
        注：MAC 层通道——错误计数可能来自交换机其它帧，请确认交换机是否有其它帧发到该网口
 [hw] VIO 使能位图 -> 0x100000（1 路）
-  20  en_b_fb_ipv4   → u_tb_fb_ipv4   PASS pkt=11770409     bw=12052898112    线速=100.001389023 Gbps err=0     len_err=0    
+  20  en_b_fb_ipv4   → u_tb_fb_ipv4   PASS pkt=11770413     bw=12052902656    线速=100.001426724 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x200000（1 路）
-  21  en_b_fb_ipv6   → u_tb_fb_ipv6   PASS pkt=11770401     bw=12052891264    线速=100.001332206 Gbps err=0     len_err=0    
+  21  en_b_fb_ipv6   → u_tb_fb_ipv6   PASS pkt=11770402     bw=12052891328    线速=100.001332737 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x400000（1 路）
-  22  en_b_fb_udp    → u_tb_fb_udp    PASS pkt=11468042     bw=11743275584    线速=100.001331145 Gbps err=0     len_err=0    
+  22  en_b_fb_udp    → u_tb_fb_udp    PASS pkt=11468043     bw=11743275712    线速=100.001332235 Gbps err=0     len_err=0    
+[hw] VIO 使能位图 -> 0x800000（1 路）
+  23  en_a_udp_ipv6  → u_ta_udp_ipv6  PASS pkt=11261411     bw=11531685184    线速=100.001332455 Gbps err=0     len_err=0    
+[hw] VIO 使能位图 -> 0x1000000（1 路）
+  24  en_b_udp_ipv6  → u_tb_udp_ipv6  PASS pkt=11261412     bw=11531685248    线速=100.001333010 Gbps err=0     len_err=0    
+[hw] VIO 使能位图 -> 0x2000000（1 路）
+  25  en_a_fb_udp_ipv6 → u_ta_fb_udp_ipv6 PASS pkt=11261411     bw=11531685184    线速=100.001332455 Gbps err=0     len_err=0    
+[hw] VIO 使能位图 -> 0x4000000（1 路）
+  26  en_b_fb_udp_ipv6 → u_tb_fb_udp_ipv6 PASS pkt=11261411     bw=11531685184    线速=100.001332455 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000000（0 路）
-[hw] 场景 1 结果：PASS 23 / WARN 0 / FAIL 0（共 23 路）
+[hw] 场景 1 结果：PASS 27 / WARN 0 / FAIL 0（共 27 路）
 [hw] --- sc2 · 单通道线速 ---
 [hw] VIO 使能位图 -> 0x000021（2 路）
 [hw] 通道 udp , 使能 en_a_udp+en_b_udp :
     u_ta_udp       A→B     pkt=11468043     bw=11743275840    线速=100.001333325 Gbps  err=0      len_err=0
-    u_tb_udp       B→A     pkt=11468043     bw=11743275712    线速=100.001332235 Gbps  err=0      len_err=0
+    u_tb_udp       B→A     pkt=11468043     bw=11743275840    线速=100.001333325 Gbps  err=0      len_err=0
     → PASS（门限 99.0 Gbps × 双向；额外长度 +66 B）
+[hw] VIO 使能位图 -> 0x1800000（2 路）
+[hw] 通道 udp_ipv6 , 使能 en_a_udp_ipv6+en_b_udp_ipv6 :
+    u_ta_udp_ipv6  A→B     pkt=11261412     bw=11531685376    线速=100.001334120 Gbps  err=0      len_err=0
+    u_tb_udp_ipv6  B→A     pkt=11261411     bw=11531685504    线速=100.001335230 Gbps  err=0      len_err=0
+    → PASS（门限 99.0 Gbps × 双向；额外长度 +86 B）
 [hw] VIO 使能位图 -> 0x000042（2 路）
 [hw] 通道 icmp , 使能 en_a_icmp+en_b_icmp :
-    u_ta_icmp      A→B     pkt=11770401     bw=12052891136    线速=100.001331144 Gbps  err=0      len_err=0
-    u_tb_icmp      B→A     pkt=11770402     bw=12052891200    线速=100.001331675 Gbps  err=0      len_err=0
+    u_ta_icmp      A→B     pkt=11770402     bw=12052891200    线速=100.001331675 Gbps  err=0      len_err=0
+    u_tb_icmp      B→A     pkt=11770401     bw=12052891200    线速=100.001331675 Gbps  err=0      len_err=0
     → PASS（门限 99.0 Gbps × 双向；额外长度 +38 B）
 [hw] VIO 使能位图 -> 0x000084（2 路）
 [hw] 通道 ospf , 使能 en_a_ospf+en_b_ospf :
-    u_ta_ospf      A→B     pkt=11770402     bw=12052891200    线速=100.001331675 Gbps  err=0      len_err=0
-    u_tb_ospf      B→A     pkt=11770401     bw=12052891264    线速=100.001332206 Gbps  err=0      len_err=0
+    u_ta_ospf      A→B     pkt=11770402     bw=12052891328    线速=100.001332737 Gbps  err=0      len_err=0
+    u_tb_ospf      B→A     pkt=11770402     bw=12052891264    线速=100.001332206 Gbps  err=0      len_err=0
     → PASS（门限 99.0 Gbps × 双向；额外长度 +38 B）
 [hw] VIO 使能位图 -> 0x000108（2 路）
 [hw] 通道 ipv4_06 , 使能 en_a_ipv4_06+en_b_ipv4_06 :
-    u_ta_ipv4_06   A→B     pkt=11770402     bw=12052891328    线速=100.001332737 Gbps  err=0      len_err=0
-    u_tb_ipv4_06   B→A     pkt=11770401     bw=12052891328    线速=100.001332737 Gbps  err=0      len_err=0
+    u_ta_ipv4_06   A→B     pkt=11770402     bw=12052891392    线速=100.001333268 Gbps  err=0      len_err=0
+    u_tb_ipv4_06   B→A     pkt=11770402     bw=12052891136    线速=100.001331144 Gbps  err=0      len_err=0
     → PASS（门限 99.0 Gbps × 双向；额外长度 +38 B）
 [hw] VIO 使能位图 -> 0x000210（2 路）
 [hw] 通道 mac_88b5 , 使能 en_a_mac_88b5+en_b_mac_88b5 :
-    u_ta_mac_88b5  A→B     pkt=11927640     bw=12213903360    线速=100.001333760 Gbps  err=0      len_err=0
-    u_tb_mac_88b5  B→A     pkt=11927639     bw=12213902912    线速=100.001330092 Gbps  err=0      len_err=0
+    u_ta_mac_88b5  A→B     pkt=11927640     bw=12213903168    线速=100.001332188 Gbps  err=0      len_err=0
+    u_tb_mac_88b5  B→A     pkt=11927640     bw=12213902784    线速=100.001329044 Gbps  err=0      len_err=0
     → PASS（门限 99.0 Gbps × 双向；额外长度 +24 B）
 [hw] VIO 使能位图 -> 0x001400（2 路）
 [hw] 通道 ip6icmp , 使能 en_a_ip6icmp+en_b_ip6icmp :
-    u_ta_ip6icmp   A→B     pkt=11770408     bw=12052897600    线速=100.001384775 Gbps  err=0      len_err=0
-    u_tb_ip6icmp   B→A     pkt=11770408     bw=12052897472    线速=100.001383713 Gbps  err=0      len_err=0
+    u_ta_ip6icmp   A→B     pkt=11770414     bw=12052903552    线速=100.001434158 Gbps  err=0      len_err=0
+    u_tb_ip6icmp   B→A     pkt=11770414     bw=12052903808    线速=100.001436282 Gbps  err=0      len_err=0
     → PASS（门限 99.0 Gbps × 双向；额外长度 +38 B）
 [hw] VIO 使能位图 -> 0x002800（2 路）
 [hw] 通道 ip6ospf , 使能 en_a_ip6ospf+en_b_ip6ospf :
-    u_ta_ip6ospf   A→B     pkt=11770401     bw=12052891072    线速=100.001330613 Gbps  err=0      len_err=0
-    u_tb_ip6ospf   B→A     pkt=11770402     bw=12052891200    线速=100.001331675 Gbps  err=0      len_err=0
+    u_ta_ip6ospf   A→B     pkt=11770402     bw=12052891072    线速=100.001330613 Gbps  err=0      len_err=0
+    u_tb_ip6ospf   B→A     pkt=11770401     bw=12052891072    线速=100.001330613 Gbps  err=0      len_err=0
     → PASS（门限 99.0 Gbps × 双向；额外长度 +38 B）
 [hw] VIO 使能位图 -> 0x000000（0 路）
-[hw] 场景 2 结果：PASS 7 / FAIL 0（通道数 7）
+[hw] 场景 2 结果：PASS 8 / FAIL 0（通道数 8）
 [hw] --- sc3 · 严格优先级 ---
 [hw] VIO 使能位图 -> 0x1082F7（10 路）
-[hw] 步骤 1：已关 {}；当前最高优先级 = ospf
-    u_ta_ospf      ospf     线速=100.001382120 Gbps  占满线速
-    u_tb_ospf      ospf     线速=100.001385306 Gbps  占满线速
+[hw] 步骤 1：已关 {}，预期胜出 ospf（优先级 12）
+    u_ta_ospf      ospf     线速=100.001436813 Gbps  占满线速
+    u_tb_ospf      ospf     线速=100.001390616 Gbps  占满线速
     u_ta_icmp      icmp     线速=0.000000000 Gbps  被饿死(≈0)
     u_tb_icmp      icmp     线速=0.000000000 Gbps  被饿死(≈0)
     u_ta_udp       udp      线速=0.000000000 Gbps  被饿死(≈0)
@@ -105,9 +118,9 @@ hw_run scall
     u_tb_fb_ipv4   fb_ipv4  线速=0.000000000 Gbps  被饿死(≈0)
     → 本步 PASS
 [hw] VIO 使能位图 -> 0x108273（8 路）
-[hw] 步骤 2：已关 {ospf}；当前最高优先级 = icmp
+[hw] 步骤 2：已关 {ospf}，预期胜出 icmp（优先级 10）
     u_ta_icmp      icmp     线速=100.001331144 Gbps  占满线速
-    u_tb_icmp      icmp     线速=100.001332737 Gbps  占满线速
+    u_tb_icmp      icmp     线速=100.001331144 Gbps  占满线速
     u_ta_udp       udp      线速=0.000000000 Gbps  被饿死(≈0)
     u_tb_udp       udp      线速=0.000000000 Gbps  被饿死(≈0)
     u_ta_mac_88b5  mac_88b5 线速=0.000000000 Gbps  被饿死(≈0)
@@ -116,64 +129,69 @@ hw_run scall
     u_tb_fb_ipv4   fb_ipv4  线速=0.000000000 Gbps  被饿死(≈0)
     → 本步 PASS
 [hw] VIO 使能位图 -> 0x108231（6 路）
-[hw] 步骤 3：已关 {ospf icmp}；当前最高优先级 = udp
+[hw] 步骤 3：已关 {ospf icmp}，预期胜出 udp（优先级 8）
     u_ta_udp       udp      线速=100.001331145 Gbps  占满线速
-    u_tb_udp       udp      线速=100.001331690 Gbps  占满线速
+    u_tb_udp       udp      线速=100.001332780 Gbps  占满线速
     u_ta_mac_88b5  mac_88b5 线速=0.000000000 Gbps  被饿死(≈0)
     u_tb_mac_88b5  mac_88b5 线速=0.000000000 Gbps  被饿死(≈0)
     u_ta_fb_ipv4   fb_ipv4  线速=0.000000000 Gbps  被饿死(≈0)
     u_tb_fb_ipv4   fb_ipv4  线速=0.000000000 Gbps  被饿死(≈0)
     → 本步 PASS
 [hw] VIO 使能位图 -> 0x108210（4 路）
-[hw] 步骤 4：已关 {ospf icmp udp}；当前最高优先级 = mac_88b5
-    u_ta_mac_88b5  mac_88b5 线速=100.001329568 Gbps  占满线速
-    u_tb_mac_88b5  mac_88b5 线速=100.001330616 Gbps  占满线速
+[hw] 步骤 4：已关 {ospf icmp udp}，预期胜出 mac_88b5（优先级 6）
+    u_ta_mac_88b5  mac_88b5 线速=100.001332712 Gbps  占满线速
+    u_tb_mac_88b5  mac_88b5 线速=100.001329568 Gbps  占满线速
     u_ta_fb_ipv4   fb_ipv4  线速=0.000000000 Gbps  被饿死(≈0)
     u_tb_fb_ipv4   fb_ipv4  线速=0.000000000 Gbps  被饿死(≈0)
     → 本步 PASS
 [hw] VIO 使能位图 -> 0x108000（2 路）
-[hw] 步骤 5：已关 {ospf icmp udp mac_88b5}；当前最高优先级 = fb_ipv4
-    u_ta_fb_ipv4   fb_ipv4  线速=100.001381058 Gbps  占满线速
-    u_tb_fb_ipv4   fb_ipv4  线速=100.001382120 Gbps  占满线速
+[hw] 步骤 5：已关 {ospf icmp udp mac_88b5}，预期胜出 fb_ipv4（优先级 2）
+    u_ta_fb_ipv4   fb_ipv4  线速=100.001432565 Gbps  占满线速
+    u_tb_fb_ipv4   fb_ipv4  线速=100.001433096 Gbps  占满线速
     → 本步 PASS
 [hw] VIO 使能位图 -> 0x000000（0 路）
   步骤 6：全关基线 → PASS
+      提示：以下为背景流量（交换机零星帧），不计入基线 → u_ta_fb_mac=128 u_tb_fb_mac=128
 [hw] 场景 3 结果：PASS 6 / FAIL 0（共 6 步）
 [hw] --- sc4 · 未匹配通道 ---
 [hw] VIO 使能位图 -> 0x004000（1 路）
-  en_a_fb_mac    → 落档 u_ta_fb_mac    PASS pkt=11927641     bw=12213903040    线速=100.001331140 Gbps err=384   len_err=192  
+  en_a_fb_mac    → 落档 u_ta_fb_mac    PASS pkt=11927640     bw=12213902784    线速=100.001329044 Gbps err=556   len_err=278  
        注：MAC 层通道——错误计数可能来自交换机其它帧，请确认交换机是否有其它帧发到该网口
 [hw] VIO 使能位图 -> 0x080000（1 路）
-  en_b_fb_mac    → 落档 u_tb_fb_mac    PASS pkt=11927639     bw=12213902912    线速=100.001330092 Gbps err=392   len_err=196  
+  en_b_fb_mac    → 落档 u_tb_fb_mac    PASS pkt=11927641     bw=12213903488    线速=100.001334808 Gbps err=566   len_err=283  
        注：MAC 层通道——错误计数可能来自交换机其它帧，请确认交换机是否有其它帧发到该网口
 [hw] VIO 使能位图 -> 0x008000（1 路）
-  en_a_fb_ipv4   → 落档 u_ta_fb_ipv4   PASS pkt=11770402     bw=12052891072    线速=100.001330613 Gbps err=0     len_err=0    
+  en_a_fb_ipv4   → 落档 u_ta_fb_ipv4   PASS pkt=11770402     bw=12052891008    线速=100.001330082 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x100000（1 路）
-  en_b_fb_ipv4   → 落档 u_tb_fb_ipv4   PASS pkt=11770401     bw=12052890944    线速=100.001329551 Gbps err=0     len_err=0    
+  en_b_fb_ipv4   → 落档 u_tb_fb_ipv4   PASS pkt=11770402     bw=12052891200    线速=100.001331675 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x010000（1 路）
-  en_a_fb_ipv6   → 落档 u_ta_fb_ipv6   PASS pkt=11770402     bw=12052891072    线速=100.001330613 Gbps err=0     len_err=0    
+  en_a_fb_ipv6   → 落档 u_ta_fb_ipv6   PASS pkt=11770401     bw=12052891136    线速=100.001331144 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x200000（1 路）
-  en_b_fb_ipv6   → 落档 u_tb_fb_ipv6   PASS pkt=11770401     bw=12052891136    线速=100.001331144 Gbps err=0     len_err=0    
+  en_b_fb_ipv6   → 落档 u_tb_fb_ipv6   PASS pkt=11770401     bw=12052890944    线速=100.001329551 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x020000（1 路）
-  en_a_fb_udp    → 落档 u_ta_fb_udp    PASS pkt=11468042     bw=11743275456    线速=100.001330055 Gbps err=0     len_err=0    
+  en_a_fb_udp    → 落档 u_ta_fb_udp    PASS pkt=11468042     bw=11743275584    线速=100.001331145 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x400000（1 路）
-  en_b_fb_udp    → 落档 u_tb_fb_udp    PASS pkt=11468042     bw=11743275520    线速=100.001330600 Gbps err=0     len_err=0    
+  en_b_fb_udp    → 落档 u_tb_fb_udp    PASS pkt=11468043     bw=11743275392    线速=100.001329510 Gbps err=0     len_err=0    
+[hw] VIO 使能位图 -> 0x2000000（1 路）
+  en_a_fb_udp_ipv6 → 落档 u_ta_fb_udp_ipv6 PASS pkt=11261412     bw=11531685120    线速=100.001331900 Gbps err=0     len_err=0    
+[hw] VIO 使能位图 -> 0x4000000（1 路）
+  en_b_fb_udp_ipv6 → 落档 u_tb_fb_udp_ipv6 PASS pkt=11261411     bw=11531685184    线速=100.001332455 Gbps err=0     len_err=0    
 [hw] VIO 使能位图 -> 0x000000（0 路）
-[hw] 场景 4 结果：PASS 8 / WARN 0 / FAIL 0
+[hw] 场景 4 结果：PASS 10 / WARN 0 / FAIL 0
 [hw] =================== 汇总 ===================
   sc1   通道连通性          PASS
   sc2   单通道线速          PASS
   sc3   严格优先级          PASS
   sc4   未匹配通道          PASS
-[hw] 总判定：PASS   用时 394 s
+[hw] 总判定：PASS   用时 566 s
 [hw] ---- 路径统计: scall ----
-  cell.radix_hex                       5520
-  csv.export.force                     1104
-  csvmatch.normalized                   970
+  cell.radix_hex                       7425
+  csv.export.force                     1485
+  csvmatch.normalized                  1292
   ilareadable.precheck                    4
-  ilaupload.upload                     1104
-  ilawait.ok                           1104
-  radix.DISPLAY_RADIX                  5520  ← HEX
-  vioident.netname                        1  ← 23 位
+  ilaupload.upload                     1485
+  ilawait.ok                           1485
+  radix.DISPLAY_RADIX                  7425  ← HEX
+  vioident.netname                        1  ← 27 位
   viowrite.prop.OUTPUT_VALUE              1
 1

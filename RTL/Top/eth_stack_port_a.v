@@ -63,7 +63,7 @@ module eth_stack_port_a #(
     },
 
     // ARP与ICMP策略
-    parameter integer                        ArpStartupDelayMs   = 1000,
+    parameter integer                        ArpStartupDelayMs   = 15000,
     parameter integer                        PendingTimeWidth    = 24,
     parameter         [PendingTimeWidth-1:0] DefaultPendingTime  = 24'd1000,
     parameter         [        ReqWidth-1:0] DefaultArpPriority  = {ReqWidth{1'b1}},

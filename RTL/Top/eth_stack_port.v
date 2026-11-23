@@ -70,7 +70,7 @@ module eth_stack_port #(
     parameter [32*UdpIpv6RxCount-1:0] DefaultUdpIpv6Range = 'd0,
 
     // ARP与ICMP策略
-    parameter integer                        ArpStartupDelayMs   = 1000,
+    parameter integer                        ArpStartupDelayMs   = 15000,
     parameter integer                        PendingTimeWidth    = 24,
     parameter         [PendingTimeWidth-1:0] DefaultPendingTime  = 24'd1000,
     parameter         [        ReqWidth-1:0] DefaultArpPriority  = 4'd15,

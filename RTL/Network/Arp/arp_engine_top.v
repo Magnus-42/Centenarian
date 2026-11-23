@@ -407,7 +407,9 @@ module arp_engine_top #(
       rx_learn_valid_reg <= 1'b0;
       rx_reply_valid_reg <= 1'b0;
     end else begin
-      rx_learn_valid_reg <= rx_frame_take && rx_target_is_local && (rx_is_request || rx_is_reply);
+      rx_learn_valid_reg <= rx_frame_take &&
+        (rx_is_request || rx_is_reply) &&
+        (rx_target_is_local || (rx_tpa == rx_spa));
       rx_reply_valid_reg <= rx_frame_take && rx_target_is_local && rx_is_request;
     end
     rx_learn_ip_reg   <= rx_spa;

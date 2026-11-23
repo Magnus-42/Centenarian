@@ -70,6 +70,7 @@ module eth_stack_port #(
     parameter [32*UdpIpv6RxCount-1:0] DefaultUdpIpv6Range = 'd0,
 
     // ARP与ICMP策略
+    parameter integer                        ArpStartupDelayMs   = 1000,
     parameter integer                        PendingTimeWidth    = 24,
     parameter         [PendingTimeWidth-1:0] DefaultPendingTime  = 24'd1000,
     parameter         [        ReqWidth-1:0] DefaultArpPriority  = 4'd15,
@@ -211,173 +212,190 @@ module eth_stack_port #(
       $display("错误：eth_stack_port：不支持的通道数量或时钟频率。");
       $finish;
     end
+    if (ArpStartupDelayMs < 0) begin
+      $display("错误：eth_stack_port：启动免费ARP延时不能为负数。");
+      $finish;
+    end
   end
 
   // 内部常量
   localparam integer AnnounceMaskWidth = LocalIpv4Count + 1;
+  localparam integer ArpStartupCyclesPerMs = ClkFreqHz / 1000;
+  localparam integer ArpStartupCycleCountWidth = (ArpStartupCyclesPerMs <= 1) ? 1 : $clog2(
+      ArpStartupCyclesPerMs
+  );
+  localparam [ArpStartupCycleCountWidth-1:0] ArpStartupCycleLast = ArpStartupCyclesPerMs - 1;
+  localparam integer ArpStartupMsCountWidth = (ArpStartupDelayMs <= 1) ? 1 : $clog2(
+      ArpStartupDelayMs + 32'd1
+  );
 
   // 链路复位和状态同步
-  wire                         gt_tx_arst;
-  wire                         gt_rx_arst;
-  wire                         gt_rx_link_up;
-  (* ASYNC_REG = "TRUE" *)reg                          link_up_d1;
-  (* ASYNC_REG = "TRUE" *)reg                          link_up_d2;
+  wire                                 gt_tx_arst;
+  wire                                 gt_rx_arst;
+  wire                                 gt_rx_link_up;
+  (* ASYNC_REG = "TRUE" *)reg                                  link_up_d1;
+  (* ASYNC_REG = "TRUE" *)reg                                  link_up_d2;
 
   // 本口配置
   //// IPv4地址配置
-  wire [32*LocalIpv4Count-1:0] cfg_local_ip;
-  wire [48*LocalIpv4Count-1:0] cfg_local_mac;
-  wire [32*LocalIpv4Count-1:0] cfg_gateway_ip;
-  wire [32*LocalIpv4Count-1:0] cfg_subnet_mask;
+  wire [        32*LocalIpv4Count-1:0] cfg_local_ip;
+  wire [        48*LocalIpv4Count-1:0] cfg_local_mac;
+  wire [        32*LocalIpv4Count-1:0] cfg_gateway_ip;
+  wire [        32*LocalIpv4Count-1:0] cfg_subnet_mask;
   //// IPv6地址配置
-  wire [ 128*SrcIpv6Count-1:0] cfg_src_ipv6;
-  wire [  48*SrcIpv6Count-1:0] cfg_src_mac;
-  wire [ 128*DstIpv6Count-1:0] cfg_dst_ipv6;
-  wire [  48*DstIpv6Count-1:0] cfg_dst_mac;
+  wire [         128*SrcIpv6Count-1:0] cfg_src_ipv6;
+  wire [          48*SrcIpv6Count-1:0] cfg_src_mac;
+  wire [         128*DstIpv6Count-1:0] cfg_dst_ipv6;
+  wire [          48*DstIpv6Count-1:0] cfg_dst_mac;
   //// UDP接收端口配置
-  wire [32*UdpIpv4RxCount-1:0] cfg_udp_ipv4_dst_port_range;
-  wire [32*UdpIpv6RxCount-1:0] cfg_udp_ipv6_dst_port_range;
+  wire [        32*UdpIpv4RxCount-1:0] cfg_udp_ipv4_dst_port_range;
+  wire [        32*UdpIpv6RxCount-1:0] cfg_udp_ipv6_dst_port_range;
   //// ARP与ICMP策略
-  wire [ PendingTimeWidth-1:0] cfg_pending_time;
-  wire [         ReqWidth-1:0] cfg_arp_priority;
-  wire [AnnounceMaskWidth-1:0] cfg_arp_announce_mask;
-  wire                         cfg_arp_announce_valid;
-  wire                         cfg_arp_announce_ready;
-  wire [         ReqWidth-1:0] cfg_icmp_priority;
+  wire [         PendingTimeWidth-1:0] cfg_pending_time;
+  wire [                 ReqWidth-1:0] cfg_arp_priority;
+  wire [        AnnounceMaskWidth-1:0] cfg_arp_announce_mask;
+  wire                                 cfg_arp_announce_valid;
+  wire                                 cfg_arp_announce_ready;
+  wire [                 ReqWidth-1:0] cfg_icmp_priority;
   //// 管理配置
-  wire [                 31:0] cfg_mgmt_ipv4_addr;
-  wire [                 15:0] cfg_mgmt_udp_port;
-  wire [                 47:0] cfg_mgmt_mac;
+  wire [                         31:0] cfg_mgmt_ipv4_addr;
+  wire [                         15:0] cfg_mgmt_udp_port;
+  wire [                         47:0] cfg_mgmt_mac;
   //// 清除命令
-  wire                         cfg_arp_clear_cache;
-  wire                         cfg_arp_clear_pending;
-  wire                         cfg_stat_clear;
+  wire                                 cfg_arp_clear_cache;
+  wire                                 cfg_arp_clear_pending;
+  wire                                 cfg_stat_clear;
 
   // 业务状态
-  wire                         stat_link_up;
-  wire                         stat_arp_rx_error;
-  wire                         stat_arp_ack_fifo_overflow_error;
-  wire                         stat_arp_pending_fifo_overflow_error;
-  wire                         stat_arp_query_src_not_local;
-  wire                         stat_arp_cache_clear_finish;
-  wire                         stat_arp_pending_clear_finish;
-  wire                         stat_ipv4_tx_drop;
-  wire                         stat_ipv6_tx_drop;
-  wire                         stat_icmp_ttl_error;
+  wire                                 stat_link_up;
+  wire                                 stat_arp_rx_error;
+  wire                                 stat_arp_ack_fifo_overflow_error;
+  wire                                 stat_arp_pending_fifo_overflow_error;
+  wire                                 stat_arp_query_src_not_local;
+  wire                                 stat_arp_cache_clear_finish;
+  wire                                 stat_arp_pending_clear_finish;
+  wire                                 stat_ipv4_tx_drop;
+  wire                                 stat_ipv6_tx_drop;
+  wire                                 stat_icmp_ttl_error;
 
   // IPv4查询与ARP应答
-  wire [                 31:0] query_src_ip;
-  wire [                 31:0] query_dst_ip;
-  wire                         query_valid_pulse;
-  wire [                 47:0] arp_dst_mac;
-  wire [                 47:0] arp_src_mac;
-  wire                         arp_miss;
-  wire                         arp_valid;
+  wire [                         31:0] query_src_ip;
+  wire [                         31:0] query_dst_ip;
+  wire                                 query_valid_pulse;
+  wire [                         47:0] arp_dst_mac;
+  wire [                         47:0] arp_src_mac;
+  wire                                 arp_miss;
+  wire                                 arp_valid;
   //// 免费ARP
-  reg                          arp_startup_submitted;
-  wire                         arp_announce_valid;
-  wire                         arp_announce_ready;
-  wire [AnnounceMaskWidth-1:0] arp_announce_mask;
+  reg  [ArpStartupCycleCountWidth-1:0] arp_startup_cycle_count;
+  reg  [   ArpStartupMsCountWidth-1:0] arp_startup_ms_count;
+  wire                                 arp_startup_ms_tick;
+  wire                                 arp_startup_delay_done;
+  wire                                 arp_startup_take;
+  reg                                  arp_startup_submitted;
+  wire                                 arp_announce_valid;
+  wire                                 arp_announce_ready;
+  wire [        AnnounceMaskWidth-1:0] arp_announce_mask;
 
   // 帧通路
   //// ARP接收
-  wire [                511:0] arp_rx_data;
-  wire [                 63:0] arp_rx_keep;
-  wire                         arp_rx_usr;
-  wire                         arp_rx_valid;
-  wire                         arp_rx_last;
-  wire                         arp_rx_ready;
+  wire [                        511:0] arp_rx_data;
+  wire [                         63:0] arp_rx_keep;
+  wire                                 arp_rx_usr;
+  wire                                 arp_rx_valid;
+  wire                                 arp_rx_last;
+  wire                                 arp_rx_ready;
   //// ARP发送
-  wire [                511:0] arp_tx_data;
-  wire [                 63:0] arp_tx_keep;
-  wire [         ReqWidth-1:0] arp_tx_usr;
-  wire                         arp_tx_valid;
-  wire                         arp_tx_last;
-  wire                         arp_tx_ready;
+  wire [                        511:0] arp_tx_data;
+  wire [                         63:0] arp_tx_keep;
+  wire [                 ReqWidth-1:0] arp_tx_usr;
+  wire                                 arp_tx_valid;
+  wire                                 arp_tx_last;
+  wire                                 arp_tx_ready;
   //// IPv4以太网接收
-  wire [                511:0] ipv4_eth_rx_data;
-  wire [                 63:0] ipv4_eth_rx_keep;
-  wire                         ipv4_eth_rx_usr;
-  wire                         ipv4_eth_rx_valid;
-  wire                         ipv4_eth_rx_last;
-  wire                         ipv4_eth_rx_ready;
+  wire [                        511:0] ipv4_eth_rx_data;
+  wire [                         63:0] ipv4_eth_rx_keep;
+  wire                                 ipv4_eth_rx_usr;
+  wire                                 ipv4_eth_rx_valid;
+  wire                                 ipv4_eth_rx_last;
+  wire                                 ipv4_eth_rx_ready;
   //// IPv4以太网发送
-  wire [                511:0] ipv4_eth_tx_data;
-  wire [                 63:0] ipv4_eth_tx_keep;
-  wire [         ReqWidth-1:0] ipv4_eth_tx_usr;
-  wire                         ipv4_eth_tx_valid;
-  wire                         ipv4_eth_tx_last;
-  wire                         ipv4_eth_tx_ready;
+  wire [                        511:0] ipv4_eth_tx_data;
+  wire [                         63:0] ipv4_eth_tx_keep;
+  wire [                 ReqWidth-1:0] ipv4_eth_tx_usr;
+  wire                                 ipv4_eth_tx_valid;
+  wire                                 ipv4_eth_tx_last;
+  wire                                 ipv4_eth_tx_ready;
   //// IPv6以太网接收
-  wire [                511:0] ipv6_eth_rx_data;
-  wire [                 63:0] ipv6_eth_rx_keep;
-  wire                         ipv6_eth_rx_usr;
-  wire                         ipv6_eth_rx_valid;
-  wire                         ipv6_eth_rx_last;
-  wire                         ipv6_eth_rx_ready;
+  wire [                        511:0] ipv6_eth_rx_data;
+  wire [                         63:0] ipv6_eth_rx_keep;
+  wire                                 ipv6_eth_rx_usr;
+  wire                                 ipv6_eth_rx_valid;
+  wire                                 ipv6_eth_rx_last;
+  wire                                 ipv6_eth_rx_ready;
   //// IPv6以太网发送
-  wire [                511:0] ipv6_eth_tx_data;
-  wire [                 63:0] ipv6_eth_tx_keep;
-  wire [         ReqWidth-1:0] ipv6_eth_tx_usr;
-  wire                         ipv6_eth_tx_valid;
-  wire                         ipv6_eth_tx_last;
-  wire                         ipv6_eth_tx_ready;
+  wire [                        511:0] ipv6_eth_tx_data;
+  wire [                         63:0] ipv6_eth_tx_keep;
+  wire [                 ReqWidth-1:0] ipv6_eth_tx_usr;
+  wire                                 ipv6_eth_tx_valid;
+  wire                                 ipv6_eth_tx_last;
+  wire                                 ipv6_eth_tx_ready;
   //// UDP接收
-  wire [                511:0] ipv4_udp_rx_data;
-  wire [                 63:0] ipv4_udp_rx_keep;
-  wire [                 96:0] ipv4_udp_rx_usr;
-  wire                         ipv4_udp_rx_valid;
-  wire                         ipv4_udp_rx_last;
-  wire                         ipv4_udp_rx_ready;
+  wire [                        511:0] ipv4_udp_rx_data;
+  wire [                         63:0] ipv4_udp_rx_keep;
+  wire [                         96:0] ipv4_udp_rx_usr;
+  wire                                 ipv4_udp_rx_valid;
+  wire                                 ipv4_udp_rx_last;
+  wire                                 ipv4_udp_rx_ready;
   //// UDP发送
-  wire [                511:0] ipv4_udp_tx_data;
-  wire [                 63:0] ipv4_udp_tx_keep;
-  wire [         ReqWidth-1:0] ipv4_udp_tx_usr;
-  wire                         ipv4_udp_tx_valid;
-  wire                         ipv4_udp_tx_last;
-  wire                         ipv4_udp_tx_ready;
+  wire [                        511:0] ipv4_udp_tx_data;
+  wire [                         63:0] ipv4_udp_tx_keep;
+  wire [                 ReqWidth-1:0] ipv4_udp_tx_usr;
+  wire                                 ipv4_udp_tx_valid;
+  wire                                 ipv4_udp_tx_last;
+  wire                                 ipv4_udp_tx_ready;
   //// UDP/IPv6接收
-  wire [                511:0] ipv6_udp_rx_data;
-  wire [                 63:0] ipv6_udp_rx_keep;
-  wire [                 96:0] ipv6_udp_rx_usr;
-  wire                         ipv6_udp_rx_valid;
-  wire                         ipv6_udp_rx_last;
-  wire                         ipv6_udp_rx_ready;
+  wire [                        511:0] ipv6_udp_rx_data;
+  wire [                         63:0] ipv6_udp_rx_keep;
+  wire [                         96:0] ipv6_udp_rx_usr;
+  wire                                 ipv6_udp_rx_valid;
+  wire                                 ipv6_udp_rx_last;
+  wire                                 ipv6_udp_rx_ready;
   //// UDP/IPv6发送
-  wire [                511:0] ipv6_udp_tx_data;
-  wire [                 63:0] ipv6_udp_tx_keep;
-  wire [         ReqWidth-1:0] ipv6_udp_tx_usr;
-  wire                         ipv6_udp_tx_valid;
-  wire                         ipv6_udp_tx_last;
-  wire                         ipv6_udp_tx_ready;
+  wire [                        511:0] ipv6_udp_tx_data;
+  wire [                         63:0] ipv6_udp_tx_keep;
+  wire [                 ReqWidth-1:0] ipv6_udp_tx_usr;
+  wire                                 ipv6_udp_tx_valid;
+  wire                                 ipv6_udp_tx_last;
+  wire                                 ipv6_udp_tx_ready;
   //// ICMP接收
-  wire [                511:0] ipv4_icmp_rx_data;
-  wire [                 63:0] ipv4_icmp_rx_keep;
-  wire [                 96:0] ipv4_icmp_rx_usr;
-  wire                         ipv4_icmp_rx_valid;
-  wire                         ipv4_icmp_rx_last;
-  wire                         ipv4_icmp_rx_ready;
+  wire [                        511:0] ipv4_icmp_rx_data;
+  wire [                         63:0] ipv4_icmp_rx_keep;
+  wire [                         96:0] ipv4_icmp_rx_usr;
+  wire                                 ipv4_icmp_rx_valid;
+  wire                                 ipv4_icmp_rx_last;
+  wire                                 ipv4_icmp_rx_ready;
   //// ICMP发送
-  wire [                511:0] ipv4_icmp_tx_data;
-  wire [                 63:0] ipv4_icmp_tx_keep;
-  wire [         ReqWidth-1:0] ipv4_icmp_tx_usr;
-  wire                         ipv4_icmp_tx_valid;
-  wire                         ipv4_icmp_tx_last;
-  wire                         ipv4_icmp_tx_ready;
+  wire [                        511:0] ipv4_icmp_tx_data;
+  wire [                         63:0] ipv4_icmp_tx_keep;
+  wire [                 ReqWidth-1:0] ipv4_icmp_tx_usr;
+  wire                                 ipv4_icmp_tx_valid;
+  wire                                 ipv4_icmp_tx_last;
+  wire                                 ipv4_icmp_tx_ready;
   //// 配置命令接收
-  wire [                511:0] cmd_rx_data;
-  wire [                 63:0] cmd_rx_keep;
-  wire [                240:0] cmd_rx_usr;
-  wire                         cmd_rx_valid;
-  wire                         cmd_rx_last;
-  wire                         cmd_rx_ready;
+  wire [                        511:0] cmd_rx_data;
+  wire [                         63:0] cmd_rx_keep;
+  wire [                        240:0] cmd_rx_usr;
+  wire                                 cmd_rx_valid;
+  wire                                 cmd_rx_last;
+  wire                                 cmd_rx_ready;
   //// 配置应答发送
-  wire [                511:0] cmd_tx_data;
-  wire [                 63:0] cmd_tx_keep;
-  wire [    UdpTxUsrWidth-1:0] cmd_tx_usr;
-  wire                         cmd_tx_valid;
-  wire                         cmd_tx_last;
-  wire                         cmd_tx_ready;
+  wire [                        511:0] cmd_tx_data;
+  wire [                         63:0] cmd_tx_keep;
+  wire [            UdpTxUsrWidth-1:0] cmd_tx_usr;
+  wire                                 cmd_tx_valid;
+  wire                                 cmd_tx_last;
+  wire                                 cmd_tx_ready;
 
   // GT复位汇总
   assign qsfp_gt_rst = gt_tx_arst || gt_rx_arst;
@@ -395,14 +413,31 @@ module eth_stack_port #(
   assign stat_link_up = link_up_d2;
 
   // 免费ARP
-  //// 复位后首次链路就绪时公告全表，随后受理配置命令。
-  assign arp_announce_valid = arp_startup_submitted ? cfg_arp_announce_valid : stat_link_up;
-  assign arp_announce_mask  =
-    arp_startup_submitted ? cfg_arp_announce_mask : {AnnounceMaskWidth{1'b1}};
-  assign cfg_arp_announce_ready = arp_startup_submitted && arp_announce_ready;
+  //// 链路持续就绪达到延时后公告全表，配置命令优先受理。
+  assign arp_startup_ms_tick = arp_startup_cycle_count == ArpStartupCycleLast;
+  assign arp_startup_delay_done =
+      arp_startup_ms_count == ArpStartupDelayMs[ArpStartupMsCountWidth-1:0];
+  assign arp_startup_take = !arp_startup_submitted && stat_link_up &&
+      arp_startup_delay_done && !cfg_arp_announce_valid && arp_announce_ready;
+  assign arp_announce_valid = cfg_arp_announce_valid || arp_startup_take;
+  assign arp_announce_mask = arp_startup_take ? {AnnounceMaskWidth{1'b1}} : cfg_arp_announce_mask;
+  assign cfg_arp_announce_ready = arp_announce_ready;
+  always @(posedge clk) begin
+    if (rst || !stat_link_up) begin
+      arp_startup_cycle_count <= 'd0;
+      arp_startup_ms_count    <= 'd0;
+    end else if (!arp_startup_delay_done) begin
+      if (arp_startup_ms_tick) begin
+        arp_startup_cycle_count <= 'd0;
+        arp_startup_ms_count    <= arp_startup_ms_count + 1'b1;
+      end else begin
+        arp_startup_cycle_count <= arp_startup_cycle_count + 1'b1;
+      end
+    end
+  end
   always @(posedge clk) begin
     if (rst) arp_startup_submitted <= 1'b0;
-    else if (arp_announce_valid && arp_announce_ready) arp_startup_submitted <= 1'b1;
+    else if (arp_startup_take) arp_startup_submitted <= 1'b1;
   end
 
   // MAC：用户槽位在三个内部通道之后，接收末路为兜底。

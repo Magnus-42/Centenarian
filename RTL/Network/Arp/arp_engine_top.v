@@ -22,7 +22,7 @@ module arp_engine_top #(
     parameter integer LocalIpCount = 1,
     parameter integer ClkFreqHz = 400000000,
     parameter integer ReqWidth = 4,
-    localparam integer TxUsrWidth = ReqWidth,
+    localparam integer TxUsrWidth = ReqWidth + 112,
     localparam integer RxUsrWidth = 1  // MAC 层错误标志
 ) (
     input wire clk,

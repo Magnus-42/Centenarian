@@ -6,7 +6,7 @@
 // Version     : 4.0
 // -----------------------------------------------------------------------------
 // Description : 100G以太网端口封装，连接CMAC、跨时钟FIFO和帧分流复用模块
-// Note        : RX经SLR、CDC FIFO后送入分流模块；TX经复用、补齐、CDC FIFO和SLR后发送
+// Note        : RX经SLR、CDC FIFO后分流；TX经加头、仲裁、补齐、CDC FIFO和SLR后发送。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -18,7 +18,7 @@ module eth_port_top #(
     parameter integer RxTypeCount = 4,
     parameter integer TxChannelCount = 4,
     parameter integer TxReqWidth = 4,
-    localparam integer TxUsrWidth = TxReqWidth,
+    localparam integer TxUsrWidth = TxReqWidth + 112,
     parameter integer CdcFifoDepth = 512,
     parameter integer LedHalfPeriodCycles = 50_000_000
 ) (
@@ -134,13 +134,6 @@ module eth_port_top #(
   wire         pad_last;
   wire         pad_valid;
   wire         pad_ready;
-
-  // 发送仲裁接口
-  wire [511:0] mux_data;
-  wire [ 63:0] mux_keep;
-  wire         mux_last;
-  wire         mux_valid;
-  wire         mux_ready;
 
   // CMAC选择
   if (CmacSelect == 0) begin : gen_cmac_a
@@ -289,39 +282,23 @@ module eth_port_top #(
   );
 
   // 发送通路
-  //// 逻辑域帧仲裁
-  eth_tx_mux #(
-      .ChannelCount(TxChannelCount),
-      .TxReqWidth  (TxReqWidth)
-  ) eth_tx_mux_inst (
+  //// 加MAC头。
+  eth_tx #(
+      .TxChannelCount(TxChannelCount),
+      .TxReqWidth    (TxReqWidth)
+  ) eth_tx_inst (
       .clk        (clk),
       .rst        (rst),
       .axis_sdata (axis_sdata),
       .axis_skeep (axis_skeep),
-      .axis_slast (axis_slast),
-      .axis_svalid(axis_svalid),
       .axis_susr  (axis_susr),
+      .axis_svalid(axis_svalid),
+      .axis_slast (axis_slast),
       .axis_sready(axis_sready),
-      .axis_mdata (mux_data),
-      .axis_mkeep (mux_keep),
-      .axis_mlast (mux_last),
-      .axis_mvalid(mux_valid),
-      .axis_musr  (),
-      .axis_mready(mux_ready)
-  );
-  //// 逻辑域短帧补齐
-  eth_frame_pad60 eth_frame_pad60_inst (
-      .clk        (clk),
-      .rst        (rst),
-      .axis_sdata (mux_data),
-      .axis_skeep (mux_keep),
-      .axis_slast (mux_last),
-      .axis_svalid(mux_valid),
-      .axis_sready(mux_ready),
       .axis_mdata (pad_data),
       .axis_mkeep (pad_keep),
-      .axis_mlast (pad_last),
       .axis_mvalid(pad_valid),
+      .axis_mlast (pad_last),
       .axis_mready(pad_ready)
   );
   //// 异步FIFO

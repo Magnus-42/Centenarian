@@ -4,9 +4,10 @@
 // Author      : LiXintao
 // Created     : 2026-11-22
 // Version     : v1.0
-
-// Description : UDP发送链，计算长度和校验和并插入UDP及IPv6头。
-//
+// -----------------------------------------------------------------------------
+// Description : UDP发送链，计算长度与校验和，添加UDP头并提供IPv6头元数据。
+// Note        : 输入data为UDP载荷，usr提供地址、端口、Hop Limit与请求值。
+//               输出data为完整UDP报文，usr提供IPv6基本头与请求值。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -27,16 +28,16 @@ module udp_ipv6_tx #(
     input  wire [UsrWidth-1:0] axis_susr,
     output wire                axis_sready,
 
-    output wire [       511:0] axis_mdata,
-    output wire [        63:0] axis_mkeep,
-    output wire                axis_mlast,
-    output wire                axis_mvalid,
-    output wire [ReqWidth-1:0] axis_musr,
-    input  wire                axis_mready
+    output wire [           511:0] axis_mdata,
+    output wire [            63:0] axis_mkeep,
+    output wire                    axis_mlast,
+    output wire                    axis_mvalid,
+    output wire [ReqWidth+320-1:0] axis_musr,
+    input  wire                    axis_mready
 );
 
   // 整包缓存载荷并计算UDP长度与校验和。
-  // 依次插入UDP头和IPv6头，出口保留请求字段。
+  // 插入UDP头；出口usr提供IPv6头元数据，由网络层加头。
 
   // 参数范围检查
   initial begin
@@ -47,30 +48,14 @@ module udp_ipv6_tx #(
   end
 
   // 长度与校验和接口
-  wire [       511:0] checksum_data;
-  wire [        63:0] checksum_keep;
-  wire                checksum_last;
-  wire                checksum_valid;
+  wire [511:0] checksum_data;
+  wire [63:0] checksum_keep;
+  wire checksum_last;
+  wire checksum_valid;
   wire [UsrWidth-1:0] checksum_usr;
-  wire                checksum_ready;
-  wire [        15:0] pkt_udp_len;
-  wire [        15:0] pkt_udp_checksum;
-
-  // UDP封装接口
-  wire [       511:0] udp_header_data;
-  wire [        63:0] udp_header_keep;
-  wire                udp_header_last;
-  wire                udp_header_valid;
-  wire [UsrWidth-1:0] udp_header_usr;
-  wire                udp_header_ready;
-
-  // IPv6封装接口
-  wire [       511:0] ipv6_header_data;
-  wire [        63:0] ipv6_header_keep;
-  wire                ipv6_header_last;
-  wire                ipv6_header_valid;
-  wire [UsrWidth-1:0] ipv6_header_usr;
-  wire                ipv6_header_ready;
+  wire checksum_ready;
+  wire [15:0] pkt_udp_len;
+  wire [15:0] pkt_udp_checksum;
 
   // 长度与校验和
   udp_ipv6_len_checksum #(
@@ -108,40 +93,13 @@ module udp_ipv6_tx #(
       .axis_sready      (checksum_ready),
       .pkt_total_len    (pkt_udp_len),
       .pkt_head_checksum(pkt_udp_checksum),
-      .axis_mdata       (udp_header_data),
-      .axis_mkeep       (udp_header_keep),
-      .axis_mlast       (udp_header_last),
-      .axis_mvalid      (udp_header_valid),
-      .axis_musr        (udp_header_usr),
-      .axis_mready      (udp_header_ready)
+      .axis_mdata       (axis_mdata),
+      .axis_mkeep       (axis_mkeep),
+      .axis_mlast       (axis_mlast),
+      .axis_mvalid      (axis_mvalid),
+      .axis_musr        (axis_musr),
+      .axis_mready      (axis_mready)
   );
 
-  // IPv6头插入
-  udp_ipv6_ip_header_add #(
-      .ReqWidth(ReqWidth)
-  ) udp_ipv6_ip_header_add_inst (
-      .clk        (clk),
-      .rst        (rst),
-      .axis_sdata (udp_header_data),
-      .axis_skeep (udp_header_keep),
-      .axis_slast (udp_header_last),
-      .axis_svalid(udp_header_valid),
-      .axis_susr  (udp_header_usr),
-      .axis_sready(udp_header_ready),
-      .axis_mdata (ipv6_header_data),
-      .axis_mkeep (ipv6_header_keep),
-      .axis_mlast (ipv6_header_last),
-      .axis_mvalid(ipv6_header_valid),
-      .axis_musr  (ipv6_header_usr),
-      .axis_mready(ipv6_header_ready)
-  );
-
-  // 输出：IPv6头已插入，仅保留低ReqWidth位请求字段。
-  assign axis_mdata        = ipv6_header_data;
-  assign axis_mkeep        = ipv6_header_keep;
-  assign axis_mlast        = ipv6_header_last;
-  assign axis_mvalid       = ipv6_header_valid;
-  assign axis_musr         = ipv6_header_usr[ReqWidth-1:0];
-  assign ipv6_header_ready = axis_mready;
 endmodule
 `resetall

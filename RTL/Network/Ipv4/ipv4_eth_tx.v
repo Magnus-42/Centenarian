@@ -5,7 +5,7 @@
 // Created     : 2026-09-18
 // Version     : v2.0
 // -----------------------------------------------------------------------------
-// Description : IPv4发送通路，连接ARP查询与以太网头插入。
+// Description : IPv4发送通路，连接ARP查询与MAC首部元数据输出。
 // Note        : ARP结果须满足ipv4_arp_service的应答时序。
 // -----------------------------------------------------------------------------
 
@@ -14,8 +14,9 @@
 `timescale 1ns / 100ps
 
 module ipv4_eth_tx #(
-    parameter  integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth
+    parameter integer ReqWidth = 4,
+    localparam integer UsrWidth = ReqWidth,
+    localparam integer MacUsrWidth = ReqWidth + 112
 ) (
     input wire clk,
     input wire rst,
@@ -37,30 +38,18 @@ module ipv4_eth_tx #(
     input  wire        arp_miss,
     input  wire        arp_valid,
 
-    output wire [       511:0] axis_mdata,
-    output wire [        63:0] axis_mkeep,
-    output wire [UsrWidth-1:0] axis_musr,
-    output wire                axis_mvalid,
-    output wire                axis_mlast,
-    input  wire                axis_mready,
+    output wire [          511:0] axis_mdata,
+    output wire [           63:0] axis_mkeep,
+    output wire [MacUsrWidth-1:0] axis_musr,
+    output wire                   axis_mvalid,
+    output wire                   axis_mlast,
+    input  wire                   axis_mready,
 
     output wire stat_tx_drop
 );
 
   // ARP查询服务缓存应答并过滤未命中的帧。
-  // 命中帧插入以太网头后输出。
-
-  // ARP处理后的帧
-  wire [       511:0] arp_frame_data;
-  wire [        63:0] arp_frame_keep;
-  wire                arp_frame_last;
-  wire                arp_frame_valid;
-  wire                arp_frame_ready;
-  wire [UsrWidth-1:0] arp_frame_usr;
-
-  // 首拍MAC地址
-  wire [        47:0] dst_mac;
-  wire [        47:0] src_mac;
+  // 命中帧输出完整IP包与MAC首部元数据。
 
   // ARP查询与未命中帧过滤
   ipv4_arp_service #(
@@ -75,14 +64,12 @@ module ipv4_eth_tx #(
       .axis_svalid      (axis_svalid),
       .axis_slast       (axis_slast),
       .axis_sready      (axis_sready),
-      .axis_mdata       (arp_frame_data),
-      .axis_mkeep       (arp_frame_keep),
-      .axis_musr        (arp_frame_usr),
-      .axis_mvalid      (arp_frame_valid),
-      .axis_mlast       (arp_frame_last),
-      .axis_mready      (arp_frame_ready),
-      .dst_mac          (dst_mac),
-      .src_mac          (src_mac),
+      .axis_mdata       (axis_mdata),
+      .axis_mkeep       (axis_mkeep),
+      .axis_musr        (axis_musr),
+      .axis_mvalid      (axis_mvalid),
+      .axis_mlast       (axis_mlast),
+      .axis_mready      (axis_mready),
       .query_dst_ip     (query_dst_ip),
       .query_src_ip     (query_src_ip),
       .query_valid_pulse(query_valid_pulse),
@@ -91,28 +78,6 @@ module ipv4_eth_tx #(
       .arp_miss         (arp_miss),
       .arp_valid        (arp_valid),
       .stat_tx_drop     (stat_tx_drop)
-  );
-
-  // 以太网头插入
-  ipv4_eth_header_add #(
-      .ReqWidth(ReqWidth)
-  ) ipv4_eth_header_add_inst (
-      .clk        (clk),
-      .rst        (rst),
-      .axis_sdata (arp_frame_data),
-      .axis_skeep (arp_frame_keep),
-      .axis_susr  (arp_frame_usr),
-      .axis_svalid(arp_frame_valid),
-      .axis_slast (arp_frame_last),
-      .axis_sready(arp_frame_ready),
-      .dst_mac    (dst_mac),
-      .src_mac    (src_mac),
-      .axis_mdata (axis_mdata),
-      .axis_mkeep (axis_mkeep),
-      .axis_musr  (axis_musr),
-      .axis_mvalid(axis_mvalid),
-      .axis_mlast (axis_mlast),
-      .axis_mready(axis_mready)
   );
 
 endmodule

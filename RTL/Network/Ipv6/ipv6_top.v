@@ -14,13 +14,13 @@
 `timescale 1ns / 100ps
 
 module ipv6_top #(
-    parameter integer RxTypeCount = 3,
-    parameter integer DstMacEntryCount = 8,
-    parameter integer SrcMacEntryCount = 8,
-    parameter integer TxChannelCount = 3,
-    parameter integer TxReqWidth = 4,  // TX 侧仲裁值位宽
-    localparam integer RxUsrWidth = 97,
-    localparam integer TxUsrWidth = TxReqWidth
+    parameter  integer RxTypeCount      = 3,
+    parameter  integer DstMacEntryCount = 8,
+    parameter  integer SrcMacEntryCount = 8,
+    parameter  integer TxChannelCount   = 3,
+    parameter  integer TxReqWidth       = 4,                // TX 侧仲裁值位宽
+    localparam integer RxUsrWidth       = 97,
+    localparam integer TxUsrWidth       = TxReqWidth + 320
 ) (
     input wire clk,
     input wire rst,
@@ -50,12 +50,12 @@ module ipv6_top #(
     input  wire [TxUsrWidth*TxChannelCount-1:0] tx_axis_susr,
     output wire [           TxChannelCount-1:0] tx_axis_sready,
 
-    output wire [         511:0] tx_axis_mdata,
-    output wire [          63:0] tx_axis_mkeep,
-    output wire                  tx_axis_mlast,
-    output wire                  tx_axis_mvalid,
-    output wire [TxUsrWidth-1:0] tx_axis_musr,
-    input  wire                  tx_axis_mready,
+    output wire [             511:0] tx_axis_mdata,
+    output wire [              63:0] tx_axis_mkeep,
+    output wire                      tx_axis_mlast,
+    output wire                      tx_axis_mvalid,
+    output wire [TxReqWidth+112-1:0] tx_axis_musr,
+    input  wire                      tx_axis_mready,
 
     input wire [128*DstMacEntryCount-1:0] cfg_dst_ipv6,
     input wire [ 48*DstMacEntryCount-1:0] cfg_dst_mac,
@@ -66,7 +66,7 @@ module ipv6_top #(
 );
 
   // 接收通路剥离以太网头，按Next Header分流。
-  // 发送通路依次完成仲裁、配置表查找和以太网封装。
+  // 发送通路先逐路添加IP头，再完成仲裁、配置表查找和以太网封装。
 
   // 参数范围检查
   initial begin
@@ -78,24 +78,32 @@ module ipv6_top #(
   end
 
   // 接收通路
-  wire [         511:0] rx_data;
-  wire [          63:0] rx_keep;
-  wire                  rx_last;
-  wire                  rx_valid;
-  wire [RxUsrWidth-1:0] rx_usr;
-  wire                  rx_ready;
+  wire [                        511:0] rx_data;
+  wire [                         63:0] rx_keep;
+  wire                                 rx_last;
+  wire                                 rx_valid;
+  wire [               RxUsrWidth-1:0] rx_usr;
+  wire                                 rx_ready;
 
   // 接收MAC地址
-  wire [          47:0] dst_mac;
-  wire [          47:0] src_mac;
+  wire [                         47:0] dst_mac;
+  wire [                         47:0] src_mac;
+
+  // 添加IP头部。
+  wire [       512*TxChannelCount-1:0] header_data;
+  wire [        64*TxChannelCount-1:0] header_keep;
+  wire [           TxChannelCount-1:0] header_last;
+  wire [           TxChannelCount-1:0] header_valid;
+  wire [           TxChannelCount-1:0] header_ready;
+  wire [TxReqWidth*TxChannelCount-1:0] header_usr;
 
   // 发送通路
-  wire [         511:0] mux_data;
-  wire [          63:0] mux_keep;
-  wire                  mux_last;
-  wire                  mux_valid;
-  wire [TxUsrWidth-1:0] mux_usr;
-  wire                  mux_ready;
+  wire [                        511:0] mux_data;
+  wire [                         63:0] mux_keep;
+  wire                                 mux_last;
+  wire                                 mux_valid;
+  wire [               TxReqWidth-1:0] mux_usr;
+  wire                                 mux_ready;
 
   // 接收通路
   //// 以太网解封装
@@ -141,6 +149,28 @@ module ipv6_top #(
   );
 
   // 发送通路
+  //// 添加IP头部
+  genvar tx_index;
+  for (tx_index = 0; tx_index < TxChannelCount; tx_index = tx_index + 1) begin : gen_tx_header
+    ipv6_header_add #(
+        .ReqWidth(TxReqWidth)
+    ) header_add_inst (
+        .clk        (clk),
+        .rst        (rst),
+        .axis_sdata (tx_axis_sdata[tx_index*512+:512]),
+        .axis_skeep (tx_axis_skeep[tx_index*64+:64]),
+        .axis_susr  (tx_axis_susr[tx_index*TxUsrWidth+:TxUsrWidth]),
+        .axis_slast (tx_axis_slast[tx_index]),
+        .axis_svalid(tx_axis_svalid[tx_index]),
+        .axis_sready(tx_axis_sready[tx_index]),
+        .axis_mdata (header_data[tx_index*512+:512]),
+        .axis_mkeep (header_keep[tx_index*64+:64]),
+        .axis_musr  (header_usr[tx_index*TxReqWidth+:TxReqWidth]),
+        .axis_mlast (header_last[tx_index]),
+        .axis_mvalid(header_valid[tx_index]),
+        .axis_mready(header_ready[tx_index])
+    );
+  end
   //// 帧仲裁
   ipv6_tx_mux #(
       .TxChannelCount(TxChannelCount),
@@ -148,12 +178,12 @@ module ipv6_top #(
   ) ipv6_tx_mux_inst (
       .clk        (clk),
       .rst        (rst),
-      .axis_sdata (tx_axis_sdata),
-      .axis_skeep (tx_axis_skeep),
-      .axis_slast (tx_axis_slast),
-      .axis_svalid(tx_axis_svalid),
-      .axis_susr  (tx_axis_susr),
-      .axis_sready(tx_axis_sready),
+      .axis_sdata (header_data),
+      .axis_skeep (header_keep),
+      .axis_slast (header_last),
+      .axis_svalid(header_valid),
+      .axis_susr  (header_usr),
+      .axis_sready(header_ready),
       .axis_mdata (mux_data),
       .axis_mkeep (mux_keep),
       .axis_mlast (mux_last),

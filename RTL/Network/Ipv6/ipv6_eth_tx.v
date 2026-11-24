@@ -5,7 +5,7 @@
 // Created     : 2026-10-11
 // Version     : v2.0
 // -----------------------------------------------------------------------------
-// Description : IPv6发送通路，连接配置表查找与以太网头插入。
+// Description : IPv6发送通路，连接配置表查找与MAC首部元数据输出。
 // Note        : 任一地址未命中则丢弃整帧，不进行NDP查询。
 // -----------------------------------------------------------------------------
 
@@ -14,10 +14,11 @@
 `timescale 1ns / 100ps
 
 module ipv6_eth_tx #(
-    parameter integer DstMacEntryCount = 8,
-    parameter integer SrcMacEntryCount = 8,
-    parameter integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth
+    parameter  integer DstMacEntryCount = 8,
+    parameter  integer SrcMacEntryCount = 8,
+    parameter  integer ReqWidth         = 4,
+    localparam integer UsrWidth         = ReqWidth,
+    localparam integer MacUsrWidth      = ReqWidth + 112
 ) (
     input wire clk,
     input wire rst,
@@ -36,18 +37,18 @@ module ipv6_eth_tx #(
     input wire [128*SrcMacEntryCount-1:0] cfg_src_ipv6,
     input wire [ 48*SrcMacEntryCount-1:0] cfg_src_mac,
 
-    output wire [       511:0] axis_mdata,
-    output wire [        63:0] axis_mkeep,
-    output wire                axis_mlast,
-    output wire                axis_mvalid,
-    output wire [UsrWidth-1:0] axis_musr,
-    input  wire                axis_mready,
+    output wire [          511:0] axis_mdata,
+    output wire [           63:0] axis_mkeep,
+    output wire                   axis_mlast,
+    output wire                   axis_mvalid,
+    output wire [MacUsrWidth-1:0] axis_musr,
+    input  wire                   axis_mready,
 
     output wire stat_tx_drop
 );
 
   // 配置表查找过滤未命中的帧。
-  // 命中帧插入以太网头后输出。
+  // 命中帧输出完整IP包与MAC首部元数据。
 
   // 参数范围检查
   initial begin
@@ -56,18 +57,6 @@ module ipv6_eth_tx #(
       $finish;
     end
   end
-
-  // 查表后的帧
-  wire [       511:0] lookup_data;
-  wire [        63:0] lookup_keep;
-  wire                lookup_last;
-  wire                lookup_valid;
-  wire                lookup_ready;
-  wire [UsrWidth-1:0] lookup_usr;
-
-  // 首拍MAC地址
-  wire [        47:0] dst_mac;
-  wire [        47:0] src_mac;
 
   // 配置表查找与整帧过滤
   ipv6_mac_lookup #(
@@ -88,37 +77,13 @@ module ipv6_eth_tx #(
       .axis_svalid   (axis_svalid),
       .axis_susr     (axis_susr),
       .axis_sready   (axis_sready),
-      .axis_mdata    (lookup_data),
-      .axis_mkeep    (lookup_keep),
-      .axis_mlast    (lookup_last),
-      .axis_mvalid   (lookup_valid),
-      .axis_musr     (lookup_usr),
-      .axis_mready   (lookup_ready),
-      .dst_mac       (dst_mac),
-      .src_mac       (src_mac),
+      .axis_mdata    (axis_mdata),
+      .axis_mkeep    (axis_mkeep),
+      .axis_mlast    (axis_mlast),
+      .axis_mvalid   (axis_mvalid),
+      .axis_musr     (axis_musr),
+      .axis_mready   (axis_mready),
       .stat_tx_drop  (stat_tx_drop)
-  );
-
-  // 以太网头插入
-  ipv6_eth_header_add #(
-      .ReqWidth(ReqWidth)
-  ) ipv6_eth_header_add_inst (
-      .clk        (clk),
-      .rst        (rst),
-      .axis_sdata (lookup_data),
-      .axis_skeep (lookup_keep),
-      .axis_slast (lookup_last),
-      .axis_svalid(lookup_valid),
-      .axis_susr  (lookup_usr),
-      .axis_sready(lookup_ready),
-      .dst_mac    (dst_mac),
-      .src_mac    (src_mac),
-      .axis_mdata (axis_mdata),
-      .axis_mkeep (axis_mkeep),
-      .axis_mlast (axis_mlast),
-      .axis_mvalid(axis_mvalid),
-      .axis_musr  (axis_musr),
-      .axis_mready(axis_mready)
   );
 
 endmodule

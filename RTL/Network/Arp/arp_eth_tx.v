@@ -5,8 +5,8 @@
 // Created     : 2026-09-14
 // Version     : 1.0
 // -----------------------------------------------------------------------------
-// Description : 将以太网与ARP字段拼接为单拍AXIS输出
-// Note        : 单拍输出60字节，输出寄存器支持背压，usr携带arp_priority
+// Description : 将28字节ARP报文及MAC首部元数据送入MAC层
+// Note        : 输出usr为{EtherType,源MAC,目的MAC,请求}。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -16,7 +16,7 @@
 module arp_eth_tx #(
     parameter  integer DataWidth = 512,
     parameter  integer ReqWidth  = 4,
-    localparam integer UsrWidth  = ReqWidth
+    localparam integer UsrWidth  = ReqWidth + 112
 ) (
     input wire clk,
     input wire rst,
@@ -46,27 +46,28 @@ module arp_eth_tx #(
     input  wire                   axis_mready
 );
 
-  // 帧字段顺序：目的MAC、源MAC、以太网类型、ARP类型与长度、操作码、发送方和目标地址。
-  // MAC为48位，IP为32位，ARP字段共28字节；输出在高位补零。
-  // 配置优先级寄存一拍，出口skid缓存完整帧并支持背压。
+  // 报文字段顺序：ARP类型与长度、操作码、发送方和目标地址。
+  // ARP报文共28字节，MAC地址与EtherType放入usr，data高位补零。
+  // 配置优先级寄存一拍，出口skid同步缓存ARP报文与MAC元数据并支持背压。
 
   // 参数范围检查
   initial begin
-    if (DataWidth < 480 || DataWidth % 8 != 0 || ReqWidth < 1) begin
+    if (DataWidth < 224 || DataWidth % 8 != 0 || ReqWidth < 1) begin
       $display(
-          "错误：arp_eth_tx：DataWidth须不小于480且为8的倍数，ReqWidth须大于0");
+          "错误：arp_eth_tx：DataWidth须不小于224且为8的倍数，ReqWidth须大于0");
       $finish;
     end
   end
 
   // 内部常量
-  localparam integer HeaderBytes = 42;
+  localparam integer HeaderBytes = 28;
   localparam integer HeaderWidth = HeaderBytes * 8;
-  localparam integer MinFrameBytes = 60;
-  localparam [DataWidth/8-1:0] MinKeepMask = {MinFrameBytes{1'b1}};
+  localparam [DataWidth/8-1:0] ArpKeepMask = {
+    {(DataWidth / 8 - HeaderBytes) {1'b0}}, {HeaderBytes{1'b1}}
+  };
 
   // 发送优先级
-  reg  [ UsrWidth-1:0] cfg_arp_priority_d1;
+  reg  [ ReqWidth-1:0] cfg_arp_priority_d1;
 
   // 帧组装
   wire [DataWidth-1:0] axis_mdata_skid;
@@ -82,10 +83,7 @@ module arp_eth_tx #(
     arp_plen,
     arp_hlen,
     arp_ptype,
-    arp_htype,
-    eth_type,
-    eth_src_mac,
-    eth_dest_mac
+    arp_htype
   };
 
   // 配置寄存
@@ -93,27 +91,23 @@ module arp_eth_tx #(
     if (rst) cfg_arp_priority_d1 <= 'd0;
     else cfg_arp_priority_d1 <= cfg_arp_priority;
   end
-
-  // 输出优先级
-  assign axis_musr = cfg_arp_priority_d1;
-
   // 出口skid
   axis_skid_buffer #(
       .DataWidth(DataWidth),
-      .UsrWidth (1)
+      .UsrWidth (UsrWidth)
   ) axis_skid_buffer_inst (
       .clk        (clk),
       .rst        (rst),
       .axis_sready(frame_ready),
       .axis_sdata (axis_mdata_skid),
-      .axis_skeep (MinKeepMask),
-      .axis_susr  (1'b0),
+      .axis_skeep (ArpKeepMask),
+      .axis_susr  ({eth_type, eth_src_mac, eth_dest_mac, cfg_arp_priority_d1}),
       .axis_slast (1'b1),
       .axis_svalid(frame_valid),
       .axis_mready(axis_mready),
       .axis_mdata (axis_mdata),
       .axis_mkeep (axis_mkeep),
-      .axis_musr  (),
+      .axis_musr  (axis_musr),
       .axis_mlast (axis_mlast),
       .axis_mvalid(axis_mvalid)
   );

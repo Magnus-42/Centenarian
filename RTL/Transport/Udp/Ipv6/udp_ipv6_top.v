@@ -4,14 +4,14 @@
 // Author      : LiXintao
 // Created     : 2026-11-22
 // Version     : v1.0
-
+// -----------------------------------------------------------------------------
 // Description : UDP over IPv6收发顶层，连接现有IPv6网络层的AXIS接口。
 // Note        : 支持固定40字节IPv6头，Next Header直接为UDP，不解析扩展头。
-//               TX usr从高到低为{目的IP, 源IP, 目的端口, 源端口, Hop Limit, 请求}。
+//               TX输出UDP报文与IPv6头元数据。
+//               TX输入usr从高到低为{目的IP, 源IP, 目的端口, 源端口, Hop Limit, 请求}。
 //               RX usr从高到低为{UDP长度, 源端口, 目的端口, 目的IP, 源IP,
-//                 Hop Limit, IPv6载荷长度, Next Header, 网络层usr[96:0]}。
+//               Hop Limit, IPv6载荷长度, Next Header, 网络层usr[96:0]}。
 //               多字节字段首个网络字节在低位；未匹配端口走末路，空载荷以keep=0且last=1输出。
-//
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -19,14 +19,14 @@
 `timescale 1ns / 100ps
 
 module udp_ipv6_top #(
-    parameter integer RxPortCount = 3,
-    parameter integer TxChannelCount = 4,
-    parameter integer TxReqWidth = 4,
+    parameter  integer RxPortCount          = 3,
+    parameter  integer TxChannelCount       = 4,
+    parameter  integer TxReqWidth           = 4,
     localparam integer EffectiveRxPortCount = (RxPortCount > 0) ? RxPortCount : 1,
-    localparam integer TxUsrWidth = TxReqWidth + 296,
-    localparam integer RxUsrWidth = 433,
-    localparam integer Ipv6RxUsrWidth = 97,
-    localparam integer Ipv6HeaderUsrWidth = 288
+    localparam integer TxUsrWidth           = TxReqWidth + 296,
+    localparam integer RxUsrWidth           = 433,
+    localparam integer Ipv6RxUsrWidth       = 97,
+    localparam integer Ipv6HeaderUsrWidth   = 288
 ) (
     input wire clk,
     input wire rst,
@@ -56,16 +56,16 @@ module udp_ipv6_top #(
     input  wire [TxUsrWidth*TxChannelCount-1:0] tx_axis_susr,
     output wire [           TxChannelCount-1:0] tx_axis_sready,
 
-    output wire [         511:0] tx_axis_mdata,
-    output wire [          63:0] tx_axis_mkeep,
-    output wire                  tx_axis_mlast,
-    output wire                  tx_axis_mvalid,
-    output wire [TxReqWidth-1:0] tx_axis_musr,
-    input  wire                  tx_axis_mready
+    output wire [             511:0] tx_axis_mdata,
+    output wire [              63:0] tx_axis_mkeep,
+    output wire                      tx_axis_mlast,
+    output wire                      tx_axis_mvalid,
+    output wire [TxReqWidth+320-1:0] tx_axis_musr,
+    input  wire                      tx_axis_mready
 );
 
   // 接收依次剥离IPv6和UDP头，按目的端口分流。
-  // 发送依次仲裁、计算长度和校验和，并插入UDP和IPv6头。
+  // 发送依次仲裁、计算长度和校验和、插入UDP头，并向网络层提供IPv6元数据。
 
   // 参数范围检查
   initial begin
@@ -76,39 +76,39 @@ module udp_ipv6_top #(
   end
 
   // 接收UDP报文接口
-  wire [                                511:0] rx_udp_data;
-  wire [                                 63:0] rx_udp_keep;
-  wire                                         rx_udp_last;
-  wire                                         rx_udp_valid;
-  wire                                         rx_udp_ready;
+  wire [511:0] rx_udp_data;
+  wire [63:0] rx_udp_keep;
+  wire rx_udp_last;
+  wire rx_udp_valid;
+  wire rx_udp_ready;
   wire [Ipv6RxUsrWidth+Ipv6HeaderUsrWidth-1:0] rx_udp_usr;
 
   // 接收载荷接口
-  wire [                                511:0] rx_payload_data;
-  wire [                                 63:0] rx_payload_keep;
-  wire                                         rx_payload_last;
-  wire                                         rx_payload_valid;
-  wire [                       RxUsrWidth-1:0] rx_payload_usr;
-  wire                                         rx_payload_ready;
+  wire [511:0] rx_payload_data;
+  wire [63:0] rx_payload_keep;
+  wire rx_payload_last;
+  wire rx_payload_valid;
+  wire [RxUsrWidth-1:0] rx_payload_usr;
+  wire rx_payload_ready;
 
   // 解析字段
-  wire [                                  7:0] next_header;
-  wire [                                 15:0] payload_len;
-  wire [                                  7:0] hop_limit;
-  wire [                                127:0] src_ip;
-  wire [                                127:0] dst_ip;
-  wire [                                 15:0] dst_port;
-  wire [                                 15:0] src_port;
+  wire [7:0] next_header;
+  wire [15:0] payload_len;
+  wire [7:0] hop_limit;
+  wire [127:0] src_ip;
+  wire [127:0] dst_ip;
+  wire [15:0] dst_port;
+  wire [15:0] src_port;
 
-  wire [                                 15:0] udp_len;
+  wire [15:0] udp_len;
 
   // 发送仲裁接口
-  wire [                                511:0] tx_mux_data;
-  wire [                                 63:0] tx_mux_keep;
-  wire                                         tx_mux_last;
-  wire                                         tx_mux_valid;
-  wire [                       TxUsrWidth-1:0] tx_mux_usr;
-  wire                                         tx_mux_ready;
+  wire [511:0] tx_mux_data;
+  wire [63:0] tx_mux_keep;
+  wire tx_mux_last;
+  wire tx_mux_valid;
+  wire [TxUsrWidth-1:0] tx_mux_usr;
+  wire tx_mux_ready;
 
   // 接收通路
   //// IPv6头剥离

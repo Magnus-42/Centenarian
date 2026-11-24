@@ -4,10 +4,10 @@
 // Author      : LiXintao
 // Created     : 2026-10-17
 // Version     : v1.0
-
-// Description : 支持流水线设计，插入 8 字节 UDP 首部（应用载荷 -> UDP 数据报）
-// Note        : 1. 首部字 {校验和[63:48], 长度[47:32], 目的端口[31:16], 源端口[15:0]}
-//               usr低ReqWidth位为请求，其上为TTL、源端口、目的端口、源IP和目的IP。
+// -----------------------------------------------------------------------------
+// Description : 添加8字节UDP首部，并生成IPv4首部元数据。
+// Note        : 输入usr为原有地址、端口、TTL与请求值。
+//               输出usr从高到低为{IPv4首部,请求}，位宽为ReqWidth+160。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -15,8 +15,9 @@
 `timescale 1ns / 100ps
 
 module udp_ipv4_header_add #(
-    parameter  integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth + 104
+    parameter  integer ReqWidth   = 4,
+    localparam integer UsrWidth   = ReqWidth + 104,
+    localparam integer IpUsrWidth = ReqWidth + 160
 ) (
     input wire clk,
     input wire rst,
@@ -31,16 +32,16 @@ module udp_ipv4_header_add #(
     input wire [15:0] pkt_total_len,
     input wire [15:0] pkt_head_checksum,
 
-    output wire [       511:0] axis_mdata,
-    output wire [        63:0] axis_mkeep,
-    output wire                axis_mlast,
-    output wire                axis_mvalid,
-    output wire [UsrWidth-1:0] axis_musr,
-    input  wire                axis_mready
+    output wire [         511:0] axis_mdata,
+    output wire [          63:0] axis_mkeep,
+    output wire                  axis_mlast,
+    output wire                  axis_mvalid,
+    output wire [IpUsrWidth-1:0] axis_musr,
+    input  wire                  axis_mready
 );
 
   // 入口skid同步缓存载荷、usr、UDP长度及校验和。
-  // p1缓存载荷、端口、UDP长度及校验和，计算是否需要插入拍
+  // p1缓存载荷与UDP字段，同时生成IP首部元数据并判断是否需要补尾。
   // 输出插入8字节UDP头，必要时补发高8字节尾拍。
   // 出口skid保持完整数据和usr。
 
@@ -68,19 +69,23 @@ module udp_ipv4_header_add #(
   wire [               15:0] pkt_head_checksum_skid;
   wire                       s_handshake_skid;
 
+  // IPv4总长度，pkt_total_len已包含8字节UDP首部。
+  wire [               15:0] ipv4_total_len_host;
+  wire [               15:0] ipv4_total_len;
+
   // p1 数据与边带
   reg  [              511:0] p1_axis_sdata;
   reg  [               63:0] p1_axis_skeep;
   reg                        p1_axis_slast;
   reg                        p1_axis_svalid;
-  reg  [       UsrWidth-1:0] p1_axis_susr;
+  reg  [     IpUsrWidth-1:0] p1_axis_susr;
 
   // p1 首拍字段
   reg  [               15:0] p1_total_len;
   reg  [               15:0] p1_src_port;
   reg  [               15:0] p1_dst_port;
 
-  // IPv4校验和计算
+  // UDP校验和
   reg  [               15:0] p1_head_checksum;
 
   // 首拍标志
@@ -89,7 +94,7 @@ module udp_ipv4_header_add #(
   // 跨拍缓存
   reg  [  UdpHeaderBits-1:0] data_held;
   reg  [UdpHeaderBits/8-1:0] keep_held;
-  reg  [       UsrWidth-1:0] usr_held;
+  reg  [     IpUsrWidth-1:0] usr_held;
 
   // 尾拍补发控制
   reg                        p1_is_insert_beat;
@@ -99,7 +104,7 @@ module udp_ipv4_header_add #(
   wire                       axis_mready_skid;
   wire [              511:0] axis_mdata_skid;
   wire [               63:0] axis_mkeep_skid;
-  wire [       UsrWidth-1:0] axis_musr_skid;
+  wire [     IpUsrWidth-1:0] axis_musr_skid;
   wire                       axis_mlast_skid;
   wire                       axis_mvalid_skid;
 
@@ -130,25 +135,43 @@ module udp_ipv4_header_add #(
       .axis_mvalid(axis_svalid_skid)
   );
 
+  // IPv4首部元数据
+  assign ipv4_total_len_host = {pkt_total_len_skid[7:0], pkt_total_len_skid[15:8]} + 16'd20;
+  assign ipv4_total_len      = {ipv4_total_len_host[7:0], ipv4_total_len_host[15:8]};
+
   // 流水控制
-  assign output_can_take  = axis_mready_skid;
-  assign insert_en        = p2_is_insert_beat && output_can_take;
-  assign p1_ready         = output_can_take && !p2_is_insert_beat;
-  assign s_handshake_skid = axis_sready_skid && axis_svalid_skid;
-  assign p1_handshake     = p1_ready && p1_axis_svalid;
-  assign axis_sready_skid = (!p1_axis_svalid || p1_ready) && !p1_is_insert_beat;
+  assign output_can_take     = axis_mready_skid;
+  assign insert_en           = p2_is_insert_beat && output_can_take;
+  assign p1_ready            = output_can_take && !p2_is_insert_beat;
+  assign s_handshake_skid    = axis_sready_skid && axis_svalid_skid;
+  assign p1_handshake        = p1_ready && p1_axis_svalid;
+  assign axis_sready_skid    = (!p1_axis_svalid || p1_ready) && !p1_is_insert_beat;
   // p1 输入缓存
   //// 数据与UDP字段
   always @(posedge clk) begin
     if (s_handshake_skid) begin
-      p1_axis_sdata    <= axis_sdata_skid;
-      p1_axis_skeep    <= axis_skeep_skid;
-      p1_axis_slast    <= axis_slast_skid;
-      p1_axis_susr     <= axis_susr_skid;
-      p1_total_len     <= pkt_total_len_skid;
+      p1_axis_sdata <= axis_sdata_skid;
+      p1_axis_skeep <= axis_skeep_skid;
+      p1_axis_slast <= axis_slast_skid;
+      p1_axis_susr <= {
+        {
+          axis_susr_skid[ReqWidth+72+:32],
+          axis_susr_skid[ReqWidth+40+:32],
+          16'd0,
+          8'h11,
+          axis_susr_skid[ReqWidth+:8],
+          16'h0040,
+          16'd0,
+          ipv4_total_len,
+          8'd0,
+          8'h45
+        },
+        axis_susr_skid[ReqWidth-1:0]
+      };
+      p1_total_len <= pkt_total_len_skid;
       p1_head_checksum <= pkt_head_checksum_skid;
-      p1_src_port      <= axis_susr_skid[UsrSrcPortLsb+:16];
-      p1_dst_port      <= axis_susr_skid[UsrDstPortLsb+:16];
+      p1_src_port <= axis_susr_skid[UsrSrcPortLsb+:16];
+      p1_dst_port <= axis_susr_skid[UsrDstPortLsb+:16];
     end
   end
   //// 有效信号
@@ -229,7 +252,7 @@ module udp_ipv4_header_add #(
   // 出口skid
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth)
+      .UsrWidth (IpUsrWidth)
   ) axis_skid_buffer_out (
       .clk        (clk),
       .rst        (rst),

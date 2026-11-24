@@ -4,9 +4,10 @@
 // Author      : LiXintao
 // Created     : 2026-10-8
 // Version     : v1.0
-
+// -----------------------------------------------------------------------------
 // Description : UDP over IPv4收发顶层。
-//
+// Note        : RX按目的端口分流，末路为未匹配通道。
+//               TX输出UDP报文与IPv4头元数据。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -14,14 +15,14 @@
 `timescale 1ns / 100ps
 
 module udp_ipv4_top #(
-    parameter integer RxPortCount = 3,
-    parameter integer TxChannelCount = 4,
-    parameter integer TxReqWidth = 4,
+    parameter  integer RxPortCount          = 3,
+    parameter  integer TxChannelCount       = 4,
+    parameter  integer TxReqWidth           = 4,
     localparam integer EffectiveRxPortCount = (RxPortCount > 0) ? RxPortCount : 1,
-    localparam integer TxUsrWidth = TxReqWidth + 104,
-    localparam integer RxUsrWidth = 241,
-    localparam integer Ipv4RxUsrWidth = 97,
-    localparam integer Ipv4HeaderUsrWidth = 96
+    localparam integer TxUsrWidth           = TxReqWidth + 104,
+    localparam integer RxUsrWidth           = 241,
+    localparam integer Ipv4RxUsrWidth       = 97,
+    localparam integer Ipv4HeaderUsrWidth   = 96
 ) (
     input wire clk,
     input wire rst,
@@ -51,19 +52,19 @@ module udp_ipv4_top #(
     input  wire [TxUsrWidth*TxChannelCount-1:0] tx_axis_susr,
     output wire [           TxChannelCount-1:0] tx_axis_sready,
 
-    output wire [         511:0] tx_axis_mdata,
-    output wire [          63:0] tx_axis_mkeep,
-    output wire                  tx_axis_mlast,
-    output wire                  tx_axis_mvalid,
-    output wire [TxReqWidth-1:0] tx_axis_musr,
-    input  wire                  tx_axis_mready,
+    output wire [             511:0] tx_axis_mdata,
+    output wire [              63:0] tx_axis_mkeep,
+    output wire                      tx_axis_mlast,
+    output wire                      tx_axis_mvalid,
+    output wire [TxReqWidth+160-1:0] tx_axis_musr,
+    input  wire                      tx_axis_mready,
 
     output wire stat_is_df
 
 );
 
   // 接收依次剥离IPv4和UDP头，按目的端口分流。
-  // 发送依次仲裁、计算长度和校验和，并插入UDP和IPv4头。
+  // 发送依次仲裁、计算长度和校验和、插入UDP头，并向网络层提供IPv4元数据。
 
   // 参数范围检查
   initial begin
@@ -74,39 +75,39 @@ module udp_ipv4_top #(
   end
 
   // 接收UDP报文接口
-  wire [                                511:0] rx_udp_data;
-  wire [                                 63:0] rx_udp_keep;
-  wire                                         rx_udp_last;
-  wire                                         rx_udp_valid;
-  wire                                         rx_udp_ready;
+  wire [511:0] rx_udp_data;
+  wire [63:0] rx_udp_keep;
+  wire rx_udp_last;
+  wire rx_udp_valid;
+  wire rx_udp_ready;
   wire [Ipv4RxUsrWidth+Ipv4HeaderUsrWidth-1:0] rx_udp_usr;
 
   // 接收载荷接口
-  wire [                                511:0] rx_payload_data;
-  wire [                                 63:0] rx_payload_keep;
-  wire                                         rx_payload_last;
-  wire                                         rx_payload_valid;
-  wire [                       RxUsrWidth-1:0] rx_payload_usr;
-  wire                                         rx_payload_ready;
+  wire [511:0] rx_payload_data;
+  wire [63:0] rx_payload_keep;
+  wire rx_payload_last;
+  wire rx_payload_valid;
+  wire [RxUsrWidth-1:0] rx_payload_usr;
+  wire rx_payload_ready;
 
   // 解析字段
-  wire [                                  7:0] protocol;
-  wire [                                 15:0] total_len;
-  wire [                                  7:0] ttl;
-  wire [                                 31:0] src_ip;
-  wire [                                 31:0] dst_ip;
-  wire [                                 15:0] dst_port;
-  wire [                                 15:0] src_port;
+  wire [7:0] protocol;
+  wire [15:0] total_len;
+  wire [7:0] ttl;
+  wire [31:0] src_ip;
+  wire [31:0] dst_ip;
+  wire [15:0] dst_port;
+  wire [15:0] src_port;
 
-  wire [                                 15:0] udp_len;
+  wire [15:0] udp_len;
 
   // 发送仲裁接口
-  wire [                                511:0] tx_mux_data;
-  wire [                                 63:0] tx_mux_keep;
-  wire                                         tx_mux_last;
-  wire                                         tx_mux_valid;
-  wire [                       TxUsrWidth-1:0] tx_mux_usr;
-  wire                                         tx_mux_ready;
+  wire [511:0] tx_mux_data;
+  wire [63:0] tx_mux_keep;
+  wire tx_mux_last;
+  wire tx_mux_valid;
+  wire [TxUsrWidth-1:0] tx_mux_usr;
+  wire tx_mux_ready;
 
   // 接收通路
   //// IPv4头剥离

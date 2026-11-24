@@ -1,22 +1,22 @@
 // -----------------------------------------------------------------------------
-// File Name   : udp_ipv4_ip_header_add.v
-// Module Name : udp_ipv4_ip_header_add
+// File Name   : ipv4_header_add.v
+// Module Name : ipv4_header_add
 // Author      : LiXintao
 // Created     : 2026-10-8
-// Version     : v2.0
-
-// Description : 支持流水线设计，插入 20 字节 IPv4 首部
-// Note        : 1. 包内计算IPV4校验值以及长度
-//               usr低ReqWidth位为请求，其上为TTL、源端口、目的端口、源IP和目的IP。
+// Version     : v1.0
+// -----------------------------------------------------------------------------
+// Description : 添加固定20字节IPv4头，并计算首部校验和。
+// Note        : usr低ReqWidth位为请求，其上160位为原始IPv4首部。
+//               校验字段由模块重新计算，出口usr仅保留请求。
 // -----------------------------------------------------------------------------
 
 `resetall
 `default_nettype none
 `timescale 1ns / 100ps
 
-module udp_ipv4_ip_header_add #(
+module ipv4_header_add #(
     parameter  integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth + 104
+    localparam integer UsrWidth = ReqWidth + 160
 ) (
     input wire clk,
     input wire rst,
@@ -32,12 +32,12 @@ module udp_ipv4_ip_header_add #(
     output wire [        63:0] axis_mkeep,
     output wire                axis_mlast,
     output wire                axis_mvalid,
-    output wire [UsrWidth-1:0] axis_musr,
+    output wire [ReqWidth-1:0] axis_musr,
     input  wire                axis_mready
 );
 
   // 入口skid
-  // p1 缓存IPv4字段，计算总长度并组成校验和字段为0的p1_ipv4_header。
+  // p1 缓存本层负载与完整IPv4头元数据，校验字段按0求和。
   // p2 加法树：10个16位字 -> 5个p2_pair_sum -> 3个p2_partial_sum寄存值。
   // p3 合并部分和：p3_partial_sum -> p3_header_sum，得到20位首部总和。
   // p4 两次回卷进位：p3_fold1_add -> p3_fold2_add，取反后寄存到p4_checksum。
@@ -45,14 +45,14 @@ module udp_ipv4_ip_header_add #(
   // p1至p4共享pipeline_ce，数据、字段及valid同步停顿；p5由skid握手独立推进。
 
   // IPv4首部校验和原理（RFC 791、RFC 1071）
-  // 只对20字节IPv4首部求和，不包含UDP头与载荷；计算时首部校验和字段置0。
+  // 只对20字节IPv4首部求和，不包含本层负载；计算时首部校验和字段置0。
   // 将10个16位字相加，高16位进位回加到低16位，再将结果逐位取反。
   // 本实现先用加法树保留完整进位，再做两次折叠，等价于16位反码加法。
 
   // 参数范围检查
   initial begin
     if (ReqWidth < 1) begin
-      $display("错误：udp_ipv4_ip_header_add：ReqWidth必须不小于1。");
+      $display("错误：ipv4_header_add：ReqWidth必须不小于1。");
       $finish;
     end
   end
@@ -61,9 +61,6 @@ module udp_ipv4_ip_header_add #(
   localparam integer PipelineDepth = 4;
   localparam integer ShiftDepth = PipelineDepth - 1;
   localparam integer Ipv4HeaderBits = 160;
-  localparam integer UsrTtlLsb = ReqWidth;
-  localparam integer UsrSrcIpLsb = ReqWidth + 40;
-  localparam integer UsrDstIpLsb = ReqWidth + 72;
 
   // 入口skid接口
   wire [               511:0] axis_sdata_skid;
@@ -87,35 +84,6 @@ module udp_ipv4_ip_header_add #(
   wire                        pipeline_ce;
   wire [               159:0] p1_ipv4_header;
   wire                        p4_needs_tail;
-
-  // 首拍长度预处理
-  wire [                15:0] udp_len;
-  wire [                15:0] ipv4_len_msb;
-  wire [                15:0] ipv4_len;
-
-  // p1 首拍字段
-  reg  [                15:0] p1_total_len;
-  reg  [                 7:0] p1_ttl;
-  reg  [                31:0] p1_src_ip;
-  reg  [                31:0] p1_dst_ip;
-
-  // p2 首拍字段
-  reg  [                15:0] p2_total_len;
-  reg  [                 7:0] p2_ttl;
-  reg  [                31:0] p2_src_ip;
-  reg  [                31:0] p2_dst_ip;
-
-  // p3 首拍字段
-  reg  [                15:0] p3_total_len;
-  reg  [                 7:0] p3_ttl;
-  reg  [                31:0] p3_src_ip;
-  reg  [                31:0] p3_dst_ip;
-
-  // p4 首拍字段
-  reg  [                15:0] p4_total_len;
-  reg  [                 7:0] p4_ttl;
-  reg  [                31:0] p4_src_ip;
-  reg  [                31:0] p4_dst_ip;
 
   // IPv4校验和计算
   wire [                16:0] p2_pair_sum      [           0:4];
@@ -172,15 +140,8 @@ module udp_ipv4_ip_header_add #(
       .axis_mvalid(axis_svalid_skid)
   );
 
-  // 首拍长度预处理
-  assign udp_len = {axis_sdata_skid[39:32], axis_sdata_skid[47:40]};
-  assign ipv4_len_msb = udp_len + 16'd20;
-  assign ipv4_len = {ipv4_len_msb[7:0], ipv4_len_msb[15:8]};
-
-  // p1 组成待校验IPv4首部，校验和字段清零，总长度为UDP长度加20字节。
-  assign p1_ipv4_header = {
-    p1_dst_ip, p1_src_ip, 16'h0000, 8'h11, p1_ttl, 16'h0040, 16'h0000, p1_total_len, 8'h00, 8'h45
-  };
+  // 组成校验字段为0的IPv4首部，重新计算首部校验和。
+  assign p1_ipv4_header = {usr_shift[0][ReqWidth+96+:64], 16'd0, usr_shift[0][ReqWidth+:80]};
 
   // 流水控制
   assign output_can_take = axis_mready_skid;
@@ -224,40 +185,6 @@ module udp_ipv4_ip_header_add #(
   always @(posedge clk) begin
     if (pipeline_ce) begin
       p4_checksum <= ~p3_fold2_add[15:0];
-    end
-  end
-
-  // 部分和与字段对齐
-  always @(posedge clk) begin
-    if (pipeline_ce) begin
-      p1_total_len <= ipv4_len;
-      p1_ttl       <= axis_susr_skid[UsrTtlLsb+:8];
-      p1_src_ip    <= axis_susr_skid[UsrSrcIpLsb+:32];
-      p1_dst_ip    <= axis_susr_skid[UsrDstIpLsb+:32];
-    end
-  end
-  always @(posedge clk) begin
-    if (pipeline_ce) begin
-      p2_total_len <= p1_total_len;
-      p2_ttl       <= p1_ttl;
-      p2_src_ip    <= p1_src_ip;
-      p2_dst_ip    <= p1_dst_ip;
-    end
-  end
-  always @(posedge clk) begin
-    if (pipeline_ce) begin
-      p3_total_len <= p2_total_len;
-      p3_ttl       <= p2_ttl;
-      p3_src_ip    <= p2_src_ip;
-      p3_dst_ip    <= p2_dst_ip;
-    end
-  end
-  always @(posedge clk) begin
-    if (pipeline_ce) begin
-      p4_total_len <= p3_total_len;
-      p4_ttl       <= p3_ttl;
-      p4_src_ip    <= p3_src_ip;
-      p4_dst_ip    <= p3_dst_ip;
     end
   end
 
@@ -324,8 +251,8 @@ module udp_ipv4_ip_header_add #(
   // p5 输出拼接与出口skid
   //// 首拍插入20字节IPv4头，后续拍拼接跨拍缓存；必需的尾拍优先发送。
   assign axis_mdata_skid = tail_pending ? {{352{1'b0}}, data_held} :
-      (p4_is_first_beat ? {p4_axis_sdata[511-Ipv4HeaderBits:0], p4_dst_ip, p4_src_ip, p4_checksum,
-                           8'h11, p4_ttl, 16'h0040, 16'h0000, p4_total_len, 8'h00, 8'h45} :
+      (p4_is_first_beat ? {p4_axis_sdata[511-Ipv4HeaderBits:0], p4_axis_susr[ReqWidth+96+:64],
+                           p4_checksum, p4_axis_susr[ReqWidth+:80]} :
        {p4_axis_sdata[511-Ipv4HeaderBits:0], data_held});
   assign axis_mkeep_skid = tail_pending ? {{44{1'b0}}, keep_held} :
       (p4_is_first_beat ? {p4_axis_skeep[63-Ipv4HeaderBits/8:0], {20{1'b1}}} :
@@ -335,13 +262,13 @@ module udp_ipv4_ip_header_add #(
   assign axis_mvalid_skid = tail_pending || p4_axis_svalid;
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth)
+      .UsrWidth (ReqWidth)
   ) axis_skid_buffer_out (
       .clk        (clk),
       .rst        (rst),
       .axis_sdata (axis_mdata_skid),
       .axis_skeep (axis_mkeep_skid),
-      .axis_susr  (axis_musr_skid),
+      .axis_susr  (axis_musr_skid[ReqWidth-1:0]),
       .axis_slast (axis_mlast_skid),
       .axis_svalid(axis_mvalid_skid),
       .axis_sready(axis_mready_skid),

@@ -4,10 +4,10 @@
 // Author      : LiXintao
 // Created     : 2026-10-17
 // Version     : v1.0
-
-// Description : 支持流水线设计，插入 8 字节 UDP 首部（应用载荷 -> UDP 数据报）
-// Note        : 1. 首部字 {校验和[63:48], 长度[47:32], 目的端口[31:16], 源端口[15:0]}
-//               usr低ReqWidth位为请求，其上为TTL、源端口、目的端口、源IP和目的IP。
+// -----------------------------------------------------------------------------
+// Description : 添加8字节UDP首部，并输出IPv4首部侧带。
+// Note        : 输入usr为{UDP首部,IPv4首部,请求}，长度与UDP校验和已填入。
+//               输出usr从高到低为{IPv4首部,请求}，位宽为ReqWidth+160。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -15,8 +15,9 @@
 `timescale 1ns / 100ps
 
 module udp_ipv4_header_add #(
-    parameter  integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth + 104
+    parameter  integer ReqWidth   = 4,
+    localparam integer UsrWidth   = ReqWidth + 224,
+    localparam integer IpUsrWidth = ReqWidth + 160
 ) (
     input wire clk,
     input wire rst,
@@ -28,19 +29,16 @@ module udp_ipv4_header_add #(
     input  wire [UsrWidth-1:0] axis_susr,
     output wire                axis_sready,
 
-    input wire [15:0] pkt_total_len,
-    input wire [15:0] pkt_head_checksum,
-
-    output wire [       511:0] axis_mdata,
-    output wire [        63:0] axis_mkeep,
-    output wire                axis_mlast,
-    output wire                axis_mvalid,
-    output wire [UsrWidth-1:0] axis_musr,
-    input  wire                axis_mready
+    output wire [         511:0] axis_mdata,
+    output wire [          63:0] axis_mkeep,
+    output wire                  axis_mlast,
+    output wire                  axis_mvalid,
+    output wire [IpUsrWidth-1:0] axis_musr,
+    input  wire                  axis_mready
 );
 
-  // 入口skid同步缓存载荷、usr、UDP长度及校验和。
-  // p1缓存载荷、端口、UDP长度及校验和，计算是否需要插入拍
+  // 入口skid同步缓存载荷与首部侧带。
+  // p1缓存载荷与UDP字段，同时提取IP首部侧带并判断是否需要补尾。
   // 输出插入8字节UDP头，必要时补发高8字节尾拍。
   // 出口skid保持完整数据和usr。
 
@@ -54,8 +52,6 @@ module udp_ipv4_header_add #(
 
   // 内部常量
   localparam integer UdpHeaderBits = 64;
-  localparam integer UsrSrcPortLsb = ReqWidth + 8;
-  localparam integer UsrDstPortLsb = ReqWidth + 24;
 
   // 入口skid接口
   wire [              511:0] axis_sdata_skid;
@@ -64,8 +60,6 @@ module udp_ipv4_header_add #(
   wire                       axis_slast_skid;
   wire                       axis_svalid_skid;
   wire                       axis_sready_skid;
-  wire [               15:0] pkt_total_len_skid;
-  wire [               15:0] pkt_head_checksum_skid;
   wire                       s_handshake_skid;
 
   // p1 数据与边带
@@ -73,15 +67,10 @@ module udp_ipv4_header_add #(
   reg  [               63:0] p1_axis_skeep;
   reg                        p1_axis_slast;
   reg                        p1_axis_svalid;
-  reg  [       UsrWidth-1:0] p1_axis_susr;
+  reg  [     IpUsrWidth-1:0] p1_axis_susr;
 
-  // p1 首拍字段
-  reg  [               15:0] p1_total_len;
-  reg  [               15:0] p1_src_port;
-  reg  [               15:0] p1_dst_port;
-
-  // IPv4校验和计算
-  reg  [               15:0] p1_head_checksum;
+  // p1 UDP首部
+  reg  [               63:0] p1_udp_header;
 
   // 首拍标志
   reg                        is_first_beat;
@@ -89,7 +78,7 @@ module udp_ipv4_header_add #(
   // 跨拍缓存
   reg  [  UdpHeaderBits-1:0] data_held;
   reg  [UdpHeaderBits/8-1:0] keep_held;
-  reg  [       UsrWidth-1:0] usr_held;
+  reg  [     IpUsrWidth-1:0] usr_held;
 
   // 尾拍补发控制
   reg                        p1_is_insert_beat;
@@ -99,7 +88,7 @@ module udp_ipv4_header_add #(
   wire                       axis_mready_skid;
   wire [              511:0] axis_mdata_skid;
   wire [               63:0] axis_mkeep_skid;
-  wire [       UsrWidth-1:0] axis_musr_skid;
+  wire [     IpUsrWidth-1:0] axis_musr_skid;
   wire                       axis_mlast_skid;
   wire                       axis_mvalid_skid;
 
@@ -112,20 +101,20 @@ module udp_ipv4_header_add #(
   // 入口skid
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth + 32)
+      .UsrWidth (UsrWidth)
   ) axis_skid_buffer_in (
       .clk        (clk),
       .rst        (rst),
       .axis_sready(axis_sready),
       .axis_sdata (axis_sdata),
       .axis_skeep (axis_skeep),
-      .axis_susr  ({pkt_total_len, pkt_head_checksum, axis_susr}),
+      .axis_susr  (axis_susr),
       .axis_slast (axis_slast),
       .axis_svalid(axis_svalid),
       .axis_mready(axis_sready_skid),
       .axis_mdata (axis_sdata_skid),
       .axis_mkeep (axis_skeep_skid),
-      .axis_musr  ({pkt_total_len_skid, pkt_head_checksum_skid, axis_susr_skid}),
+      .axis_musr  (axis_susr_skid),
       .axis_mlast (axis_slast_skid),
       .axis_mvalid(axis_svalid_skid)
   );
@@ -141,14 +130,19 @@ module udp_ipv4_header_add #(
   //// 数据与UDP字段
   always @(posedge clk) begin
     if (s_handshake_skid) begin
-      p1_axis_sdata    <= axis_sdata_skid;
-      p1_axis_skeep    <= axis_skeep_skid;
-      p1_axis_slast    <= axis_slast_skid;
-      p1_axis_susr     <= axis_susr_skid;
-      p1_total_len     <= pkt_total_len_skid;
-      p1_head_checksum <= pkt_head_checksum_skid;
-      p1_src_port      <= axis_susr_skid[UsrSrcPortLsb+:16];
-      p1_dst_port      <= axis_susr_skid[UsrDstPortLsb+:16];
+      p1_axis_sdata <= axis_sdata_skid;
+      p1_axis_skeep <= axis_skeep_skid;
+      p1_axis_slast <= axis_slast_skid;
+      p1_axis_susr <= {
+        axis_susr_skid[ReqWidth+96+:64],
+        16'd0,
+        8'h11,
+        axis_susr_skid[ReqWidth+64+:8],
+        axis_susr_skid[ReqWidth+32+:32],
+        axis_susr_skid[ReqWidth+:32],
+        axis_susr_skid[ReqWidth-1:0]
+      };
+      p1_udp_header <= axis_susr_skid[ReqWidth+160+:64];
     end
   end
   //// 有效信号
@@ -218,8 +212,9 @@ module udp_ipv4_header_add #(
 
   // 输出拼接
   assign axis_mdata_skid = p2_is_insert_beat ? {{448{1'b0}}, data_held} : (
-      is_first_beat ? {p1_axis_sdata[511-UdpHeaderBits:0], p1_head_checksum, p1_total_len,
-                       p1_dst_port, p1_src_port} : {p1_axis_sdata[511-UdpHeaderBits:0], data_held});
+      is_first_beat
+        ? {p1_axis_sdata[511-UdpHeaderBits:0], p1_udp_header}
+        : {p1_axis_sdata[511-UdpHeaderBits:0], data_held});
   assign axis_mkeep_skid = p2_is_insert_beat ?
       {{56{1'b0}}, keep_held} : (is_first_beat ? {p1_axis_skeep[63-UdpHeaderBits/8:0], {8{1'b1}}} :
                                  {p1_axis_skeep[63-UdpHeaderBits/8:0], keep_held});
@@ -229,7 +224,7 @@ module udp_ipv4_header_add #(
   // 出口skid
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth)
+      .UsrWidth (IpUsrWidth)
   ) axis_skid_buffer_out (
       .clk        (clk),
       .rst        (rst),

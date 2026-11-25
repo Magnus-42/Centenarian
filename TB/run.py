@@ -36,8 +36,8 @@ MUTATIONS = {
     "config_response": ("tb_cfg_port_top", "RTL/Config/cfg_cmd.v",
                         "assign axis_mdata  = axis_mdata_reg;", "assign axis_mdata  = axis_mdata_reg ^ 1'b1;",
                         "configuration response mismatch"),
-    "udp4_checksum": ("tb_udp_ipv4_top", "RTL/Transport/Udp/Ipv4/udp_ipv4_tx.v",
-                      ".pkt_head_checksum(pkt_udp_checksum)", ".pkt_head_checksum(pkt_udp_checksum ^ 16'h0001)",
+    "udp4_checksum": ("tb_udp_ipv4_top", "RTL/Transport/Udp/Ipv4/udp_ipv4_len_checksum.v",
+                      "selected_result[15:0]", "(selected_result[15:0] ^ 16'h0001)",
                       "TX data mismatch"),
 }
 FAILURE = re.compile(r"\b(?:FAIL(?:ED|URE)?|FATAL|ERROR|TIMEOUT)\b|错误", re.IGNORECASE)

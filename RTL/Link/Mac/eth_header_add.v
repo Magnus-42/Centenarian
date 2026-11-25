@@ -1,21 +1,21 @@
 // -----------------------------------------------------------------------------
-// File Name   : ipv6_eth_header_add.v
-// Module Name : ipv6_eth_header_add
+// File Name   : eth_header_add.v
+// Module Name : eth_header_add
 // Author      : LiXintao
 // Created     : 2026-09-18
 // Version     : v1.0
 // -----------------------------------------------------------------------------
-// Description : IPv6发送封装，插入14字节以太网头。
-// Note        : 末拍高14字节含有效载荷时，增加一个尾拍。
+// Description : 根据usr提供的MAC地址与类型添加14字节以太网头。
+// Note        : usr从高到低为{EtherType,源MAC,目的MAC,请求}。
 // -----------------------------------------------------------------------------
 
 `resetall
 `default_nettype none
 `timescale 1ns / 100ps
 
-module ipv6_eth_header_add #(
+module eth_header_add #(
     parameter  integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth
+    localparam integer UsrWidth = ReqWidth + 112
 ) (
     input wire clk,
     input wire rst,
@@ -27,12 +27,9 @@ module ipv6_eth_header_add #(
     input  wire                axis_slast,
     output wire                axis_sready,
 
-    input wire [47:0] dst_mac,
-    input wire [47:0] src_mac,
-
     output wire [       511:0] axis_mdata,
     output wire [        63:0] axis_mkeep,
-    output wire [UsrWidth-1:0] axis_musr,
+    output wire [ReqWidth-1:0] axis_musr,
     output wire                axis_mvalid,
     output wire                axis_mlast,
     input  wire                axis_mready
@@ -46,7 +43,7 @@ module ipv6_eth_header_add #(
   // 参数范围检查
   initial begin
     if (ReqWidth < 1) begin
-      $display("错误：ipv6_eth_header_add：ReqWidth必须不小于1。");
+      $display("错误：eth_header_add：ReqWidth必须不小于1。");
       $finish;
     end
   end
@@ -99,8 +96,6 @@ module ipv6_eth_header_add #(
   wire                       p1_handshake;
 
   // 出口skid接口
-  wire [               47:0] src_mac_skid;
-  wire [               47:0] dst_mac_skid;
   wire [              511:0] axis_mdata_skid;
   wire [               63:0] axis_mkeep_skid;
   wire [       UsrWidth-1:0] axis_musr_skid;
@@ -111,20 +106,20 @@ module ipv6_eth_header_add #(
   // 入口skid
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth + 96)
+      .UsrWidth (UsrWidth)
   ) axis_skid_buffer_in (
       .clk        (clk),
       .rst        (rst),
       .axis_sready(axis_sready),
       .axis_sdata (axis_sdata),
       .axis_skeep (axis_skeep),
-      .axis_susr  ({src_mac, dst_mac, axis_susr}),
+      .axis_susr  (axis_susr),
       .axis_slast (axis_slast),
       .axis_svalid(axis_svalid),
       .axis_mready(axis_sready_skid),
       .axis_mdata (axis_sdata_skid),
       .axis_mkeep (axis_skeep_skid),
-      .axis_musr  ({src_mac_skid, dst_mac_skid, axis_susr_skid}),
+      .axis_musr  (axis_susr_skid),
       .axis_mlast (axis_slast_skid),
       .axis_mvalid(axis_svalid_skid)
   );
@@ -157,8 +152,8 @@ module ipv6_eth_header_add #(
       p1_axis_skeep <= axis_skeep_skid;
       p1_axis_slast <= axis_slast_skid;
       p1_axis_susr  <= axis_susr_skid;
-      p1_dst_mac    <= dst_mac_skid;
-      p1_src_mac    <= src_mac_skid;
+      p1_dst_mac    <= axis_susr_skid[ReqWidth+:48];
+      p1_src_mac    <= axis_susr_skid[ReqWidth+48+:48];
     end
   end
   //// 有效位
@@ -211,7 +206,9 @@ module ipv6_eth_header_add #(
       p2_axis_mlast <= 1'b1;
     end else if (p1_handshake) begin
       if (is_first_beat) begin
-        p2_axis_mdata <= {p1_axis_sdata[511-EthHeaderBits:0], 16'hDD86, p1_src_mac, p1_dst_mac};
+        p2_axis_mdata <= {
+          p1_axis_sdata[511-EthHeaderBits:0], p1_axis_susr[ReqWidth+96+:16], p1_src_mac, p1_dst_mac
+        };
         p2_axis_mkeep <= {p1_axis_skeep[63-EthHeaderBits/8:0], 14'b1111_1111_1111_11};
       end else begin
         p2_axis_mdata <= {p1_axis_sdata[511-EthHeaderBits:0], data_held};
@@ -246,14 +243,14 @@ module ipv6_eth_header_add #(
   // 出口skid
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth)
+      .UsrWidth (ReqWidth)
   ) axis_skid_buffer_out (
       .clk        (clk),
       .rst        (rst),
       .axis_sready(axis_mready_skid),
       .axis_sdata (axis_mdata_skid),
       .axis_skeep (axis_mkeep_skid),
-      .axis_susr  (axis_musr_skid),
+      .axis_susr  (axis_musr_skid[ReqWidth-1:0]),
       .axis_slast (axis_mlast_skid),
       .axis_svalid(axis_mvalid_skid),
       .axis_mready(axis_mready),

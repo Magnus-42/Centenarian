@@ -6,7 +6,8 @@
 // Version     : v2.0
 // -----------------------------------------------------------------------------
 // Description : IPv6配置表查找，任一地址未命中则过滤整帧。
-// Note        : 重复地址取最大索引，MAC仅首拍有效；不进行NDP。
+// Note        : 重复地址取最大索引，不进行NDP。
+//               输出usr为{EtherType,源MAC,目的MAC,请求}，位宽为ReqWidth+112。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -17,7 +18,8 @@ module ipv6_mac_lookup #(
     parameter integer DstMacEntryCount = 8,
     parameter integer SrcMacEntryCount = 8,
     parameter integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth
+    localparam integer UsrWidth = ReqWidth,
+    localparam integer MacUsrWidth = ReqWidth + 112
 ) (
     input wire clk,
     input wire rst,
@@ -35,18 +37,16 @@ module ipv6_mac_lookup #(
     output wire axis_sready,
     output wire [511:0] axis_mdata,
     output wire [63:0] axis_mkeep,
-    output wire [UsrWidth-1:0] axis_musr,
+    output wire [MacUsrWidth-1:0] axis_musr,
     output wire axis_mlast,
     output wire axis_mvalid,
     input wire axis_mready,
-    output wire [47:0] src_mac,
-    output wire [47:0] dst_mac,
     output wire stat_tx_drop
 );
   // 入口skid缓存输入数据。
   // p1缓存地址匹配结果、数据和首拍信息。
   // 组合优先编码选择MAC，并按首拍命中结果过滤整帧。
-  // 出口skid缓存输出数据和MAC地址。
+  // 出口skid同步缓存IP报文与MAC首部元数据。
 
   // 参数范围检查
   initial begin
@@ -89,6 +89,10 @@ module ipv6_mac_lookup #(
   reg [47:0] src_mac_comb, dst_mac_comb;
   integer dst_entry_index;
   integer src_entry_index;
+
+  // 地址保持
+  reg [47:0] src_mac_held;
+  reg [47:0] dst_mac_held;
 
   // 状态清除配置
   reg cfg_stat_clear_d1;
@@ -260,18 +264,30 @@ module ipv6_mac_lookup #(
     end
   end
 
+  // 地址保持
+  always @(posedge clk) begin
+    if (rst) begin
+      src_mac_held <= 48'd0;
+      dst_mac_held <= 48'd0;
+    end else if (current_take && current_first) begin
+      src_mac_held <= current_src_mac;
+      dst_mac_held <= current_dst_mac;
+    end
+  end
+
   // 出口skid
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth + 96)
+      .UsrWidth (MacUsrWidth)
   ) axis_skid_buffer_out (
       .clk(clk),
       .rst(rst),
       .axis_sdata(current_data),
       .axis_skeep(current_keep),
       .axis_susr({
-        (current_first ? current_src_mac : 48'd0),
-        (current_first ? current_dst_mac : 48'd0),
+        16'hdd86,
+        (current_first ? current_src_mac : src_mac_held),
+        (current_first ? current_dst_mac : dst_mac_held),
         current_usr
       }),
       .axis_slast(current_last),
@@ -279,10 +295,11 @@ module ipv6_mac_lookup #(
       .axis_sready(axis_mready_skid),
       .axis_mdata(axis_mdata),
       .axis_mkeep(axis_mkeep),
-      .axis_musr({src_mac, dst_mac, axis_musr}),
+      .axis_musr(axis_musr),
       .axis_mlast(axis_mlast),
       .axis_mvalid(axis_mvalid),
       .axis_mready(axis_mready)
   );
+
 endmodule
 `resetall

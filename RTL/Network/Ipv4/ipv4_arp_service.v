@@ -6,7 +6,8 @@
 // Version     : v2.0
 // -----------------------------------------------------------------------------
 // Description : IPv4发送ARP查询服务，缓存查询结果并过滤未命中的帧。
-// Note        : 查询应答固定七拍、有序且每请求恰一次；MAC边带仅首拍有效。
+// Note        : 查询应答固定七拍、有序且每请求恰一次。
+//               输出usr为{EtherType,源MAC,目的MAC,请求}，位宽为ReqWidth+112。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -14,8 +15,9 @@
 `timescale 1ns / 100ps
 
 module ipv4_arp_service #(
-    parameter  integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth
+    parameter  integer ReqWidth    = 4,
+    localparam integer UsrWidth    = ReqWidth,
+    localparam integer MacUsrWidth = ReqWidth + 112
 ) (
     input wire clk,
     input wire rst,
@@ -29,15 +31,12 @@ module ipv4_arp_service #(
     input  wire                axis_slast,
     output wire                axis_sready,
 
-    output wire [       511:0] axis_mdata,
-    output wire [        63:0] axis_mkeep,
-    output wire [UsrWidth-1:0] axis_musr,
-    output wire                axis_mvalid,
-    output wire                axis_mlast,
-    input  wire                axis_mready,
-
-    output wire [47:0] dst_mac,  // 仅首拍有效
-    output wire [47:0] src_mac,  // 仅首拍有效
+    output wire [          511:0] axis_mdata,
+    output wire [           63:0] axis_mkeep,
+    output wire [MacUsrWidth-1:0] axis_musr,
+    output wire                   axis_mvalid,
+    output wire                   axis_mlast,
+    input  wire                   axis_mready,
 
     output wire [31:0] query_dst_ip,
     output wire [31:0] query_src_ip,
@@ -53,7 +52,7 @@ module ipv4_arp_service #(
   // 入口skid后的首拍发起ARP查询。
   // p1至p7通过共享使能移位，暂存数据与边带。
   // ARP应答由d1、FIFO及FIFO输出寄存缓存，p8对齐结果并过滤未命中帧。
-  // 出口skid同步缓存数据与MAC边带。
+  // 出口skid同步缓存IP报文与MAC首部元数据。
 
   // 参数范围检查
   initial begin
@@ -129,6 +128,10 @@ module ipv4_arp_service #(
   wire [          47:0] current_src_mac;
   wire                  is_drop;
   reg                   is_drop_other_beat;
+
+  // 地址保持
+  reg  [          47:0] src_mac_held;
+  reg  [          47:0] dst_mac_held;
 
   // 状态清除配置
   reg                   cfg_stat_clear_d1;
@@ -236,8 +239,8 @@ module ipv4_arp_service #(
   assign current_dst_mac     = arp_valid_d1 ? arp_dst_mac_d1 : arp_buf_dst_mac;
   assign current_src_mac     = arp_valid_d1 ? arp_src_mac_d1 : arp_buf_src_mac;
   //// MAC地址
-  assign p8_dst_mac          = p8_is_first_beat ? current_dst_mac : 48'd0;
-  assign p8_src_mac          = p8_is_first_beat ? current_src_mac : 48'd0;
+  assign p8_dst_mac          = p8_is_first_beat ? current_dst_mac : dst_mac_held;
+  assign p8_src_mac          = p8_is_first_beat ? current_src_mac : src_mac_held;
   //// 帧过滤
   assign is_drop             = p8_is_first_beat ? current_miss : is_drop_other_beat;
   assign p8_axis_svalid_skid = p8_axis_svalid && !is_drop;
@@ -329,23 +332,35 @@ module ipv4_arp_service #(
     end
   end
 
-  // 出口skid，MAC与usr同步缓存
+  // 地址保持
+  always @(posedge clk) begin
+    if (rst) begin
+      src_mac_held <= 48'd0;
+      dst_mac_held <= 48'd0;
+    end else if (p8_handshake && p8_is_first_beat) begin
+      src_mac_held <= current_src_mac;
+      dst_mac_held <= current_dst_mac;
+    end
+  end
+
+  // 出口skid
+
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth + 96)
+      .UsrWidth (MacUsrWidth)
   ) axis_skid_buffer_out (
       .clk        (clk),
       .rst        (rst),
       .axis_sready(axis_mready_skid),
       .axis_sdata (p8_axis_sdata),
       .axis_skeep (p8_axis_skeep),
-      .axis_susr  ({p8_src_mac, p8_dst_mac, p8_axis_susr}),
+      .axis_susr  ({16'h0008, p8_src_mac, p8_dst_mac, p8_axis_susr}),
       .axis_slast (p8_axis_slast),
       .axis_svalid(p8_axis_svalid_skid),
       .axis_mready(axis_mready),
       .axis_mdata (axis_mdata),
       .axis_mkeep (axis_mkeep),
-      .axis_musr  ({src_mac, dst_mac, axis_musr}),
+      .axis_musr  (axis_musr),
       .axis_mlast (axis_mlast),
       .axis_mvalid(axis_mvalid)
   );

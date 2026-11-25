@@ -1,36 +1,38 @@
 // -----------------------------------------------------------------------------
-// File Name   : icmpv4_top.v
-// Module Name : icmpv4_top
+// File Name   : icmpv6_top.v
+// Module Name : icmpv6_top
 // Author      : LiXintao
-// Created     : 2026-10-17
+// Created     : 2026-11-25
 // Version     : v1.0
 // -----------------------------------------------------------------------------
-// Description : ICMPv4收发顶层，连接类型分流、回显应答与发送仲裁。
-// Note        : 存在待发送应答时，cfg_arbiter_value须保持稳定。
+// Description : ICMPv6收发顶层，连接ICMP头剥离、类型分流、回显应答与发送仲裁。
+// Note        : TX输入为ICMP载荷，输出为ICMP报文与IPv6首部侧带。
+//               RX输入为ICMP报文，分流输出ICMP载荷，首部字段逐层放入usr。
 // -----------------------------------------------------------------------------
 
 `resetall
 `default_nettype none
 `timescale 1ns / 100ps
 
-module icmpv4_top #(
-    parameter integer ReqWidth = 4,
-    localparam integer TxUsrWidth = ReqWidth,
-    localparam integer RxUsrWidth = 97,
-    parameter integer TxChannelCount = 1
+module icmpv6_top #(
+    parameter  integer ReqWidth       = 4,
+    localparam integer TxUsrWidth     = ReqWidth + 384,
+    localparam integer IpTxUsrWidth   = ReqWidth + 320,
+    localparam integer RxUsrWidth     = 497,
+    localparam integer Ipv6RxUsrWidth = 433,
+    parameter  integer TxChannelCount = 1
 ) (
     input wire clk,
     input wire rst,
 
     input wire [ReqWidth-1:0] cfg_arbiter_value,
-    input wire cfg_clear_error,
 
-    input  wire [         511:0] rx_axis_sdata,
-    input  wire [          63:0] rx_axis_skeep,
-    input  wire [RxUsrWidth-1:0] rx_axis_susr,
-    input  wire                  rx_axis_svalid,
-    input  wire                  rx_axis_slast,
-    output wire                  rx_axis_sready,
+    input  wire [             511:0] rx_axis_sdata,
+    input  wire [              63:0] rx_axis_skeep,
+    input  wire [Ipv6RxUsrWidth-1:0] rx_axis_susr,
+    input  wire                      rx_axis_svalid,
+    input  wire                      rx_axis_slast,
+    output wire                      rx_axis_sready,
 
     output wire [         511:0] other_axis_mdata,
     output wire [          63:0] other_axis_mkeep,
@@ -46,23 +48,21 @@ module icmpv4_top #(
     input  wire [           TxChannelCount-1:0] tx_axis_slast,
     output wire [           TxChannelCount-1:0] tx_axis_sready,
 
-    output wire [         511:0] tx_axis_mdata,
-    output wire [          63:0] tx_axis_mkeep,
-    output wire [TxUsrWidth-1:0] tx_axis_musr,
-    output wire                  tx_axis_mvalid,
-    output wire                  tx_axis_mlast,
-    input  wire                  tx_axis_mready,
-
-    output wire stat_ttl_error
+    output wire [           511:0] tx_axis_mdata,
+    output wire [            63:0] tx_axis_mkeep,
+    output wire [IpTxUsrWidth-1:0] tx_axis_musr,
+    output wire                    tx_axis_mvalid,
+    output wire                    tx_axis_mlast,
+    input  wire                    tx_axis_mready
 );
 
-  // 接收通路区分回显请求和其他报文，回显应答改写首拍头部。
-  // 应答与用户发送报文按帧仲裁后输出。
+  // 接收通路先剥离ICMP头并打包头字段，再区分回显请求和其他ICMP报文。
+  // 应答与用户发送载荷按帧仲裁，计算校验和并添加ICMP基本首部。
 
   // 参数范围检查
   initial begin
-    if (TxUsrWidth < 1 || RxUsrWidth < 1 || TxChannelCount < 1) begin
-      $display("错误：icmpv4_top：不支持的参数配置。");
+    if (ReqWidth < 1 || RxUsrWidth < 1 || TxChannelCount < 1) begin
+      $display("错误：icmpv6_top：不支持的参数配置。");
       $finish;
     end
   end
@@ -83,6 +83,14 @@ module icmpv4_top #(
   wire [                   TxUsrWidth-1:0] echo_tx_usr;
   wire                                     echo_tx_ready;
 
+  // 发送仲裁输出
+  wire [                            511:0] tx_mux_data;
+  wire [                             63:0] tx_mux_keep;
+  wire [                   TxUsrWidth-1:0] tx_mux_usr;
+  wire                                     tx_mux_valid;
+  wire                                     tx_mux_last;
+  wire                                     tx_mux_ready;
+
   // 发送仲裁接口
   wire [       512*(TxChannelCount+1)-1:0] mux_data;
   wire [        64*(TxChannelCount+1)-1:0] mux_keep;
@@ -91,8 +99,8 @@ module icmpv4_top #(
   wire [TxUsrWidth*(TxChannelCount+1)-1:0] mux_usr;
   wire [           (TxChannelCount+1)-1:0] mux_ready;
 
-  // 接收类型分流
-  icmpv4_type_demux icmpv4_type_demux_inst (
+  // 接收通路
+  icmpv6_rx icmpv6_rx_inst (
       .clk              (clk),
       .rst              (rst),
       .axis_sdata       (rx_axis_sdata),
@@ -116,14 +124,12 @@ module icmpv4_top #(
   );
 
   // 回显应答
-
-  icmpv4_echo_reply #(
+  icmpv6_echo_reply #(
       .ReqWidth(ReqWidth)
-  ) icmpv4_echo_reply_inst (
+  ) icmpv6_echo_reply_inst (
       .clk              (clk),
       .rst              (rst),
       .cfg_arbiter_value(cfg_arbiter_value),
-      .cfg_clear_error  (cfg_clear_error),
       .axis_sdata       (echo_rx_data),
       .axis_skeep       (echo_rx_keep),
       .axis_susr        (echo_rx_usr),
@@ -135,12 +141,10 @@ module icmpv4_top #(
       .axis_musr        (echo_tx_usr),
       .axis_mvalid      (echo_tx_valid),
       .axis_mlast       (echo_tx_last),
-      .axis_mready      (echo_tx_ready),
-      .stat_ttl_error   (stat_ttl_error)
+      .axis_mready      (echo_tx_ready)
   );
 
   // 发送仲裁
-
   assign mux_data       = {tx_axis_sdata, echo_tx_data};
   assign mux_keep       = {tx_axis_skeep, echo_tx_keep};
   assign mux_last       = {tx_axis_slast, echo_tx_last};
@@ -150,10 +154,10 @@ module icmpv4_top #(
   assign echo_tx_ready  = mux_ready[0];
   assign tx_axis_sready = mux_ready[TxChannelCount:1];
 
-  icmpv4_tx_mux #(
+  icmpv6_tx_mux #(
       .PortCount(TxChannelCount + 1),
       .ReqWidth (ReqWidth)
-  ) icmpv4_tx_mux_inst (
+  ) icmpv6_tx_mux_inst (
       .clk        (clk),
       .rst        (rst),
       .axis_sdata (mux_data),
@@ -162,6 +166,26 @@ module icmpv4_top #(
       .axis_svalid(mux_valid),
       .axis_slast (mux_last),
       .axis_sready(mux_ready),
+      .axis_mdata (tx_mux_data),
+      .axis_mkeep (tx_mux_keep),
+      .axis_musr  (tx_mux_usr),
+      .axis_mvalid(tx_mux_valid),
+      .axis_mlast (tx_mux_last),
+      .axis_mready(tx_mux_ready)
+  );
+
+  // ICMP发送。
+  icmpv6_tx #(
+      .ReqWidth(ReqWidth)
+  ) icmpv6_tx_inst (
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sdata (tx_mux_data),
+      .axis_skeep (tx_mux_keep),
+      .axis_susr  (tx_mux_usr),
+      .axis_svalid(tx_mux_valid),
+      .axis_slast (tx_mux_last),
+      .axis_sready(tx_mux_ready),
       .axis_mdata (tx_axis_mdata),
       .axis_mkeep (tx_axis_mkeep),
       .axis_musr  (tx_axis_musr),

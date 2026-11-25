@@ -1,22 +1,21 @@
 // -----------------------------------------------------------------------------
-// File Name   : udp_ipv6_ip_header_add.v
-// Module Name : udp_ipv6_ip_header_add
+// File Name   : ipv4_header_add.v
+// Module Name : ipv4_header_add
 // Author      : LiXintao
-// Created     : 2026-11-22
+// Created     : 2026-10-8
 // Version     : v1.0
-
-// Description : 插入固定40字节IPv6首部（UDP数据报 -> IPv6报文）。
-// Note        : Payload Length取UDP长度，Next Header固定为17，Traffic Class和Flow Label置0。
-//               usr低ReqWidth位为请求，其上为Hop Limit、源端口、目的端口、128位源IP和128位目的IP。
+// -----------------------------------------------------------------------------
+// Description : 根据usr提供的20字节头添加IPv4首部。
+// Note        : usr低ReqWidth位为请求，其上160位为原始IPv4首部。
 // -----------------------------------------------------------------------------
 
 `resetall
 `default_nettype none
 `timescale 1ns / 100ps
 
-module udp_ipv6_ip_header_add #(
+module ipv4_header_add #(
     parameter  integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth + 296
+    localparam integer UsrWidth = ReqWidth + 160
 ) (
     input wire clk,
     input wire rst,
@@ -32,27 +31,24 @@ module udp_ipv6_ip_header_add #(
     output wire [        63:0] axis_mkeep,
     output wire                axis_mlast,
     output wire                axis_mvalid,
-    output wire [UsrWidth-1:0] axis_musr,
+    output wire [ReqWidth-1:0] axis_musr,
     input  wire                axis_mready
 );
 
-  // 入口skid同步缓存UDP报文与usr。
-  // p1缓存报文并拼接IPv6首部，必要时补发高40字节尾拍。
+  // 入口skid同步缓存本层负载与IPv4头元数据。
+  // p1缓存报文并拼接IPv4首部，必要时补发高20字节尾拍。
   // 出口skid保持完整数据和usr。
 
   // 参数范围检查
   initial begin
     if (ReqWidth < 1) begin
-      $display("错误：udp_ipv6_ip_header_add：ReqWidth必须不小于1。");
+      $display("错误：ipv4_header_add：ReqWidth必须不小于1。");
       $finish;
     end
   end
 
   // 内部常量
-  localparam integer Ipv6HeaderBits = 320;
-  localparam integer UsrHopLimitLsb = ReqWidth;
-  localparam integer UsrSrcIpLsb = ReqWidth + 40;
-  localparam integer UsrDstIpLsb = ReqWidth + 168;
+  localparam integer Ipv4HeaderBits = 160;
 
   // 入口skid接口
   wire [               511:0] axis_sdata_skid;
@@ -70,14 +66,14 @@ module udp_ipv6_ip_header_add #(
   reg                         p1_axis_svalid;
   reg  [        UsrWidth-1:0] p1_axis_susr;
 
-  // p1 IPv6首部
-  reg  [  Ipv6HeaderBits-1:0] p1_ipv6_header;
+  // p1 IPv4首部
+  reg  [  Ipv4HeaderBits-1:0] p1_ipv4_header;
   // 首拍标志
   reg                         is_first_beat;
 
   // 跨拍缓存
-  reg  [  Ipv6HeaderBits-1:0] data_held;
-  reg  [Ipv6HeaderBits/8-1:0] keep_held;
+  reg  [  Ipv4HeaderBits-1:0] data_held;
+  reg  [Ipv4HeaderBits/8-1:0] keep_held;
   reg  [        UsrWidth-1:0] usr_held;
 
   // 尾拍补发控制
@@ -127,21 +123,14 @@ module udp_ipv6_ip_header_add #(
   assign p1_handshake     = p1_ready && p1_axis_svalid;
   assign axis_sready_skid = (!p1_axis_svalid || p1_ready) && !p1_is_insert_beat;
   // p1 输入缓存
-  //// 数据与IPv6首部
+  //// 数据与IPv4首部
   always @(posedge clk) begin
     if (s_handshake_skid) begin
-      p1_axis_sdata <= axis_sdata_skid;
-      p1_axis_skeep <= axis_skeep_skid;
-      p1_axis_slast <= axis_slast_skid;
-      p1_axis_susr <= axis_susr_skid;
-      p1_ipv6_header <= {
-        axis_susr_skid[UsrDstIpLsb+:128],
-        axis_susr_skid[UsrSrcIpLsb+:128],
-        axis_susr_skid[UsrHopLimitLsb+:8],
-        8'h11,
-        axis_sdata_skid[47:32],
-        32'h00000060
-      };
+      p1_axis_sdata  <= axis_sdata_skid;
+      p1_axis_skeep  <= axis_skeep_skid;
+      p1_axis_slast  <= axis_slast_skid;
+      p1_axis_susr   <= axis_susr_skid;
+      p1_ipv4_header <= axis_susr_skid[ReqWidth+:160];
     end
   end
   //// 有效信号
@@ -158,7 +147,7 @@ module udp_ipv6_ip_header_add #(
       p1_is_insert_beat <= 'd0;
     end else begin
       if (s_handshake_skid) begin
-        p1_is_insert_beat <= axis_slast_skid && (|axis_skeep_skid[63-:Ipv6HeaderBits/8]);
+        p1_is_insert_beat <= axis_slast_skid && (|axis_skeep_skid[63-:Ipv4HeaderBits/8]);
       end else if (p1_handshake) begin
         p1_is_insert_beat <= 'd0;
       end
@@ -193,13 +182,13 @@ module udp_ipv6_ip_header_add #(
   //// data
   always @(posedge clk) begin
     if (p1_handshake) begin
-      data_held <= p1_axis_sdata[511-:Ipv6HeaderBits];
+      data_held <= p1_axis_sdata[511-:Ipv4HeaderBits];
     end
   end
   //// keep
   always @(posedge clk) begin
     if (p1_handshake) begin
-      keep_held <= p1_axis_skeep[63-:Ipv6HeaderBits/8];
+      keep_held <= p1_axis_skeep[63-:Ipv4HeaderBits/8];
     end
   end
   //// usr
@@ -210,26 +199,26 @@ module udp_ipv6_ip_header_add #(
   end
 
   // 输出拼接
-  assign axis_mdata_skid = p2_is_insert_beat ? {192'd0, data_held}
+  assign axis_mdata_skid = p2_is_insert_beat ? {352'd0, data_held}
     : (is_first_beat
-        ? {p1_axis_sdata[511-Ipv6HeaderBits:0], p1_ipv6_header}
-        : {p1_axis_sdata[511-Ipv6HeaderBits:0], data_held});
+        ? {p1_axis_sdata[511-Ipv4HeaderBits:0], p1_ipv4_header}
+        : {p1_axis_sdata[511-Ipv4HeaderBits:0], data_held});
   assign axis_mkeep_skid = p2_is_insert_beat ?
-      {24'd0, keep_held} : (is_first_beat ? {p1_axis_skeep[63-Ipv6HeaderBits/8:0], {40{1'b1}}} :
-                                 {p1_axis_skeep[63-Ipv6HeaderBits/8:0], keep_held});
+      {44'd0, keep_held} : (is_first_beat ? {p1_axis_skeep[63-Ipv4HeaderBits/8:0], {20{1'b1}}} :
+                                 {p1_axis_skeep[63-Ipv4HeaderBits/8:0], keep_held});
   assign axis_musr_skid = p2_is_insert_beat ? usr_held : p1_axis_susr;
   assign axis_mlast_skid = p2_is_insert_beat || (!p1_is_insert_beat && p1_axis_slast);
   assign axis_mvalid_skid = p2_is_insert_beat || p1_axis_svalid;
   // 出口skid
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth)
+      .UsrWidth (ReqWidth)
   ) axis_skid_buffer_out (
       .clk        (clk),
       .rst        (rst),
       .axis_sdata (axis_mdata_skid),
       .axis_skeep (axis_mkeep_skid),
-      .axis_susr  (axis_musr_skid),
+      .axis_susr  (axis_musr_skid[ReqWidth-1:0]),
       .axis_slast (axis_mlast_skid),
       .axis_svalid(axis_mvalid_skid),
       .axis_sready(axis_mready_skid),

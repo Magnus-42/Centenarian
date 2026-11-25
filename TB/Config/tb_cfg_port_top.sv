@@ -6,12 +6,12 @@ module tb_cfg_port_top;
   reg clk = 0, rst = 1;
   reg [511:0] sdata = 0;
   reg [63:0] skeep = 0;
-  reg [240:0] susr = 0;
+  reg [336:0] susr = 0;
   reg svalid = 0, slast = 1, mready = 0;
   wire sready, mvalid, mlast;
   wire [511:0] mdata;
   wire [63:0] mkeep;
-  wire [107:0] musr;
+  wire [227:0] musr;
   wire [95:0] local_ip, udp6_range;
   wire [255:0] src_ipv6;
   wire clear_cache, clear_pending, clear_flags;
@@ -43,7 +43,7 @@ module tb_cfg_port_top;
       input [7:0] status, input [7:0] reply_length, input [127:0] reply_value);
     reg [183:0] expected;
     reg [511:0] held;
-    reg [107:0] held_usr;
+    reg [227:0] held_usr;
     sequence_number = (sequence_number + 1) % 32;
     expected = {reply_value, reply_length, slot, item, status, 5'(sequence_number), 3'd4, 16'h3119};
     @(negedge clk);
@@ -54,7 +54,8 @@ module tb_cfg_port_top;
     wait (mvalid === 1'b1);
     @(negedge clk);
     if (mdata[183:0] !== expected || mkeep !== 64'h7fffff || mlast !== 1'b1 ||
-        musr !== {HostIp, MgmtIp, HostPort, MgmtPort, 8'd64, 4'd14})
+        musr !== {16'd0, 16'd0, HostPort, MgmtPort, HostIp, MgmtIp, 16'd0, 8'd17, 8'd64,
+                  16'h0040, 16'd0, 16'd0, 16'h0045, 4'd14})
       $fatal(1, "configuration response mismatch, item=%h got=%h expected=%h", item, mdata[183:0], expected);
     held = mdata; held_usr = musr;
     repeat (7) begin
@@ -81,8 +82,8 @@ module tb_cfg_port_top;
   endtask
 
   initial begin
-    susr[129+:32] = HostIp;
-    susr[209+:16] = HostPort;
+    susr[209+:32] = HostIp;
+    susr[273+:16] = HostPort;
     repeat (5) @(negedge clk);
     rst = 0;
     repeat (3) @(negedge clk);

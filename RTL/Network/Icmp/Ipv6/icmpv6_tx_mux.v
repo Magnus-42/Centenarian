@@ -1,11 +1,11 @@
 // -----------------------------------------------------------------------------
-// File Name   : icmpv4_tx_mux.v
-// Module Name : icmpv4_tx_mux
+// File Name   : icmpv6_tx_mux.v
+// Module Name : icmpv6_tx_mux
 // Author      : LiXintao
-// Created     : 2026-10-19
+// Created     : 2026-11-25
 // Version     : v1.0
 // -----------------------------------------------------------------------------
-// Description : ICMPv4发送仲裁，将用户报文与回显应答合并。
+// Description : ICMPv6发送仲裁，将用户报文与回显应答合并。
 // Note        : usr低ReqWidth位大值优先，0为无效；同优先级按编号递增轮询，帧内保持选择。
 //               有效请求的优先级须非零；0不参与仲裁，不作为自动丢包标志。
 // -----------------------------------------------------------------------------
@@ -14,10 +14,10 @@
 `default_nettype none
 `timescale 1ns / 100ps
 
-module icmpv4_tx_mux #(
+module icmpv6_tx_mux #(
     parameter  integer PortCount = 2,
     parameter  integer ReqWidth  = 4,
-    localparam integer UsrWidth  = ReqWidth
+    localparam integer UsrWidth  = ReqWidth + 384
 ) (
     input wire clk,
     input wire rst,
@@ -42,7 +42,7 @@ module icmpv4_tx_mux #(
   // 参数范围检查
   initial begin
     if (PortCount < 1 || UsrWidth < 1 || ReqWidth < 1 || ReqWidth > UsrWidth) begin
-      $display("错误：icmpv4_tx_mux：不支持的参数配置。");
+      $display("错误：icmpv6_tx_mux：不支持的参数配置。");
       $finish;
     end
   end

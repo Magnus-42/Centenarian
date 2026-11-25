@@ -1,20 +1,21 @@
 // -----------------------------------------------------------------------------
-// File Name   : icmpv4_type_demux.v
-// Module Name : icmpv4_type_demux
+// File Name   : icmpv6_type_demux.v
+// Module Name : icmpv6_type_demux
 // Author      : LiXintao
-// Created     : 2026-10-17
+// Created     : 2026-11-25
 // Version     : v1.0
 // -----------------------------------------------------------------------------
-// Description : ICMPv4类型分流，区分回显请求与其他报文。
-// Note        : 上游保证IPv4版本为4、IHL=5且首拍至少24字节有效；本模块检查分片与type/code。
+// Description : ICMPv6类型分流，区分回显请求与其他报文。
+// Note        : 输入为ICMP载荷，usr携带ICMP及上游首部；检查单播地址与type/code。
 // -----------------------------------------------------------------------------
 
 `resetall
 `default_nettype none
 `timescale 1ns / 100ps
 
-module icmpv4_type_demux #(
-    localparam integer UsrWidth = 97
+module icmpv6_type_demux #(
+    localparam integer UsrWidth         = 497,
+    localparam integer Ipv6HeaderOffset = 113
 ) (
     input wire clk,
     input wire rst,
@@ -41,16 +42,19 @@ module icmpv4_type_demux #(
     input  wire                other_axis_mready
 );
 
-  // 入口skid后匹配type/code与分片字段。
+  // 入口skid后匹配type/code与usr中的IPv6地址字段。
   // p1缓存输入并锁定帧路由，各通道skid独立缓存输出。
 
   // 参数范围检查
   initial begin
     if (UsrWidth < 1) begin
-      $display("错误：icmpv4_type_demux：不支持的参数配置。");
+      $display("错误：icmpv6_type_demux：不支持的参数配置。");
       $finish;
     end
   end
+
+  // 接收usr中的首部字段位置
+  localparam integer IcmpHeaderOffset = 433;
 
   // 入口skid接口
   wire [       511:0] axis_sdata_skid;
@@ -72,7 +76,7 @@ module icmpv4_type_demux #(
   reg                 is_first_beat;
 
   // 协议匹配与帧路由
-  wire                is_unfragmented;
+  wire                is_unicast;
   wire                is_echo_request;
   wire                matches_echo;
   reg                 echo_selected_locked;
@@ -86,10 +90,11 @@ module icmpv4_type_demux #(
   wire                other_axis_mready_skid;
 
   // 协议匹配
-  assign is_unfragmented = !axis_sdata_skid[53] && (axis_sdata_skid[52:48] == 5'd0) &&
-      (axis_sdata_skid[63:56] == 8'd0);
-  assign is_echo_request = (axis_sdata_skid[175:160] == 16'h0008);
-  assign matches_echo = is_unfragmented && is_echo_request;
+  assign is_unicast = (axis_susr_skid[Ipv6HeaderOffset+192+:8] != 8'hff) &&
+      (axis_susr_skid[Ipv6HeaderOffset+64+:8] != 8'hff) &&
+      (axis_susr_skid[Ipv6HeaderOffset+64+:128] != 128'd0);
+  assign is_echo_request = (axis_susr_skid[IcmpHeaderOffset+:16] == 16'h0080);
+  assign matches_echo = is_unicast && is_echo_request;
 
   // 流水控制
   assign s_handshake_skid = axis_svalid_skid && axis_sready_skid;

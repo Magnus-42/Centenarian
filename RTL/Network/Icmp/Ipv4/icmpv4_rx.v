@@ -1,21 +1,19 @@
 // -----------------------------------------------------------------------------
-// File Name   : udp_ipv4_rx.v
-// Module Name : udp_ipv4_rx
-// Author      : LiXintao
-// Created     : 2026-10-8
+// File Name   : icmpv4_rx.v
+// Module Name : icmpv4_rx
+// Author      : Lixintao
+// Created     : 2026-11-24
 // Version     : v1.0
-
-// Description : 剥离固定20字节IPv4头，输出UDP报文与头字段。
-// Note        : 输入须为已筛选的无选项IPv4报文；字段保留总线字节序。
-//               stat_is_df为最近已解析首拍的DF位，仅在解析后有效。
-//
+// -----------------------------------------------------------------------------
+// Description : 剥离固定20字节IPv4头，输出ICMP报文与IPv4字段。
+// Note        : 上游保证IHL=5；字段保留总线字节序，与出口数据同步。
 // -----------------------------------------------------------------------------
 
 `resetall
 `default_nettype none
 `timescale 1ns / 100ps
 
-module udp_ipv4_rx #(
+module icmpv4_rx #(
     localparam integer UsrWidth = 97
 ) (
     input wire clk,
@@ -40,14 +38,17 @@ module udp_ipv4_rx #(
     output wire [ 7:0] ttl,
     output wire [31:0] src_ip,
     output wire [31:0] dst_ip,
-
-    output wire stat_is_df  // 禁止分片
+    output wire [ 7:0] version_ihl,
+    output wire [ 7:0] dscp_ecn,
+    output wire [15:0] identification,
+    output wire [15:0] flags_fragment,
+    output wire [15:0] header_checksum
 );
 
   // 入口skid同步缓存IPv4报文与usr。
   // p1缓存输入及首拍标志。
   // p2剥离20字节IPv4头，跨拍拼接并保存头字段。
-  // 出口skid同步缓存UDP报文、usr及96位IPv4字段。
+  // 出口skid同步缓存ICMP报文、usr及160位IPv4字段。
 
   // 入口skid接口
   wire [       511:0] axis_sdata_skid;
@@ -83,8 +84,11 @@ module udp_ipv4_rx #(
   reg  [        31:0] p2_src_ip;
   reg  [        31:0] p2_dst_ip;
 
-  // DF状态
-  reg                 is_df_reg;
+  reg  [         7:0] p2_version_ihl;
+  reg  [         7:0] p2_dscp_ecn;
+  reg  [        15:0] p2_identification;
+  reg  [        15:0] p2_flags_fragment;
+  reg  [        15:0] p2_header_checksum;
 
   // 首拍标志
   reg                 is_first_beat;
@@ -125,7 +129,7 @@ module udp_ipv4_rx #(
   assign p1_tail_has_data = p1_axis_slast && (p1_axis_skeep[20] != 1'b0);
   assign p1_tail_no_data = p1_axis_slast && (p1_axis_skeep[20] == 1'b0);
   assign p1_handshake = p1_ready && p1_axis_svalid &&
-      (p1_tail_has_data || axis_svalid_skid);  // 非末拍需要下一拍参与拼接
+      (p1_axis_slast || axis_svalid_skid);  // 非末拍需要下一拍参与拼接
 
   assign s_handshake_skid = axis_sready_skid && axis_svalid_skid;
   assign m_handshake_skid = axis_mready_skid && p2_axis_mvalid;
@@ -160,7 +164,7 @@ module udp_ipv4_rx #(
         p2_axis_mdata <= {axis_sdata_skid[159:0], p1_axis_sdata[511:160]};
         p2_axis_mkeep <= {axis_skeep_skid[19:0], p1_axis_skeep[63:20]};
         p2_axis_mlast <= 1'b1;
-        p2_axis_musr  <= p1_axis_susr;
+        p2_axis_musr  <= axis_susr_skid;  // 合并末拍时保留末拍坏帧标志。
       end else if (p1_tail_has_data) begin  // 最后一拍
         p2_axis_mdata <= {160'd0, p1_axis_sdata[511:160]};
         p2_axis_mkeep <= {20'd0, p1_axis_skeep[63:20]};
@@ -194,20 +198,16 @@ module udp_ipv4_rx #(
   always @(posedge clk) begin
     if (p1_handshake) begin
       if (p1_is_first_beat) begin  // 首拍保存IPv4字段
+        p2_version_ihl <= p1_axis_sdata[7:0];
+        p2_dscp_ecn <= p1_axis_sdata[15:8];
+        p2_identification <= p1_axis_sdata[47:32];
+        p2_flags_fragment <= p1_axis_sdata[63:48];
+        p2_header_checksum <= p1_axis_sdata[95:80];
         p2_protocol <= p1_axis_sdata[79:72];
         p2_total_len <= p1_axis_sdata[31:16];
         p2_ttl <= p1_axis_sdata[71:64];
         p2_src_ip <= p1_axis_sdata[127:96];
         p2_dst_ip <= p1_axis_sdata[159:128];
-      end
-    end
-  end
-
-  // DF位
-  always @(posedge clk) begin
-    if (p1_handshake) begin
-      if (p1_is_first_beat) begin  // 首拍保存IPv4字段
-        is_df_reg <= p1_axis_sdata[54];
       end
     end
   end
@@ -231,25 +231,47 @@ module udp_ipv4_rx #(
   // 出口skid
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth + 96)
+      .UsrWidth (UsrWidth + 160)
   ) axis_skid_buffer_out (
-      .clk        (clk),
-      .rst        (rst),
+      .clk(clk),
+      .rst(rst),
       .axis_sready(axis_mready_skid),
-      .axis_sdata (p2_axis_mdata),
-      .axis_skeep (p2_axis_mkeep),
-      .axis_susr  ({p2_dst_ip, p2_src_ip, p2_ttl, p2_total_len, p2_protocol, p2_axis_musr}),
-      .axis_slast (p2_axis_mlast),
+      .axis_sdata(p2_axis_mdata),
+      .axis_skeep(p2_axis_mkeep),
+      .axis_susr({
+        p2_dst_ip,
+        p2_src_ip,
+        p2_header_checksum,
+        p2_protocol,
+        p2_ttl,
+        p2_flags_fragment,
+        p2_identification,
+        p2_total_len,
+        p2_dscp_ecn,
+        p2_version_ihl,
+        p2_axis_musr
+      }),
+      .axis_slast(p2_axis_mlast),
       .axis_svalid(p2_axis_mvalid),
       .axis_mready(axis_mready),
-      .axis_mdata (axis_mdata),
-      .axis_mkeep (axis_mkeep),
-      .axis_musr  ({dst_ip, src_ip, ttl, total_len, protocol, axis_musr}),
-      .axis_mlast (axis_mlast),
+      .axis_mdata(axis_mdata),
+      .axis_mkeep(axis_mkeep),
+      .axis_musr({
+        dst_ip,
+        src_ip,
+        header_checksum,
+        protocol,
+        ttl,
+        flags_fragment,
+        identification,
+        total_len,
+        dscp_ecn,
+        version_ihl,
+        axis_musr
+      }),
+      .axis_mlast(axis_mlast),
       .axis_mvalid(axis_mvalid)
   );
 
-  // 最近已解析首拍的DF状态，保持原解析阶段更新语义。
-  assign stat_is_df = is_df_reg;
 endmodule
 `resetall

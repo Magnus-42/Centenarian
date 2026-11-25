@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // File Name   : cfg_cmd.v
 // Module Name : cfg_cmd
-// Author      : Codex
+// Author      : Lixintao
 // Created     : 2026-11-19
 // Version     : v1.0
 // -----------------------------------------------------------------------------
@@ -19,17 +19,18 @@
 module cfg_cmd #(
     parameter          [7:0] ReplyTtl   = 8'd64,
     parameter  integer       ReqWidth   = 4,
-    localparam integer       TxUsrWidth = 104 + ReqWidth
+    localparam integer       RxUsrWidth = 337,
+    localparam integer       TxUsrWidth = 224 + ReqWidth
 ) (
     input wire clk,
     input wire rst,
 
-    input  wire [511:0] axis_sdata,
-    input  wire [ 63:0] axis_skeep,
-    input  wire [240:0] axis_susr,
-    input  wire         axis_svalid,
-    input  wire         axis_slast,
-    output wire         axis_sready,
+    input  wire [         511:0] axis_sdata,
+    input  wire [          63:0] axis_skeep,
+    input  wire [RxUsrWidth-1:0] axis_susr,
+    input  wire                  axis_svalid,
+    input  wire                  axis_slast,
+    output wire                  axis_sready,
 
     output wire [         511:0] axis_mdata,
     output wire [          63:0] axis_mkeep,
@@ -74,8 +75,8 @@ module cfg_cmd #(
   localparam [StateWidth-1:0] StateReply = 3'd4;
 
   // 接收usr字段位置
-  localparam integer SrcIpLsb = 129;
-  localparam integer SrcPortLsb = 209;
+  localparam integer SrcIpLsb = 113 + 96;
+  localparam integer SrcPortLsb = 273;
 
   // 状态机
   reg  [StateWidth-1:0] state;
@@ -150,8 +151,8 @@ module cfg_cmd #(
   // 请求缓存
   always @(posedge clk) begin
     if (s_handshake) begin
-      req_data_held <= axis_sdata[175:0];
-      req_src_ip_held <= axis_susr[SrcIpLsb+:32];
+      req_data_held     <= axis_sdata[175:0];
+      req_src_ip_held   <= axis_susr[SrcIpLsb+:32];
       req_src_port_held <= axis_susr[SrcPortLsb+:16];
     end
   end
@@ -209,11 +210,20 @@ module cfg_cmd #(
       };
       axis_mkeep_reg <= {41'd0, {23{1'b1}}};
       axis_musr_reg <= {
-        dest_ip,
-        cfg_mgmt_ipv4_addr_d1,
+        16'd0,
+        16'd0,
         dest_port,
         cfg_mgmt_udp_port_d1,
+        dest_ip,
+        cfg_mgmt_ipv4_addr_d1,
+        16'd0,
+        8'h11,
         ReplyTtl,
+        16'h0040,
+        16'd0,
+        16'd0,
+        8'd0,
+        8'h45,
         cfg_mgmt_priority_d1
       };
       axis_mlast_reg <= 1'b1;

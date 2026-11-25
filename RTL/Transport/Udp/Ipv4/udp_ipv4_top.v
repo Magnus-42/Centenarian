@@ -4,9 +4,10 @@
 // Author      : LiXintao
 // Created     : 2026-10-8
 // Version     : v1.0
-
+// -----------------------------------------------------------------------------
 // Description : UDP over IPv4收发顶层。
-//
+// Note        : RX按目的端口分流，末路为未匹配通道。
+//               TX输入usr为{UDP首部,IPv4首部,请求}，输出UDP报文与IPv4首部侧带。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -14,14 +15,13 @@
 `timescale 1ns / 100ps
 
 module udp_ipv4_top #(
-    parameter integer RxPortCount = 3,
-    parameter integer TxChannelCount = 4,
-    parameter integer TxReqWidth = 4,
+    parameter  integer RxPortCount          = 3,
+    parameter  integer TxChannelCount       = 4,
+    parameter  integer TxReqWidth           = 4,
     localparam integer EffectiveRxPortCount = (RxPortCount > 0) ? RxPortCount : 1,
-    localparam integer TxUsrWidth = TxReqWidth + 104,
-    localparam integer RxUsrWidth = 241,
-    localparam integer Ipv4RxUsrWidth = 97,
-    localparam integer Ipv4HeaderUsrWidth = 96
+    localparam integer TxUsrWidth           = TxReqWidth + 224,
+    localparam integer RxUsrWidth           = 337,
+    localparam integer Ipv4RxUsrWidth       = 273
 ) (
     input wire clk,
     input wire rst,
@@ -51,19 +51,17 @@ module udp_ipv4_top #(
     input  wire [TxUsrWidth*TxChannelCount-1:0] tx_axis_susr,
     output wire [           TxChannelCount-1:0] tx_axis_sready,
 
-    output wire [         511:0] tx_axis_mdata,
-    output wire [          63:0] tx_axis_mkeep,
-    output wire                  tx_axis_mlast,
-    output wire                  tx_axis_mvalid,
-    output wire [TxReqWidth-1:0] tx_axis_musr,
-    input  wire                  tx_axis_mready,
-
-    output wire stat_is_df
+    output wire [             511:0] tx_axis_mdata,
+    output wire [              63:0] tx_axis_mkeep,
+    output wire                      tx_axis_mlast,
+    output wire                      tx_axis_mvalid,
+    output wire [TxReqWidth+160-1:0] tx_axis_musr,
+    input  wire                      tx_axis_mready
 
 );
 
-  // 接收依次剥离IPv4和UDP头，按目的端口分流。
-  // 发送依次仲裁、计算长度和校验和，并插入UDP和IPv4头。
+  // 接收剥离UDP头，按目的端口分流。
+  // 发送依次仲裁、计算长度和校验和、插入UDP头，并向网络层提供IPv4元数据。
 
   // 参数范围检查
   initial begin
@@ -73,91 +71,40 @@ module udp_ipv4_top #(
     end
   end
 
-  // 接收UDP报文接口
-  wire [                                511:0] rx_udp_data;
-  wire [                                 63:0] rx_udp_keep;
-  wire                                         rx_udp_last;
-  wire                                         rx_udp_valid;
-  wire                                         rx_udp_ready;
-  wire [Ipv4RxUsrWidth+Ipv4HeaderUsrWidth-1:0] rx_udp_usr;
-
   // 接收载荷接口
-  wire [                                511:0] rx_payload_data;
-  wire [                                 63:0] rx_payload_keep;
-  wire                                         rx_payload_last;
-  wire                                         rx_payload_valid;
-  wire [                       RxUsrWidth-1:0] rx_payload_usr;
-  wire                                         rx_payload_ready;
-
-  // 解析字段
-  wire [                                  7:0] protocol;
-  wire [                                 15:0] total_len;
-  wire [                                  7:0] ttl;
-  wire [                                 31:0] src_ip;
-  wire [                                 31:0] dst_ip;
-  wire [                                 15:0] dst_port;
-  wire [                                 15:0] src_port;
-
-  wire [                                 15:0] udp_len;
+  wire [         511:0] rx_payload_data;
+  wire [          63:0] rx_payload_keep;
+  wire                  rx_payload_last;
+  wire                  rx_payload_valid;
+  wire [RxUsrWidth-1:0] rx_payload_usr;
+  wire                  rx_payload_ready;
 
   // 发送仲裁接口
-  wire [                                511:0] tx_mux_data;
-  wire [                                 63:0] tx_mux_keep;
-  wire                                         tx_mux_last;
-  wire                                         tx_mux_valid;
-  wire [                       TxUsrWidth-1:0] tx_mux_usr;
-  wire                                         tx_mux_ready;
+  wire [         511:0] tx_mux_data;
+  wire [          63:0] tx_mux_keep;
+  wire                  tx_mux_last;
+  wire                  tx_mux_valid;
+  wire [TxUsrWidth-1:0] tx_mux_usr;
+  wire                  tx_mux_ready;
 
   // 接收通路
-  //// IPv4头剥离
-  udp_ipv4_rx udp_ipv4_rx_inst (
+  //// UDP首部剥离，输入已由IP层去除IP头。
+  udp_ipv4_header_strip udp_ipv4_header_strip_inst (
       .clk        (clk),
       .rst        (rst),
       .axis_sdata (rx_axis_sdata),
       .axis_skeep (rx_axis_skeep),
-      .axis_slast (rx_axis_slast),
-      .axis_svalid(rx_axis_svalid),
       .axis_susr  (rx_axis_susr),
+      .axis_svalid(rx_axis_svalid),
+      .axis_slast (rx_axis_slast),
       .axis_sready(rx_axis_sready),
-      .axis_mdata (rx_udp_data),
-      .axis_mkeep (rx_udp_keep),
-      .axis_mlast (rx_udp_last),
-      .axis_mvalid(rx_udp_valid),
-      .axis_musr  (rx_udp_usr[Ipv4RxUsrWidth-1:0]),
-      .axis_mready(rx_udp_ready),
-      .protocol   (protocol),
-      .total_len  (total_len),
-      .ttl        (ttl),
-      .src_ip     (src_ip),
-      .dst_ip     (dst_ip),
-      .stat_is_df (stat_is_df)                       // 禁止分片
-  );
-  assign rx_udp_usr[Ipv4RxUsrWidth+:Ipv4HeaderUsrWidth] = {
-    dst_ip, src_ip, ttl, total_len, protocol
-  };
-  //// UDP头剥离
-  udp_ipv4_header_strip udp_ipv4_header_strip_inst (
-      .clk        (clk),
-      .rst        (rst),
-      .axis_sdata (rx_udp_data),
-      .axis_skeep (rx_udp_keep),
-      .axis_slast (rx_udp_last),
-      .axis_svalid(rx_udp_valid),
-      .axis_susr  (rx_udp_usr),
-      .axis_sready(rx_udp_ready),
       .axis_mdata (rx_payload_data),
       .axis_mkeep (rx_payload_keep),
-      .axis_mlast (rx_payload_last),
+      .axis_musr  (rx_payload_usr),
       .axis_mvalid(rx_payload_valid),
-      .axis_musr  (rx_payload_usr[Ipv4RxUsrWidth+Ipv4HeaderUsrWidth-1:0]),
-      .axis_mready(rx_payload_ready),
-      .dst_port   (dst_port),
-      .src_port   (src_port),
-      .udp_len    (udp_len)
+      .axis_mlast (rx_payload_last),
+      .axis_mready(rx_payload_ready)
   );
-  assign rx_payload_usr[RxUsrWidth-1:Ipv4RxUsrWidth+Ipv4HeaderUsrWidth] = {
-    udp_len, src_port, dst_port
-  };
   //// 目的端口分流
   udp_ipv4_port_demux #(
       .PortCount(RxPortCount)

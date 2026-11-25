@@ -26,14 +26,40 @@ module tb_arp_engine_top;
   always #5 clk = ~clk;
   always @(posedge clk) cycle <= cycle + 1;
 
+  // 引擎只处理ARP报文，Ethernet封装由MAC层提供。
+  wire [511:0] arp_sdata, arp_mdata, eth_mdata;
+  wire [63:0] arp_skeep, arp_mkeep, eth_mkeep;
+  wire [112:0] arp_susr;
+  wire [115:0] arp_musr;
+  wire [3:0] eth_musr;
+  wire arp_svalid, arp_slast, arp_sready, arp_mvalid, arp_mlast, arp_mready;
+  wire eth_mvalid, eth_mlast, eth_mready;
+  eth_header_strip eth_rx_inst (
+      .clk(clk), .rst(rst), .axis_sdata(sdata), .axis_skeep(64'h0fffffffffffffff),
+      .axis_susr(serror), .axis_svalid(svalid), .axis_slast(1'b1), .axis_sready(sready),
+      .axis_mdata(arp_sdata), .axis_mkeep(arp_skeep), .axis_musr(arp_susr),
+      .axis_mvalid(arp_svalid), .axis_mlast(arp_slast), .axis_mready(arp_sready)
+  );
+  eth_header_add eth_tx_inst (
+      .clk(clk), .rst(rst), .axis_sdata(arp_mdata), .axis_skeep(arp_mkeep), .axis_susr(arp_musr),
+      .axis_svalid(arp_mvalid), .axis_slast(arp_mlast), .axis_sready(arp_mready),
+      .axis_mdata(eth_mdata), .axis_mkeep(eth_mkeep), .axis_musr(eth_musr),
+      .axis_mvalid(eth_mvalid), .axis_mlast(eth_mlast), .axis_mready(eth_mready)
+  );
+  assign musr = eth_musr;
+  eth_frame_pad60 eth_pad_inst (
+      .clk(clk), .rst(rst), .axis_sdata(eth_mdata), .axis_skeep(eth_mkeep),
+      .axis_svalid(eth_mvalid), .axis_slast(eth_mlast), .axis_sready(eth_mready),
+      .axis_mdata(mdata), .axis_mkeep(mkeep), .axis_mvalid(mvalid), .axis_mlast(mlast), .axis_mready(mready)
+  );
   arp_engine_top #(.CacheDepth(16), .PendingDepth(16), .HashWayCount(2), .ClkFreqHz(1000)) dut (
     .clk(clk), .rst(rst), .announce_mask(1'b0), .announce_valid(1'b0), .announce_ready(),
     .query_src_ip(query_src), .query_dst_ip(query_dst), .query_valid_pulse(query_valid),
     .arp_dst_mac(dst_mac), .arp_src_mac(src_mac), .arp_miss(miss), .arp_valid(valid),
-    .axis_sdata(sdata), .axis_skeep(64'h0fffffffffffffff), .axis_svalid(svalid), .axis_slast(1'b1),
-    .axis_susr(serror), .axis_sready(sready),
-    .axis_mdata(mdata), .axis_mkeep(mkeep), .axis_mvalid(mvalid), .axis_mlast(mlast),
-    .axis_musr(musr), .axis_mready(mready), .cfg_arp_priority(4'd9),
+    .axis_sdata(arp_sdata), .axis_skeep(arp_skeep), .axis_svalid(arp_svalid), .axis_slast(arp_slast),
+    .axis_susr(arp_susr), .axis_sready(arp_sready),
+    .axis_mdata(arp_mdata), .axis_mkeep(arp_mkeep), .axis_mvalid(arp_mvalid), .axis_mlast(arp_mlast),
+    .axis_musr(arp_musr), .axis_mready(arp_mready), .cfg_arp_priority(4'd9),
     .cfg_local_ip(LocalIp), .cfg_local_mac(LocalMac), .cfg_gateway_ip(Gateway),
     .cfg_subnet_mask(32'h00ffffff), .cfg_pending_time(24'd1000),
     .cfg_clear_cache(clear_cache), .cfg_clear_pending(clear_pending), .cfg_stat_clear(1'b0),

@@ -8,8 +8,8 @@
 // ----------------------------------------------------------------------------
 // Description : 验证ICMPv4接收分流，以及业务发送与内部回显应答共用IPv4出口。
 //   判定:
-//     [A] other 路逐字节与输入一致(按 keep 重建), 顺序正确
-//     [B] echo 应答逐字节核对地址交换、类型、校验和与载荷，检查 keep/last/优先级
+//     [A] other 路逐字节与输入ICMP报文一致(去除IPv4头后按keep重建)，顺序正确
+//     [B] echo 应答逐字节核对ICMP报文及usr中的IPv4首部，检查keep/last/优先级
 //     [C] other 路包数/字节数正确
 //     [D] 互斥: 两路包数之和 == 发送包数(同一包不得两路都有)
 //     [E] usr 透传一致
@@ -22,12 +22,13 @@ module tb_icmpv4_top;
 
   localparam W  = 512;
   localparam K  = 64;
-  localparam NP = 7;               // 包数
+  localparam NP = 11;               // 包数
   localparam MAXB = 256;           // 单包最大字节
   localparam CYC_MAX = 200000;     // 相内超时(拍)
 
   localparam ECHO  = 1'b1;
   localparam OTHER = 1'b0;
+  localparam DROP  = 2;
   localparam [3:0] EchoPriority = 4'd12;
   localparam [3:0] UserPriority = 4'd5;
   // 72字节IPv4包，携带有效校验和的ICMPv4 Echo Reply。
@@ -35,6 +36,11 @@ module tb_icmpv4_top;
       512'h38b8_0000_c801_a8c0_6401_a8c0_38b6_0140_0040_0000_4800_0045;
   localparam [511:0] UserLastBeat = 512'h1234_5678_90ab_cdef;
 
+  localparam [511:0] UserPayload = {96'd0, UserLastBeat[63:0], UserFirstBeat[511:160]};
+  localparam [63:0] UserPayloadKeep = {64{1'b1}} >> 12;
+
+  integer echo_total;
+  integer drop_total;
   reg clk = 1'b0;
   always #5 clk = ~clk;
 
@@ -51,8 +57,8 @@ module tb_icmpv4_top;
   wire [W-1:0]  tx_data , oth_data ;
   wire [K-1:0]  tx_keep , oth_keep ;
   wire          tx_last , tx_valid, oth_last, oth_valid;
-  wire [3:0]    tx_usr  ;
-  wire [96:0]   oth_usr  ;
+  wire [163:0]  tx_usr  ;
+  wire [336:0]  oth_usr  ;
   reg           tx_ready  = 1'b1;
   reg           oth_ready = 1'b1;
 
@@ -62,17 +68,28 @@ module tb_icmpv4_top;
   reg          user_valid = 1'b0;
   wire         user_ready;
 
+  // ICMP输入由IPv4层完成剥头。
+  wire [511:0] ip_data;
+  wire [63:0] ip_keep;
+  wire [272:0] ip_usr;
+  wire ip_valid, ip_last, ip_ready;
+  ipv4_header_strip ip_rx_inst (
+      .clk(clk), .rst(rst), .axis_sdata(sdata), .axis_skeep(skeep),
+      .axis_susr({16'h0008, susr}), .axis_svalid(svalid), .axis_slast(slast), .axis_sready(sready),
+      .axis_mdata(ip_data), .axis_mkeep(ip_keep), .axis_musr(ip_usr),
+      .axis_mvalid(ip_valid), .axis_mlast(ip_last), .axis_mready(ip_ready)
+  );
   icmpv4_top u_dut (
     .clk(clk),
     .rst(rst),
     .cfg_arbiter_value(EchoPriority),
     .cfg_clear_error(1'b0),
-    .rx_axis_sdata(sdata),
-    .rx_axis_skeep(skeep),
-    .rx_axis_slast(slast),
-    .rx_axis_svalid(svalid),
-    .rx_axis_susr(susr),
-    .rx_axis_sready(sready),
+    .rx_axis_sdata(ip_data),
+    .rx_axis_skeep(ip_keep),
+    .rx_axis_slast(ip_last),
+    .rx_axis_svalid(ip_valid),
+    .rx_axis_susr(ip_usr),
+    .rx_axis_sready(ip_ready),
     .other_axis_mdata(oth_data),
     .other_axis_mkeep(oth_keep),
     .other_axis_mlast(oth_last),
@@ -83,7 +100,7 @@ module tb_icmpv4_top;
     .tx_axis_skeep(user_keep),
     .tx_axis_slast(user_last),
     .tx_axis_svalid(user_valid),
-    .tx_axis_susr(UserPriority),
+    .tx_axis_susr({UserFirstBeat[223:160], UserFirstBeat[159:0], UserPriority}),
     .tx_axis_sready(user_ready),
     .tx_axis_mdata(tx_data),
     .tx_axis_mkeep(tx_keep),
@@ -95,8 +112,8 @@ module tb_icmpv4_top;
   );
 
   reg tx_stalled = 0, oth_stalled = 0;
-  reg [580:0] tx_held;
-  reg [673:0] oth_held;
+  reg [740:0] tx_held;
+  reg [913:0] oth_held;
   always @(posedge clk) begin
     if (rst) begin tx_stalled = 0; oth_stalled = 0; end
     else begin
@@ -111,7 +128,7 @@ module tb_icmpv4_top;
 
   // ---------------- 包定义 ----------------
   integer   PLEN  [0:NP-1];          // 输入字节数
-  integer   ROUTE [0:NP-1];          // ECHO / OTHER
+  integer   ROUTE [0:NP-1];          // ECHO / OTHER / DROP
   reg [7:0] pkt   [0:NP*MAXB-1];
   reg [7:0] echo_expected[0:NP*MAXB-1];     // 包字节(p*MAXB + j)
 
@@ -188,7 +205,7 @@ module tb_icmpv4_top;
       end
       PLEN[p] = nbytes;
       $display("  [PKT %0d] len=%0dB type=%0d code=%0d flags=%02x fragoff=%02x -> %s",
-               p, nbytes, typ, cod, flags, fragoff, (ROUTE[p]==ECHO) ? "ECHO->tx" : "OTHER->边界");
+               p, nbytes, typ, cod, flags, fragoff, (ROUTE[p]==ECHO) ? "ECHO->tx" : (ROUTE[p]==DROP) ? "DROP" : "OTHER->边界");
     end
   endtask
 
@@ -219,17 +236,14 @@ module tb_icmpv4_top;
   endtask
 
   task automatic send_user_pkt;
-    integer beat;
     begin
-      for (beat = 0; beat < 2; beat = beat + 1) begin
-        @(negedge clk);
-        user_data  = (beat == 0) ? UserFirstBeat : UserLastBeat;
-        user_keep  = (beat == 0) ? 64'hffff_ffff_ffff_ffff : 64'hff;
-        user_last  = (beat == 1);
-        user_valid = 1'b1;
-        @(posedge clk);
-        while (user_ready !== 1'b1) @(posedge clk);
-      end
+      @(negedge clk);
+      user_data = UserPayload >> 64;
+      user_keep = UserPayloadKeep >> 8;
+      user_last = 1'b1;
+      user_valid = 1'b1;
+      @(posedge clk);
+      while (user_ready !== 1'b1) @(posedge clk);
       @(negedge clk);
       user_valid = 1'b0;
     end
@@ -243,7 +257,7 @@ module tb_icmpv4_top;
 
   // ---------------- 收集 ----------------
   reg [7:0] oth_buf [0:NP*MAXB*2-1];
-  integer oth_wr = 0, oth_pkt = 0;
+  integer oth_wr = 0, oth_pkt = 0, other_index;
   integer tx_pkt = 0;
   integer user_tx_pkt = 0;
   integer user_tx_bad = 0;
@@ -251,6 +265,7 @@ module tb_icmpv4_top;
   integer usr_bad = 0;
   reg     tx_first  = 1'b1;
   reg [3:0] tx_packet_priority;
+  reg [163:0] tx_packet_usr;
   reg     oth_first = 1'b1;
   reg [96:0] usr_exp = 97'h1_2345_6788;
   integer kk;
@@ -261,7 +276,21 @@ module tb_icmpv4_top;
     if (oth_valid === 1'b1 && oth_ready === 1'b1) begin
       if ((^oth_data) === 1'bx || (^oth_keep) === 1'bx || (^oth_usr) === 1'bx) xcnt = xcnt + 1;
       if (oth_first) begin
-        if (oth_usr !== usr_exp) usr_bad = usr_bad + 1;
+        begin
+          integer other_number;
+          other_number = 0;
+          other_index = -1;
+          for (integer p = 0; p < NP; p++) begin
+            if (ROUTE[p] == OTHER) begin
+              if (other_number == oth_pkt % exp_oth_pkt) other_index = p;
+              other_number++;
+            end
+          end
+        end
+        if (oth_usr[96:0] !== usr_exp) usr_bad = usr_bad + 1;
+        for (integer lane = 0; lane < 20; lane++) begin
+          if (oth_usr[113+lane*8+:8] !== pkt[other_index*MAXB+lane]) usr_bad = usr_bad + 1;
+        end
         oth_first = 1'b0;
       end
       for (kk = 0; kk < 64; kk = kk + 1) begin
@@ -278,24 +307,39 @@ module tb_icmpv4_top;
     // ---- IPv4发送出口 ----
     if (tx_valid === 1'b1 && tx_ready === 1'b1) begin
       if ((^tx_data) === 1'bx || (^tx_keep) === 1'bx || (^tx_usr) === 1'bx) xcnt = xcnt + 1;
-      if (tx_first) tx_packet_priority = tx_usr;
-      else if (tx_usr !== tx_packet_priority) user_tx_bad = user_tx_bad + 1;
+      if (tx_first) begin
+        tx_packet_priority = tx_usr[3:0];
+        tx_packet_usr = tx_usr;
+      end else if (tx_usr !== tx_packet_usr) user_tx_bad = user_tx_bad + 1;
 
       if (tx_packet_priority == UserPriority) begin
-        if (tx_data !== (tx_first ? UserFirstBeat : UserLastBeat) ||
-            tx_keep !== (tx_first ? 64'hffff_ffff_ffff_ffff : 64'hff) ||
-            tx_last !== !tx_first) user_tx_bad = user_tx_bad + 1;
+        if (tx_data !== UserPayload || tx_keep !== UserPayloadKeep || tx_last !== 1'b1 ||
+            tx_usr !== {UserFirstBeat[159:96], 16'd0, UserFirstBeat[79:0], UserPriority}) user_tx_bad = user_tx_bad + 1;
         if (tx_last) user_tx_pkt = user_tx_pkt + 1;
       end else begin
-        echo_index = (tx_pkt % 2 == 0) ? 0 : 4;
-        if (tx_usr !== EchoPriority) $fatal(1, "ICMP echo priority mismatch");
+        begin
+          integer echo_number;
+          echo_number = 0;
+          echo_index = -1;
+          for (integer p = 0; p < NP; p++) begin
+            if (ROUTE[p] == ECHO) begin
+              if (echo_number == tx_pkt % echo_total) echo_index = p;
+              echo_number++;
+            end
+          end
+        end
+        if (tx_usr[3:0] !== EchoPriority) $fatal(1, "ICMP echo priority mismatch");
+        for (integer lane = 0; lane < 20; lane++) begin
+          if (tx_usr[4+lane*8+:8] !== ((lane==10 || lane==11) ? 8'd0 : echo_expected[echo_index*MAXB+lane]))
+            $fatal(1, "ICMP echo IPv4 header usr mismatch");
+        end
         for (integer lane = 0; lane < 64; lane++) begin
-          if (tx_keep[lane] !== (echo_offset + lane < PLEN[echo_index]))
+          if (tx_keep[lane] !== (echo_offset + lane < PLEN[echo_index]-20))
             $fatal(1, "ICMP echo keep mismatch");
-          if (tx_keep[lane] && tx_data[lane*8+:8] !== echo_expected[echo_index*MAXB+echo_offset+lane])
+          if (tx_keep[lane] && tx_data[lane*8+:8] !== echo_expected[echo_index*MAXB+20+echo_offset+lane])
             $fatal(1, "ICMP echo byte/checksum mismatch, packet=%0d byte=%0d", tx_pkt, echo_offset+lane);
         end
-        if (tx_last !== (echo_offset + 64 >= PLEN[echo_index])) $fatal(1, "ICMP echo last mismatch");
+        if (tx_last !== (echo_offset + 64 >= PLEN[echo_index]-20)) $fatal(1, "ICMP echo last mismatch");
         echo_offset += 64;
         if (tx_last) begin tx_pkt++; echo_offset = 0; end
       end
@@ -318,7 +362,6 @@ module tb_icmpv4_top;
 
   // ---------------- 主流程 ----------------
   integer err = 0, i, j, pass, cyc;
-  integer echo_total;
 
   initial begin
     // 包表(len / type / code / flags / fragoff / 期望路由)
@@ -336,13 +379,23 @@ module tb_icmpv4_top;
     mkpkt(3,  64, 8'h08, 8'h00, 8'h60, 8'h00);
     mkpkt(4, 128, 8'h08, 8'h00, 8'h40, 8'h00);
     mkpkt(5,  64, 8'h0B, 8'h00, 8'h40, 8'h00);
+    ROUTE[7] = DROP;  // 仅8字节ICMP首部，无载荷报文按约定丢弃
+    ROUTE[8] = ECHO;
+    ROUTE[9] = ECHO;
+    ROUTE[10] = ECHO;
+    mkpkt(7,  28, 8'h08, 8'h00, 8'h40, 8'h00);
+    mkpkt(8,  65, 8'h08, 8'h00, 8'h40, 8'h00);
+    mkpkt(9,  84, 8'h08, 8'h00, 8'h40, 8'h00);
+    mkpkt(10, 85, 8'h08, 8'h00, 8'h40, 8'h00);
     mkpkt(6,  64, 8'h08, 8'h00, 8'h40, 8'h01);
 
     echo_total = 0;
+    drop_total = 0;
     for (j = 0; j < NP; j = j + 1) begin
       if (ROUTE[j] == ECHO) echo_total = echo_total + 1;
+      else if (ROUTE[j] == DROP) drop_total = drop_total + 1;
       else begin
-        for (i = 0; i < PLEN[j]; i = i + 1) begin
+        for (i = 28; i < PLEN[j]; i = i + 1) begin
           exp_b[exp_wr] = pkt[j*MAXB + i];
           exp_wr = exp_wr + 1;
         end
@@ -388,8 +441,8 @@ module tb_icmpv4_top;
     if (tx_pkt != echo_total*2) begin
       $display("  [B-FAIL] echo 包数 %0d != %0d", tx_pkt, echo_total*2); err = err + 1;
     end
-    if (oth_pkt + tx_pkt != NP*2) begin
-      $display("  [D-FAIL] 互斥失败: 两路合计 %0d != %0d", oth_pkt + tx_pkt, NP*2); err = err + 1;
+    if (oth_pkt + tx_pkt != (NP-drop_total)*2) begin
+      $display("  [D-FAIL] 互斥失败: 两路合计 %0d != %0d", oth_pkt + tx_pkt, (NP-drop_total)*2); err = err + 1;
     end
     if (oth_wr != exp_wr*2) begin
       $display("  [C-FAIL] other 字节数 %0d != %0d", oth_wr, exp_wr*2); err = err + 1;

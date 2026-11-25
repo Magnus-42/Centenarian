@@ -50,9 +50,9 @@ python TB/run.py --mutation-check
 | `udp_ipv6_integration` | 实际板级顶层；双口回环、四路 IPv6 打流、配置和分流更新/恢复 |
 
 UDP4 测试载荷至 32768 B（当前 TX 包 FIFO 容量），UDP6 至 65527 B。
-两者覆盖空载荷及跨拍边界、校验和计算值为零时编码为 FFFF。
-接收测试按当前接口约定检查：不验证 UDP 校验和，也不按 UDP 长度裁剪；
-UDP4 空载荷接收被抑制，UDP6 另检查不支持的 Next Header 被丢弃。
+两者覆盖TX空载荷、RX空载荷丢弃及跨拍边界、校验和计算值为零时编码为 FFFF。
+接收测试按当前接口约定检查：不验证 UDP 校验和，IP 层裁剪 Ethernet 最小帧填充，UDP 层沿用上游载荷边界；
+RX无载荷单拍报文静默丢弃，UDP6 的 Next Header 由上级 IP 分流；剥头模块信任上游协议字段。
 这些行为记录当前约定，不代表完整协议合规性。
 
 `Top/ip_sim/` 是 CMAC 与 SLR 的功能替身；集成测试还提供时钟、VIO、ILA 替身，

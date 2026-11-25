@@ -12,7 +12,7 @@
 module tb_udp_ipv4_top;
 
   localparam integer MaxPayload = 32768; // Current TX packet FIFO: 512 beats.
-  localparam integer RxUsrWidth = 241;
+  localparam integer RxUsrWidth = 337;
   localparam [31:0] SrcIp = 32'h6401a8c0;
   localparam [31:0] DstIp = 32'hc801a8c0;
   localparam [96:0] NetworkUsr = {48'h010203040506, 48'hA1A2A3A4A5A6, 1'b0};
@@ -27,7 +27,7 @@ module tb_udp_ipv4_top;
   reg [63:0] tx_skeep = '0;
   reg tx_slast = 1'b0;
   reg tx_svalid = 1'b0;
-  reg [107:0] tx_susr = '0;
+  reg [227:0] tx_susr = '0;
   wire tx_sready;
   wire [511:0] tx_mdata;
   wire [63:0] tx_mkeep;
@@ -53,6 +53,28 @@ module tb_udp_ipv4_top;
   always #5 clk = !clk;
   always @(posedge clk) cycle_count <= cycle_count + 1;
 
+  // 按真实层次连接IP剥头和UDP业务接口，发送端再由IP层加头。
+  wire [511:0] rx_ip_data, tx_udp_data;
+  wire [63:0] rx_ip_keep, tx_udp_keep;
+  wire [272:0] rx_ip_usr;
+  wire rx_ip_valid, rx_ip_last, rx_ip_ready, rx_udp_ready;
+  wire [163:0] tx_udp_usr;
+  wire tx_udp_valid, tx_udp_last, tx_udp_ready;
+  wire rx_is_udp = rx_ip_usr[113+72+:8] == 8'd17;
+  assign rx_ip_ready = rx_is_udp ? rx_udp_ready : 1'b1;
+  ipv4_header_strip rx_ip_header_inst (
+      .clk(clk), .rst(rst), .axis_sdata(rx_sdata), .axis_skeep(rx_skeep),
+      .axis_susr({16'h0008, NetworkUsr}), .axis_svalid(rx_svalid), .axis_slast(rx_slast), .axis_sready(rx_sready),
+      .axis_mdata(rx_ip_data), .axis_mkeep(rx_ip_keep), .axis_musr(rx_ip_usr),
+      .axis_mvalid(rx_ip_valid), .axis_mlast(rx_ip_last), .axis_mready(rx_ip_ready)
+  );
+  ipv4_tx #(.ReqWidth(4)) tx_ip_inst (
+      .clk(clk), .rst(rst), .axis_sdata(tx_udp_data), .axis_skeep(tx_udp_keep), .axis_susr(tx_udp_usr),
+      .axis_svalid(tx_udp_valid), .axis_slast(tx_udp_last), .axis_sready(tx_udp_ready),
+      .axis_mdata(tx_mdata), .axis_mkeep(tx_mkeep), .axis_musr(tx_musr),
+      .axis_mvalid(tx_mvalid), .axis_mlast(tx_mlast), .axis_mready(tx_mready)
+  );
+
   udp_ipv4_top #(
       .RxPortCount(1),
       .TxChannelCount(1)
@@ -60,12 +82,12 @@ module tb_udp_ipv4_top;
       .clk               (clk),
       .rst               (rst),
       .cfg_dst_port_range(32'hE803E803),  // 端口1000，保留总线字节序。
-      .rx_axis_sdata     (rx_sdata),
-      .rx_axis_skeep     (rx_skeep),
-      .rx_axis_slast     (rx_slast),
-      .rx_axis_svalid    (rx_svalid),
-      .rx_axis_susr      (NetworkUsr),
-      .rx_axis_sready    (rx_sready),
+      .rx_axis_sdata     (rx_ip_data),
+      .rx_axis_skeep     (rx_ip_keep),
+      .rx_axis_slast     (rx_ip_last),
+      .rx_axis_svalid    (rx_ip_valid && rx_is_udp),
+      .rx_axis_susr      (rx_ip_usr),
+      .rx_axis_sready    (rx_udp_ready),
       .rx_axis_mdata     (rx_mdata),
       .rx_axis_mkeep     (rx_mkeep),
       .rx_axis_mlast     (rx_mlast),
@@ -78,12 +100,12 @@ module tb_udp_ipv4_top;
       .tx_axis_svalid    (tx_svalid),
       .tx_axis_susr      (tx_susr),
       .tx_axis_sready    (tx_sready),
-      .tx_axis_mdata     (tx_mdata),
-      .tx_axis_mkeep     (tx_mkeep),
-      .tx_axis_mlast     (tx_mlast),
-      .tx_axis_mvalid    (tx_mvalid),
-      .tx_axis_musr      (tx_musr),
-      .tx_axis_mready    (tx_mready)
+      .tx_axis_mdata     (tx_udp_data),
+      .tx_axis_mkeep     (tx_udp_keep),
+      .tx_axis_mlast     (tx_udp_last),
+      .tx_axis_mvalid    (tx_udp_valid),
+      .tx_axis_musr      (tx_udp_usr),
+      .tx_axis_mready    (tx_udp_ready)
   );
 
   // Every valid stalled beat must retain all meaningful interface fields.
@@ -151,7 +173,8 @@ module tb_udp_ipv4_top;
         tx_skeep[lane] = offset + lane < size;
         if (tx_skeep[lane]) tx_sdata[lane*8+:8] = payload_byte(offset + lane);
       end
-      tx_susr   = {DstIp, SrcIp, bus_word(dst_port), bus_word(src_port), HopLimit, Request};
+      tx_susr   = {16'd0, 16'd0, bus_word(dst_port), bus_word(src_port),
+          DstIp, SrcIp, 16'd0, 8'd17, HopLimit, 16'h0040, 16'd0, 16'd0, 16'h0045, Request};
       tx_svalid = 1'b1;
       tx_slast  = offset + 64 >= size;
       do @(posedge clk); while (!tx_sready);
@@ -220,17 +243,9 @@ module tb_udp_ipv4_top;
     integer channel;
     reg [RxUsrWidth-1:0] expected_usr;
     channel = (dst_port == 1000) ? 0 : 1;
-    expected_usr = {
-      {packet_bytes[25], packet_bytes[24]},
-      bus_word(src_port),
-      bus_word(dst_port),
-      DstIp,
-      SrcIp,
-      HopLimit,
-      {packet_bytes[3], packet_bytes[2]},
-      8'd17,
-      NetworkUsr
-    };
+    expected_usr = {16'h0008, NetworkUsr};
+    for (integer byte_index = 0; byte_index < 28; byte_index++)
+      expected_usr[113+byte_index*8+:8] = packet_bytes[byte_index];
     offset = 0;
     do begin
       @(posedge clk);
@@ -267,8 +282,9 @@ module tb_udp_ipv4_top;
       send_tx(size, src_port, dst_port);
       capture_tx(size, src_port, dst_port);
     join
-    if (size > 0) replay_rx(size, src_port, dst_port);
-    else expect_rx_drop(28); // The IPv4 receive path suppresses empty payloads.
+    // TX保留空载荷封装检查，RX无剩余载荷的报文按约定丢弃。
+    if (size == 0) expect_rx_drop(28);
+    else replay_rx(size, src_port, dst_port);
   endtask
 
   task automatic expect_rx_drop(input integer size);
@@ -318,9 +334,9 @@ module tb_udp_ipv4_top;
     packet_bytes[55] ^= 8'h80;
     {packet_bytes[26], packet_bytes[27]} = 16'd0;
     replay_rx(65, 12345, 1000);
-    packet_bytes[25] ^= 8'h01;
+    packet_bytes[25] += 8'h01;
     replay_rx(65, 12345, 1000);
-    packet_bytes[25] ^= 8'h01;
+    packet_bytes[25] -= 8'h01;
     replay_rx(64, 12345, 1000);
     reset_partial_packet();
     round_trip(3, 12345, 1001);

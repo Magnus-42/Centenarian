@@ -14,16 +14,16 @@
 `timescale 1ns / 100ps
 
 module arp_engine_top #(
-    parameter integer DataWidth = 512,
-    parameter integer CacheDepth = 512,
-    parameter integer PendingTimeWidth = 24,
-    parameter integer PendingDepth = 512,
-    parameter integer HashWayCount = 4,
-    parameter integer LocalIpCount = 1,
-    parameter integer ClkFreqHz = 400000000,
-    parameter integer ReqWidth = 4,
-    localparam integer TxUsrWidth = ReqWidth + 112,
-    localparam integer RxUsrWidth = 1  // MAC 层错误标志
+    parameter  integer DataWidth        = 512,
+    parameter  integer CacheDepth       = 512,
+    parameter  integer PendingTimeWidth = 24,
+    parameter  integer PendingDepth     = 512,
+    parameter  integer HashWayCount     = 4,
+    parameter  integer LocalIpCount     = 1,
+    parameter  integer ClkFreqHz        = 400000000,
+    parameter  integer ReqWidth         = 4,
+    localparam integer TxUsrWidth       = ReqWidth + 112,
+    localparam integer RxUsrWidth       = 113              // MAC首部与末拍错误标志
 ) (
     input wire clk,
     input wire rst,
@@ -417,16 +417,13 @@ module arp_engine_top #(
     rx_reply_tail_reg <= {rx_sha, 16'h0200, rx_sha, rx_spa, rx_tpa};
   end
   //// 帧解析
-  arp_eth_rx #(
+  arp_rx #(
       .DataWidth(DataWidth)
-  ) arp_eth_rx_inst (
+  ) arp_rx_inst (
       .clk             (clk),
       .rst             (rst),
       .frame_valid     (rx_frame_valid),
       .frame_ready     (rx_frame_ready),
-      .eth_dest_mac    (),
-      .eth_src_mac     (),
-      .eth_type        (),
       .arp_htype       (),
       .arp_ptype       (),
       .arp_hlen        (),
@@ -493,7 +490,7 @@ module arp_engine_top #(
   //// 仲裁
   assign arb_refresh = tx_stage_ready && !rst;
   rr_arbiter #(
-      .Width(3),
+      .Width   (3),
       .LowFirst(1)
   ) rr_arbiter_inst (
       .clk    (clk),
@@ -563,10 +560,10 @@ module arp_engine_top #(
   );
   //// 五级待决控制
   arp_pending_ctrl #(
-      .CacheDepth(PendingDepth),
+      .CacheDepth  (PendingDepth),
       .HashWayCount(HashWayCount),
-      .TimeWidth(PendingTimeWidth),
-      .ClkFreqHz(ClkFreqHz)
+      .TimeWidth   (PendingTimeWidth),
+      .ClkFreqHz   (ClkFreqHz)
   ) arp_pending_ctrl_inst (
       .clk               (clk),
       .rst               (rst),

@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // File Name   : cfg_port_top.v
 // Module Name : cfg_port_top
-// Author      : Codex
+// Author      : Lixintao
 // Created     : 2026-11-19
 // Version     : v1.0
 // -----------------------------------------------------------------------------
@@ -59,17 +59,18 @@ module cfg_port_top #(
     parameter [47:0] DefaultMgmtMac = 48'hf100_3119_0000,
     parameter [7:0] ReplyTtl = 8'd64,
     parameter [ReqWidth-1:0] DefaultMgmtPriority = 4'd14,
-    localparam integer TxUsrWidth = 104 + ReqWidth
+    localparam integer RxUsrWidth = 337,
+    localparam integer TxUsrWidth = 224 + ReqWidth
 ) (
     input wire clk,
     input wire rst,
 
-    input  wire [511:0] axis_sdata,
-    input  wire [ 63:0] axis_skeep,
-    input  wire [240:0] axis_susr,
-    input  wire         axis_svalid,
-    input  wire         axis_slast,
-    output wire         axis_sready,
+    input  wire [         511:0] axis_sdata,
+    input  wire [          63:0] axis_skeep,
+    input  wire [RxUsrWidth-1:0] axis_susr,
+    input  wire                  axis_svalid,
+    input  wire                  axis_slast,
+    output wire                  axis_sready,
 
     output wire [         511:0] axis_mdata,
     output wire [          63:0] axis_mkeep,
@@ -96,8 +97,8 @@ module cfg_port_top #(
 
     // ARP与ICMP配置
     output wire [PendingTimeWidth-1:0] cfg_pending_time,
-    output wire [ReqWidth-1:0] cfg_arp_priority,
-    output wire [ReqWidth-1:0] cfg_icmp_priority,
+    output wire [        ReqWidth-1:0] cfg_arp_priority,
+    output wire [        ReqWidth-1:0] cfg_icmp_priority,
 
     // 管理地址与端口配置
     output wire [31:0] cfg_mgmt_ipv4_addr,
@@ -150,37 +151,32 @@ module cfg_port_top #(
       .ReplyTtl(ReplyTtl),
       .ReqWidth(ReqWidth)
   ) cfg_cmd_inst (
-      .clk(clk),
-      .rst(rst),
-
-      .axis_sdata (axis_sdata),
-      .axis_skeep (axis_skeep),
-      .axis_susr  (axis_susr),
-      .axis_svalid(axis_svalid),
-      .axis_slast (axis_slast),
-      .axis_sready(axis_sready),
-
-      .axis_mdata (axis_mdata),
-      .axis_mkeep (axis_mkeep),
-      .axis_musr  (axis_musr),
-      .axis_mvalid(axis_mvalid),
-      .axis_mlast (axis_mlast),
-      .axis_mready(axis_mready),
-
+      .clk               (clk),
+      .rst               (rst),
+      .axis_sdata        (axis_sdata),
+      .axis_skeep        (axis_skeep),
+      .axis_susr         (axis_susr),
+      .axis_svalid       (axis_svalid),
+      .axis_slast        (axis_slast),
+      .axis_sready       (axis_sready),
+      .axis_mdata        (axis_mdata),
+      .axis_mkeep        (axis_mkeep),
+      .axis_musr         (axis_musr),
+      .axis_mvalid       (axis_mvalid),
+      .axis_mlast        (axis_mlast),
+      .axis_mready       (axis_mready),
       .cfg_mgmt_ipv4_addr(cfg_mgmt_ipv4_addr),
       .cfg_mgmt_udp_port (cfg_mgmt_udp_port),
       .cfg_mgmt_priority (cfg_mgmt_priority),
-
-      .exec_valid(exec_valid),
-      .req_op    (req_op),
-      .req_item  (req_item),
-      .req_index (req_index),
-      .req_len   (req_len),
-      .req_value (req_value),
-
-      .rsp_status(rsp_status),
-      .rsp_len   (rsp_len),
-      .rsp_value (rsp_value)
+      .exec_valid        (exec_valid),
+      .req_op            (req_op),
+      .req_item          (req_item),
+      .req_index         (req_index),
+      .req_len           (req_len),
+      .req_value         (req_value),
+      .rsp_status        (rsp_status),
+      .rsp_len           (rsp_len),
+      .rsp_value         (rsp_value)
   );
 
   // 配置寄存器与业务状态
@@ -210,49 +206,40 @@ module cfg_port_top #(
       .DefaultMgmtUdpPort (DefaultMgmtUdpPort),
       .DefaultMgmtMac     (DefaultMgmtMac)
   ) cfg_regs_inst (
-      .clk(clk),
-      .rst(rst),
-
-      .exec_valid(exec_valid),
-      .req_op    (req_op),
-      .req_item  (req_item),
-      .req_index (req_index),
-      .req_len   (req_len),
-      .req_value (req_value),
-
-      .rsp_status(rsp_status),
-      .rsp_len   (rsp_len),
-      .rsp_value (rsp_value),
-
-      .cfg_local_ip   (cfg_local_ip),
-      .cfg_local_mac  (cfg_local_mac),
-      .cfg_gateway_ip (cfg_gateway_ip),
-      .cfg_subnet_mask(cfg_subnet_mask),
-
-      .cfg_src_ipv6(cfg_src_ipv6),
-      .cfg_src_mac (cfg_src_mac),
-      .cfg_dst_ipv6(cfg_dst_ipv6),
-      .cfg_dst_mac (cfg_dst_mac),
-
-      .cfg_udp_ipv4_dst_port_range(cfg_udp_ipv4_dst_port_range),
-      .cfg_udp_ipv6_dst_port_range(cfg_udp_ipv6_dst_port_range),
-
-      .cfg_pending_time (cfg_pending_time),
-      .cfg_arp_priority (cfg_arp_priority),
-      .cfg_icmp_priority(cfg_icmp_priority),
-
-      .cfg_mgmt_ipv4_addr(cfg_mgmt_ipv4_addr),
-      .cfg_mgmt_udp_port (cfg_mgmt_udp_port),
-      .cfg_mgmt_mac      (cfg_mgmt_mac),
-      .cfg_mgmt_priority (cfg_mgmt_priority),
-
-      .cfg_arp_clear_cache   (cfg_arp_clear_cache),
-      .cfg_arp_clear_pending (cfg_arp_clear_pending),
-      .cfg_stat_clear        (cfg_stat_clear),
-      .cfg_arp_announce_mask (cfg_arp_announce_mask),
-      .cfg_arp_announce_valid(cfg_arp_announce_valid),
-      .cfg_arp_announce_ready(cfg_arp_announce_ready),
-
+      .clk                                 (clk),
+      .rst                                 (rst),
+      .exec_valid                          (exec_valid),
+      .req_op                              (req_op),
+      .req_item                            (req_item),
+      .req_index                           (req_index),
+      .req_len                             (req_len),
+      .req_value                           (req_value),
+      .rsp_status                          (rsp_status),
+      .rsp_len                             (rsp_len),
+      .rsp_value                           (rsp_value),
+      .cfg_local_ip                        (cfg_local_ip),
+      .cfg_local_mac                       (cfg_local_mac),
+      .cfg_gateway_ip                      (cfg_gateway_ip),
+      .cfg_subnet_mask                     (cfg_subnet_mask),
+      .cfg_src_ipv6                        (cfg_src_ipv6),
+      .cfg_src_mac                         (cfg_src_mac),
+      .cfg_dst_ipv6                        (cfg_dst_ipv6),
+      .cfg_dst_mac                         (cfg_dst_mac),
+      .cfg_udp_ipv4_dst_port_range         (cfg_udp_ipv4_dst_port_range),
+      .cfg_udp_ipv6_dst_port_range         (cfg_udp_ipv6_dst_port_range),
+      .cfg_pending_time                    (cfg_pending_time),
+      .cfg_arp_priority                    (cfg_arp_priority),
+      .cfg_icmp_priority                   (cfg_icmp_priority),
+      .cfg_mgmt_ipv4_addr                  (cfg_mgmt_ipv4_addr),
+      .cfg_mgmt_udp_port                   (cfg_mgmt_udp_port),
+      .cfg_mgmt_mac                        (cfg_mgmt_mac),
+      .cfg_mgmt_priority                   (cfg_mgmt_priority),
+      .cfg_arp_clear_cache                 (cfg_arp_clear_cache),
+      .cfg_arp_clear_pending               (cfg_arp_clear_pending),
+      .cfg_stat_clear                      (cfg_stat_clear),
+      .cfg_arp_announce_mask               (cfg_arp_announce_mask),
+      .cfg_arp_announce_valid              (cfg_arp_announce_valid),
+      .cfg_arp_announce_ready              (cfg_arp_announce_ready),
       .stat_link_up                        (stat_link_up),
       .stat_arp_rx_error                   (stat_arp_rx_error),
       .stat_arp_ack_fifo_overflow_error    (stat_arp_ack_fifo_overflow_error),

@@ -6,7 +6,7 @@
 // Version     : v1.0
 // -----------------------------------------------------------------------------
 // Description : UDP发送链，计算长度与校验和，添加UDP头并提供IPv6头元数据。
-// Note        : 输入data为UDP载荷，usr提供地址、端口、Hop Limit与请求值。
+// Note        : 输入data为UDP载荷，usr为{UDP首部,IPv6首部,请求}。
 //               输出data为完整UDP报文，usr提供IPv6基本头与请求值。
 // -----------------------------------------------------------------------------
 
@@ -16,7 +16,7 @@
 
 module udp_ipv6_tx #(
     parameter  integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth + 296
+    localparam integer UsrWidth = ReqWidth + 384
 ) (
     input wire clk,
     input wire rst,
@@ -54,51 +54,45 @@ module udp_ipv6_tx #(
   wire checksum_valid;
   wire [UsrWidth-1:0] checksum_usr;
   wire checksum_ready;
-  wire [15:0] pkt_udp_len;
-  wire [15:0] pkt_udp_checksum;
 
   // 长度与校验和
   udp_ipv6_len_checksum #(
       .ReqWidth(ReqWidth)
   ) udp_ipv6_len_checksum_inst (
-      .clk          (clk),
-      .rst          (rst),
-      .axis_sdata   (axis_sdata),
-      .axis_skeep   (axis_skeep),
-      .axis_slast   (axis_slast),
-      .axis_svalid  (axis_svalid),
-      .axis_susr    (axis_susr),
-      .axis_sready  (axis_sready),
-      .axis_mdata   (checksum_data),
-      .axis_mkeep   (checksum_keep),
-      .axis_mlast   (checksum_last),
-      .axis_mvalid  (checksum_valid),
-      .axis_musr    (checksum_usr),
-      .axis_mready  (checksum_ready),
-      .total_len    (pkt_udp_len),
-      .head_checksum(pkt_udp_checksum)
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sdata (axis_sdata),
+      .axis_skeep (axis_skeep),
+      .axis_slast (axis_slast),
+      .axis_svalid(axis_svalid),
+      .axis_susr  (axis_susr),
+      .axis_sready(axis_sready),
+      .axis_mdata (checksum_data),
+      .axis_mkeep (checksum_keep),
+      .axis_mlast (checksum_last),
+      .axis_mvalid(checksum_valid),
+      .axis_musr  (checksum_usr),
+      .axis_mready(checksum_ready)
   );
 
   // UDP头插入
   udp_ipv6_header_add #(
       .ReqWidth(ReqWidth)
   ) udp_ipv6_header_add_inst (
-      .clk              (clk),
-      .rst              (rst),
-      .axis_sdata       (checksum_data),
-      .axis_skeep       (checksum_keep),
-      .axis_slast       (checksum_last),
-      .axis_svalid      (checksum_valid),
-      .axis_susr        (checksum_usr),
-      .axis_sready      (checksum_ready),
-      .pkt_total_len    (pkt_udp_len),
-      .pkt_head_checksum(pkt_udp_checksum),
-      .axis_mdata       (axis_mdata),
-      .axis_mkeep       (axis_mkeep),
-      .axis_mlast       (axis_mlast),
-      .axis_mvalid      (axis_mvalid),
-      .axis_musr        (axis_musr),
-      .axis_mready      (axis_mready)
+      .clk        (clk),
+      .rst        (rst),
+      .axis_sdata (checksum_data),
+      .axis_skeep (checksum_keep),
+      .axis_slast (checksum_last),
+      .axis_svalid(checksum_valid),
+      .axis_susr  (checksum_usr),
+      .axis_sready(checksum_ready),
+      .axis_mdata (axis_mdata),
+      .axis_mkeep (axis_mkeep),
+      .axis_mlast (axis_mlast),
+      .axis_mvalid(axis_mvalid),
+      .axis_musr  (axis_musr),
+      .axis_mready(axis_mready)
   );
 
 endmodule

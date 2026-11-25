@@ -6,7 +6,7 @@
 // Version     : v1.0
 // -----------------------------------------------------------------------------
 // Description : ICMPv4类型分流，区分回显请求与其他报文。
-// Note        : 上游保证IPv4版本为4、IHL=5且首拍至少24字节有效；本模块检查分片与type/code。
+// Note        : 输入为ICMP载荷，usr携带ICMP及上游首部；检查分片与type/code。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -14,7 +14,8 @@
 `timescale 1ns / 100ps
 
 module icmpv4_type_demux #(
-    localparam integer UsrWidth = 97
+    localparam integer UsrWidth         = 337,
+    localparam integer Ipv4HeaderOffset = 113
 ) (
     input wire clk,
     input wire rst,
@@ -41,7 +42,7 @@ module icmpv4_type_demux #(
     input  wire                other_axis_mready
 );
 
-  // 入口skid后匹配type/code与分片字段。
+  // 入口skid后匹配type/code与usr中的IPv4分片字段。
   // p1缓存输入并锁定帧路由，各通道skid独立缓存输出。
 
   // 参数范围检查
@@ -51,6 +52,9 @@ module icmpv4_type_demux #(
       $finish;
     end
   end
+
+  // 接收usr中的首部字段位置
+  localparam integer IcmpHeaderOffset = 273;
 
   // 入口skid接口
   wire [       511:0] axis_sdata_skid;
@@ -72,6 +76,7 @@ module icmpv4_type_demux #(
   reg                 is_first_beat;
 
   // 协议匹配与帧路由
+  wire [        15:0] flags_fragment;
   wire                is_unfragmented;
   wire                is_echo_request;
   wire                matches_echo;
@@ -86,9 +91,10 @@ module icmpv4_type_demux #(
   wire                other_axis_mready_skid;
 
   // 协议匹配
-  assign is_unfragmented = !axis_sdata_skid[53] && (axis_sdata_skid[52:48] == 5'd0) &&
-      (axis_sdata_skid[63:56] == 8'd0);
-  assign is_echo_request = (axis_sdata_skid[175:160] == 16'h0008);
+  assign flags_fragment = axis_susr_skid[Ipv4HeaderOffset+48+:16];
+  assign is_unfragmented = !flags_fragment[5] && (flags_fragment[4:0] == 5'd0) &&
+      (flags_fragment[15:8] == 8'd0);
+  assign is_echo_request = (axis_susr_skid[IcmpHeaderOffset+:16] == 16'h0008);
   assign matches_echo = is_unfragmented && is_echo_request;
 
   // 流水控制

@@ -5,8 +5,8 @@
 // Created     : 2026-11-22
 // Version     : v1.0
 // -----------------------------------------------------------------------------
-// Description : 添加8字节UDP首部，并生成IPv6首部元数据。
-// Note        : 输入usr为原有地址、端口、Hop Limit与请求值。
+// Description : 添加8字节UDP首部，并输出IPv6首部侧带。
+// Note        : 输入usr为{UDP首部,IPv6首部,请求}，长度与UDP校验和已填入。
 //               输出usr从高到低为{IPv6首部,请求}，位宽为ReqWidth+320。
 // -----------------------------------------------------------------------------
 
@@ -16,7 +16,7 @@
 
 module udp_ipv6_header_add #(
     parameter  integer ReqWidth   = 4,
-    localparam integer UsrWidth   = ReqWidth + 296,
+    localparam integer UsrWidth   = ReqWidth + 384,
     localparam integer IpUsrWidth = ReqWidth + 320
 ) (
     input wire clk,
@@ -29,9 +29,6 @@ module udp_ipv6_header_add #(
     input  wire [UsrWidth-1:0] axis_susr,
     output wire                axis_sready,
 
-    input wire [15:0] pkt_total_len,
-    input wire [15:0] pkt_head_checksum,
-
     output wire [         511:0] axis_mdata,
     output wire [          63:0] axis_mkeep,
     output wire                  axis_mlast,
@@ -40,8 +37,8 @@ module udp_ipv6_header_add #(
     input  wire                  axis_mready
 );
 
-  // 入口skid同步缓存载荷、usr、UDP长度及校验和。
-  // p1缓存载荷与UDP字段，同时生成IP首部元数据并判断是否需要补尾。
+  // 入口skid同步缓存载荷与首部侧带。
+  // p1缓存载荷与UDP字段，同时提取IP首部侧带并判断是否需要补尾。
   // 输出插入8字节UDP头，必要时补发高8字节尾拍。
   // 出口skid同步保持完整数据和usr。
 
@@ -55,8 +52,6 @@ module udp_ipv6_header_add #(
 
   // 内部常量
   localparam integer UdpHeaderBits = 64;
-  localparam integer UsrSrcPortLsb = ReqWidth + 8;
-  localparam integer UsrDstPortLsb = ReqWidth + 24;
 
   // 入口skid接口
   wire [              511:0] axis_sdata_skid;
@@ -65,8 +60,6 @@ module udp_ipv6_header_add #(
   wire                       axis_slast_skid;
   wire                       axis_svalid_skid;
   wire                       axis_sready_skid;
-  wire [               15:0] pkt_total_len_skid;
-  wire [               15:0] pkt_head_checksum_skid;
   wire                       s_handshake_skid;
 
   // p1 数据与边带
@@ -76,13 +69,8 @@ module udp_ipv6_header_add #(
   reg                        p1_axis_svalid;
   reg  [     IpUsrWidth-1:0] p1_axis_susr;
 
-  // p1 首拍字段
-  reg  [               15:0] p1_total_len;
-  reg  [               15:0] p1_src_port;
-  reg  [               15:0] p1_dst_port;
-
-  // UDP校验和
-  reg  [               15:0] p1_head_checksum;
+  // p1 UDP首部
+  reg  [               63:0] p1_udp_header;
 
   // 首拍标志
   reg                        is_first_beat;
@@ -113,20 +101,20 @@ module udp_ipv6_header_add #(
   // 入口skid
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth + 32)
+      .UsrWidth (UsrWidth)
   ) axis_skid_buffer_in (
       .clk        (clk),
       .rst        (rst),
       .axis_sready(axis_sready),
       .axis_sdata (axis_sdata),
       .axis_skeep (axis_skeep),
-      .axis_susr  ({pkt_total_len, pkt_head_checksum, axis_susr}),
+      .axis_susr  (axis_susr),
       .axis_slast (axis_slast),
       .axis_svalid(axis_svalid),
       .axis_mready(axis_sready_skid),
       .axis_mdata (axis_sdata_skid),
       .axis_mkeep (axis_skeep_skid),
-      .axis_musr  ({pkt_total_len_skid, pkt_head_checksum_skid, axis_susr_skid}),
+      .axis_musr  (axis_susr_skid),
       .axis_mlast (axis_slast_skid),
       .axis_mvalid(axis_svalid_skid)
   );
@@ -146,20 +134,13 @@ module udp_ipv6_header_add #(
       p1_axis_skeep <= axis_skeep_skid;
       p1_axis_slast <= axis_slast_skid;
       p1_axis_susr <= {
-        {
-          axis_susr_skid[ReqWidth+168+:128],
-          axis_susr_skid[ReqWidth+40+:128],
-          axis_susr_skid[ReqWidth+:8],
-          8'h11,
-          pkt_total_len_skid,
-          32'h00000060
-        },
+        axis_susr_skid[ReqWidth+64+:256],
+        axis_susr_skid[ReqWidth+56+:8],
+        8'h11,
+        axis_susr_skid[ReqWidth+:48],
         axis_susr_skid[ReqWidth-1:0]
       };
-      p1_total_len <= pkt_total_len_skid;
-      p1_head_checksum <= pkt_head_checksum_skid;
-      p1_src_port <= axis_susr_skid[UsrSrcPortLsb+:16];
-      p1_dst_port <= axis_susr_skid[UsrDstPortLsb+:16];
+      p1_udp_header <= axis_susr_skid[ReqWidth+320+:64];
     end
   end
   //// 有效信号
@@ -229,8 +210,9 @@ module udp_ipv6_header_add #(
 
   // 输出拼接
   assign axis_mdata_skid = p2_is_insert_beat ? {{448{1'b0}}, data_held} : (
-      is_first_beat ? {p1_axis_sdata[511-UdpHeaderBits:0], p1_head_checksum, p1_total_len,
-                       p1_dst_port, p1_src_port} : {p1_axis_sdata[511-UdpHeaderBits:0], data_held});
+      is_first_beat
+        ? {p1_axis_sdata[511-UdpHeaderBits:0], p1_udp_header}
+        : {p1_axis_sdata[511-UdpHeaderBits:0], data_held});
   assign axis_mkeep_skid = p2_is_insert_beat ?
       {{56{1'b0}}, keep_held} : (is_first_beat ? {p1_axis_skeep[63-UdpHeaderBits/8:0], {8{1'b1}}} :
                                  {p1_axis_skeep[63-UdpHeaderBits/8:0], keep_held});

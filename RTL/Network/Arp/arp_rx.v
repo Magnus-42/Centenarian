@@ -1,21 +1,21 @@
 // -----------------------------------------------------------------------------
-// File Name   : arp_eth_rx.v
-// Module Name : arp_eth_rx
+// File Name   : arp_rx.v
+// Module Name : arp_rx
 // Author      : LiXintao
 // Created     : 2026-09-14
 // Version     : 1.0
 // -----------------------------------------------------------------------------
-// Description : 从AXIS输入提取以太网与ARP字段，并输出帧解析状态
-// Note        : 接收单拍完整帧，检查last、usr和字段对应的keep有效位
+// Description : 从ARP负载提取ARP字段
+// Note        : 接收单拍ARP报文，检查last、坏帧标志及字段对应的keep有效位
 // -----------------------------------------------------------------------------
 
 `resetall
 `default_nettype none
 `timescale 1ns / 100ps
 
-module arp_eth_rx #(
-    parameter integer DataWidth = 512,
-    localparam integer UsrWidth = 1  // MAC 层错误标志
+module arp_rx #(
+    parameter  integer DataWidth = 512,
+    localparam integer UsrWidth  = 113   // MAC首部及末拍错误标志
 ) (
     input wire clk,
     input wire rst,
@@ -23,18 +23,15 @@ module arp_eth_rx #(
     // ARP帧字段接口
     output wire        frame_valid,
     input  wire        frame_ready,
-    output wire [47:0] eth_dest_mac,
-    output wire [47:0] eth_src_mac,
-    output wire [15:0] eth_type,
     output wire [15:0] arp_htype,
     output wire [15:0] arp_ptype,
     output wire [ 7:0] arp_hlen,
     output wire [ 7:0] arp_plen,
     output wire [15:0] arp_oper,
-    output wire [47:0] arp_sha,       // 发送方MAC地址
-    output wire [31:0] arp_spa,       // 发送方IP地址
-    output wire [47:0] arp_tha,       // 目标MAC地址
-    output wire [31:0] arp_tpa,       // 目标IP地址
+    output wire [47:0] arp_sha,      // 发送方MAC地址
+    output wire [31:0] arp_spa,      // 发送方IP地址
+    output wire [47:0] arp_tha,      // 目标MAC地址
+    output wire [31:0] arp_tpa,      // 目标IP地址
 
     // ARP AXIS接收接口
     input  wire [  DataWidth-1:0] axis_sdata,
@@ -49,18 +46,18 @@ module arp_eth_rx #(
 );
 
   // 入口skid缓存输入，p1检查单拍帧的last、usr与头部keep。
-  // 合法帧寄存以太网及ARP字段，非法帧输出错误脉冲。
+  // 合法帧寄存ARP字段，非法帧输出错误脉冲。
 
   // 参数范围检查
   initial begin
-    if (DataWidth < 336 || DataWidth % 8 != 0) begin
-      $display("错误：arp_eth_rx：DataWidth必须不小于336且为8的整数倍");
+    if (DataWidth < 224 || DataWidth % 8 != 0) begin
+      $display("错误：arp_rx：DataWidth必须不小于224且为8的整数倍");
       $finish;
     end
   end
 
   // 内部常量
-  localparam integer HeaderBytes = 42;
+  localparam integer HeaderBytes = 28;
   localparam integer HeaderWidth = HeaderBytes * 8;
 
   // 入口skid接口
@@ -77,9 +74,6 @@ module arp_eth_rx #(
 
   // p1 字段与接收状态
   reg                    p1_frame_valid;
-  reg  [           47:0] p1_eth_dest_mac;
-  reg  [           47:0] p1_eth_src_mac;
-  reg  [           15:0] p1_eth_type;
   reg  [           15:0] p1_arp_htype;
   reg  [           15:0] p1_arp_ptype;
   reg  [            7:0] p1_arp_hlen;
@@ -125,11 +119,11 @@ module arp_eth_rx #(
     end else begin
       p1_error_pulse <= 1'b0;
       if (s_handshake_skid) begin
-        if (axis_slast_skid && (axis_susr_skid == {UsrWidth{1'b0}}) &&
+        if (axis_slast_skid && (!axis_susr_skid[0]) &&
             (axis_skeep_skid[HeaderBytes-1:0] == {HeaderBytes{1'b1}})) begin
           p1_frame_valid <= 1'b1;
           {p1_arp_tpa, p1_arp_tha, p1_arp_spa, p1_arp_sha, p1_arp_oper, p1_arp_plen, p1_arp_hlen,
-           p1_arp_ptype, p1_arp_htype, p1_eth_type, p1_eth_src_mac, p1_eth_dest_mac} <=
+           p1_arp_ptype, p1_arp_htype} <=
               axis_sdata_skid[HeaderWidth-1:0];
         end else begin
           p1_frame_valid <= 1'b0;
@@ -144,9 +138,6 @@ module arp_eth_rx #(
   // 字段与接收状态输出
   assign stat_error_pulse = p1_error_pulse;
   assign frame_valid      = p1_frame_valid;
-  assign eth_dest_mac     = p1_eth_dest_mac;
-  assign eth_src_mac      = p1_eth_src_mac;
-  assign eth_type         = p1_eth_type;
   assign arp_htype        = p1_arp_htype;
   assign arp_ptype        = p1_arp_ptype;
   assign arp_hlen         = p1_arp_hlen;

@@ -10,7 +10,7 @@
 
 ## 数据通路
 
-参考工程提供 A/B 两个 100GbE 物理口。每口提供 MAC 帧、完整 IPv4/IPv6 包、ICMPv4 和 UDP 载荷接口，并有独立的 UDP 管理端点。
+参考工程提供 A/B 两个 100GbE 物理口。每口提供 MAC、IPv4/IPv6、ICMPv4 和 UDP 载荷接口，并有独立的 UDP 管理端点。各层业务收发均使用本层载荷，首部字段通过 `usr` 传递；封装和解封装由对应协议层完成。
 
 [![Centenarian 单口硬件框图，从 QSFP 和 CMAC 到 MAC、ARP、IPv4、IPv6、ICMPv4 与 UDP 通路](Docs/architecture.svg)](Docs/01-architecture.md)
 

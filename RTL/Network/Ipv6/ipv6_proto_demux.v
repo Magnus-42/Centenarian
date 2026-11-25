@@ -15,9 +15,9 @@
 `timescale 1ns / 100ps
 
 module ipv6_proto_demux #(
-    parameter integer TypeCount = 3,
+    parameter  integer TypeCount          = 3,
     localparam integer EffectiveTypeCount = (TypeCount > 0) ? TypeCount : 1,
-    localparam integer UsrWidth = 97
+    localparam integer UsrWidth           = 433
 ) (
     input wire clk,
     input wire rst,
@@ -52,28 +52,31 @@ module ipv6_proto_demux #(
   end
 
   // 字典配置
-  reg  [EffectiveTypeCount*8-1:0] cfg_type_dict_d1;
+  reg [EffectiveTypeCount*8-1:0] cfg_type_dict_d1;
+
+  // 接收usr中的首部字段位置
+  localparam integer Ipv6HeaderOffset = 113;
 
   // 入口skid接口
-  wire [                   511:0] axis_sdata_skid;
-  wire [                    63:0] axis_skeep_skid;
-  wire [            UsrWidth-1:0] axis_susr_skid;
-  wire                            axis_slast_skid;
-  wire                            axis_svalid_skid;
-  wire                            axis_sready_skid;
-  wire                            s_handshake_skid;
+  wire [       511:0] axis_sdata_skid;
+  wire [        63:0] axis_skeep_skid;
+  wire [UsrWidth-1:0] axis_susr_skid;
+  wire                axis_slast_skid;
+  wire                axis_svalid_skid;
+  wire                axis_sready_skid;
+  wire                s_handshake_skid;
 
   // p1 输入缓存
-  reg  [                   511:0] p1_axis_sdata;
-  reg  [                    63:0] p1_axis_skeep;
-  reg                             p1_axis_slast;
-  reg                             p1_axis_svalid;
-  reg  [            UsrWidth-1:0] p1_axis_susr;
+  reg  [       511:0] p1_axis_sdata;
+  reg  [        63:0] p1_axis_skeep;
+  reg                 p1_axis_slast;
+  reg                 p1_axis_svalid;
+  reg  [UsrWidth-1:0] p1_axis_susr;
 
   // 协议匹配与帧路由
-  wire [             TypeCount:0] matched_channel_onehot;
-  wire [             TypeCount:0] protocol_match;
-  reg  [             TypeCount:0] channel_onehot_locked;
+  wire [ TypeCount:0] matched_channel_onehot;
+  wire [ TypeCount:0] protocol_match;
+  reg  [ TypeCount:0] channel_onehot_locked;
   genvar type_index;
 
   // 首拍标志
@@ -157,7 +160,7 @@ module ipv6_proto_demux #(
       end
     end else begin : gen_range_type
       assign protocol_match[type_index] = cfg_type_dict_d1[type_index*8+:8] ==
-          axis_sdata_skid[48+:8];
+          axis_susr_skid[Ipv6HeaderOffset+48+:8];
       if (type_index == 0) begin : gen_first_match
         assign matched_channel_onehot[type_index] = protocol_match[type_index];
       end else begin : gen_later_match

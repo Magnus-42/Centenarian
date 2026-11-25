@@ -16,7 +16,7 @@
 module udp_ipv4_tx_mux #(
     parameter integer TxChannelCount = 4,
     parameter integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth + 104
+    localparam integer UsrWidth = ReqWidth + 224
 ) (
     input wire clk,
     input wire rst,

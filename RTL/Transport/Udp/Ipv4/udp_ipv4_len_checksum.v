@@ -7,11 +7,7 @@
 
 // Description : UDP长度和校验和计算，整包缓存后输出。
 // Note        : 严格整包缓存仅支持不超过512拍的应用载荷，非末拍keep全1、末拍keep低位连续。
-//               1. total_len / head_checksum 与首拍对齐,并在本包内保持恒定
-//               2. total_len / head_checksum 小端序
-//               3. 源/目的 IP、源/目的端口取自 axis_susr, 每包独立;
-//                  usr 必须包内恒定
-//               usr低ReqWidth位为请求，其上为TTL、源端口、目的端口、源IP和目的IP。
+//               usr为{UDP首部,IPv4首部,请求}，包内保持恒定。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -20,7 +16,7 @@
 
 module udp_ipv4_len_checksum #(
     parameter  integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth + 104
+    localparam integer UsrWidth = ReqWidth + 224
 ) (
     input wire clk,
     input wire rst,
@@ -37,10 +33,7 @@ module udp_ipv4_len_checksum #(
     output wire                axis_mlast,
     output wire                axis_mvalid,
     output wire [UsrWidth-1:0] axis_musr,
-    input  wire                axis_mready,
-
-    output wire [15:0] total_len,     // UDP长度(=8+载荷)
-    output wire [15:0] head_checksum  // UDP校验和(含伪首部)
+    input  wire                axis_mready
 );
 
   // 写入
@@ -75,10 +68,10 @@ module udp_ipv4_len_checksum #(
   // 内部常量
   localparam integer PipelineDepth = 7;
   localparam integer ShiftDepth = PipelineDepth - 1;
-  localparam integer UsrSrcPortLsb = ReqWidth + 8;
-  localparam integer UsrDstPortLsb = ReqWidth + 24;
-  localparam integer UsrSrcIpLsb = ReqWidth + 40;
-  localparam integer UsrDstIpLsb = ReqWidth + 72;
+  localparam integer UsrSrcPortLsb = ReqWidth + 160;
+  localparam integer UsrDstPortLsb = ReqWidth + 176;
+  localparam integer UsrSrcIpLsb = ReqWidth + 96;
+  localparam integer UsrDstIpLsb = ReqWidth + 128;
 
   // 入口skid接口
   wire    [            511:0] axis_sdata_skid;
@@ -172,6 +165,10 @@ module udp_ipv4_len_checksum #(
   reg     [             31:0] result_held;
   wire    [             31:0] selected_result;
 
+  // IPv4总长度，UDP长度已包含8字节首部。
+  wire    [             15:0] ipv4_total_len_host;
+  wire    [             15:0] ipv4_total_len;
+
   // 结果FIFO输出寄存
   reg     [             31:0] result_head;
   reg                         result_head_valid;
@@ -179,6 +176,7 @@ module udp_ipv4_len_checksum #(
   wire                        result_head_take;
 
   // 出口skid接口
+  wire    [     UsrWidth-1:0] axis_musr_skid;
   wire                        axis_mready_skid;
   wire                        axis_mvalid_skid;
 
@@ -510,9 +508,21 @@ module udp_ipv4_len_checksum #(
   end
 
   // 读侧skid
+  // 逐帧结果回填首部侧带，载荷与其余字段保持不变。
+  assign ipv4_total_len_host = {selected_result[23:16], selected_result[31:24]} + 16'd20;
+  assign ipv4_total_len = {ipv4_total_len_host[7:0], ipv4_total_len_host[15:8]};
+  assign axis_musr_skid = {
+    selected_result[15:0],
+    selected_result[31:16],
+    fifo_axis_musr[ReqWidth+160+:32],
+    fifo_axis_musr[ReqWidth+32+:128],
+    ipv4_total_len,
+    fifo_axis_musr[ReqWidth+15:0]
+  };
+
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth + 32)
+      .UsrWidth (UsrWidth)
   ) axis_skid_buffer_out (
       .clk        (clk),
       .rst        (rst),
@@ -520,14 +530,14 @@ module udp_ipv4_len_checksum #(
       .axis_skeep (fifo_axis_mkeep),
       .axis_slast (fifo_axis_mlast),
       .axis_svalid(axis_mvalid_skid),
-      .axis_susr  ({selected_result, fifo_axis_musr}),
+      .axis_susr  (axis_musr_skid),
       .axis_sready(axis_mready_skid),
       .axis_mdata (axis_mdata),
       .axis_mkeep (axis_mkeep),
       .axis_mlast (axis_mlast),
       .axis_mvalid(axis_mvalid),
       .axis_mready(axis_mready),
-      .axis_musr  ({total_len, head_checksum, axis_musr})
+      .axis_musr  (axis_musr)
   );
 endmodule
 `resetall

@@ -6,7 +6,7 @@
 // Version     : 4.0
 // -----------------------------------------------------------------------------
 // Description : 100G以太网端口封装，连接CMAC、跨时钟FIFO和帧分流复用模块
-// Note        : RX经SLR、CDC FIFO后分流；TX经加头、仲裁、补齐、CDC FIFO和SLR后发送。
+// Note        : RX经SLR、CDC FIFO后剥头分流；TX经加头、仲裁、补齐、CDC FIFO和SLR后发送。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -14,13 +14,14 @@
 `timescale 1ns / 100ps
 
 module eth_port_top #(
-    parameter integer CmacSelect = 0,  // 0 = cmac_a_if, 1 = cmac_b_if
-    parameter integer RxTypeCount = 4,
-    parameter integer TxChannelCount = 4,
-    parameter integer TxReqWidth = 4,
-    localparam integer TxUsrWidth = TxReqWidth + 112,
-    parameter integer CdcFifoDepth = 512,
-    parameter integer LedHalfPeriodCycles = 50_000_000
+    parameter  integer CmacSelect          = 0,                 // 0 = cmac_a_if, 1 = cmac_b_if
+    parameter  integer RxTypeCount         = 4,
+    parameter  integer TxChannelCount      = 4,
+    parameter  integer TxReqWidth          = 4,
+    localparam integer TxUsrWidth          = TxReqWidth + 112,
+    localparam integer RxUsrWidth          = 113,
+    parameter  integer CdcFifoDepth        = 512,
+    parameter  integer LedHalfPeriodCycles = 50_000_000
 ) (
     input wire init_clk,
     input wire arst,
@@ -50,12 +51,12 @@ module eth_port_top #(
 
     input wire [RxTypeCount*16-1:0] cfg_type_dict,
 
-    output wire [512*(RxTypeCount+1)-1:0] axis_mdata,
-    output wire [ 64*(RxTypeCount+1)-1:0] axis_mkeep,
-    output wire [          RxTypeCount:0] axis_mlast,
-    output wire [          RxTypeCount:0] axis_mvalid,
-    output wire [          RxTypeCount:0] axis_musr,
-    input  wire [          RxTypeCount:0] axis_mready,
+    output wire [       512*(RxTypeCount+1)-1:0] axis_mdata,
+    output wire [        64*(RxTypeCount+1)-1:0] axis_mkeep,
+    output wire [                 RxTypeCount:0] axis_mlast,
+    output wire [                 RxTypeCount:0] axis_mvalid,
+    output wire [RxUsrWidth*(RxTypeCount+1)-1:0] axis_musr,
+    input  wire [                 RxTypeCount:0] axis_mready,
 
     input  wire [       512*TxChannelCount-1:0] axis_sdata,
     input  wire [        64*TxChannelCount-1:0] axis_skeep,
@@ -227,15 +228,15 @@ module eth_port_top #(
   );
   //// 异步FIFO
   axis_fifo_async #(
-      .Depth(CdcFifoDepth),
-      .DataWidth(512),
-      .UsrWidth(1),
-      .PacketFifo(0),
-      .DataMemoryType("block"),
-      .UsrMemoryType("distributed"),
+      .Depth          (CdcFifoDepth),
+      .DataWidth      (512),
+      .UsrWidth       (1),
+      .PacketFifo     (0),
+      .DataMemoryType ("block"),
+      .UsrMemoryType  ("distributed"),
       .ProgEmptyThresh(0),
-      .ProgFullThresh(0),
-      .DeadlockRisk(0)
+      .ProgFullThresh (0),
+      .DeadlockRisk   (0)
   ) axis_fifo_async_rx (
       .wr_clk            (gt_rxusrclk),
       .rd_clk            (clk),
@@ -260,10 +261,9 @@ module eth_port_top #(
       .stat_rd_data_count()
   );
   //// 逻辑域类型分流
-  eth_type_demux #(
-      .TypeCount(RxTypeCount),
-      .UsrWidth (1)
-  ) eth_type_demux_inst (
+  eth_rx #(
+      .RxTypeCount(RxTypeCount)
+  ) eth_rx_inst (
       .clk          (clk),
       .rst          (rst),
       .cfg_type_dict(cfg_type_dict),
@@ -303,15 +303,15 @@ module eth_port_top #(
   );
   //// 异步FIFO
   axis_fifo_async #(
-      .Depth(CdcFifoDepth),
-      .DataWidth(512),
-      .UsrWidth(1),
-      .PacketFifo(0),
-      .DataMemoryType("block"),
-      .UsrMemoryType("distributed"),
+      .Depth          (CdcFifoDepth),
+      .DataWidth      (512),
+      .UsrWidth       (1),
+      .PacketFifo     (0),
+      .DataMemoryType ("block"),
+      .UsrMemoryType  ("distributed"),
       .ProgEmptyThresh(0),
-      .ProgFullThresh(0),
-      .DeadlockRisk(0)
+      .ProgFullThresh (0),
+      .DeadlockRisk   (0)
   ) axis_fifo_async_tx (
       .wr_clk            (clk),
       .rd_clk            (gt_txusrclk),

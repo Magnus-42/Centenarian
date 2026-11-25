@@ -17,7 +17,7 @@
 module icmpv4_tx_mux #(
     parameter  integer PortCount = 2,
     parameter  integer ReqWidth  = 4,
-    localparam integer UsrWidth  = ReqWidth
+    localparam integer UsrWidth  = ReqWidth + 224
 ) (
     input wire clk,
     input wire rst,

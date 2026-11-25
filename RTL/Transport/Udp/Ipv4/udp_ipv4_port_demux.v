@@ -18,10 +18,10 @@
 `timescale 1ns / 100ps
 
 module udp_ipv4_port_demux #(
-    parameter integer PortCount = 3,
+    parameter  integer PortCount          = 3,
     localparam integer EffectivePortCount = (PortCount > 0) ? PortCount : 1,
-    localparam integer UsrWidth = 241,
-    localparam integer UsrDstPortLsb = 193
+    localparam integer UsrWidth           = 337,
+    localparam integer UsrDstPortLsb      = 273 + 16
 ) (
     input wire clk,
     input wire rst,
@@ -159,8 +159,8 @@ module udp_ipv4_port_demux #(
     end else begin : gen_range_port
 
       wire [15:0] dst_port_value;
-      wire is_low_port_bound;
-      wire is_high_port_bound;
+      wire        is_low_port_bound;
+      wire        is_high_port_bound;
 
       assign dst_port_value = {
         axis_susr_skid[UsrDstPortLsb+:8], axis_susr_skid[UsrDstPortLsb+8+:8]

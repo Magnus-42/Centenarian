@@ -68,22 +68,23 @@ if {[string length "通道"] != 2} {
 if {![info exists ::HW_URL ]} { set ::HW_URL  "localhost:3121" }
 
 # ---- 帧与判定参数（与 RTL/Test/Top/subsys_test_top.v 的本地参数保持一致）----
+# 测试机每包本层载荷字节数，对应PKT_LEN_BEATS × AXIS_WIDTH/8。
 if {![info exists ::FRAME_BYTES   ]} { set ::FRAME_BYTES    1024 }
 # 满载总线吞吐参考值（B/s，1024B 帧实测值），用于"背景流量 vs 真残留"的比例判据
 if {![info exists ::BW_FULL_REF   ]} { set ::BW_FULL_REF   12213921472 } ;# PKT_LEN_BEATS(16) × 64B
 # 线速换算的"额外长度"（字节）：按打流机所在层次，L = 打流机每包计数的字节数
-#   MAC 层    +24（前导码/SFD 8 + FCS 4 + IFG 12）
-#   IPv4/IPv6 +38（= 24 + 14 以太网首部，打流机发的是完整 IP 包）
+#   MAC 层    +38（前导码/SFD 8 + FCS 4 + IFG 12 + Ethernet 首部 14）
+#   IPv4     +58，IPv6 +78；ICMPv4 +66，打流机收发均为本层负载
 #   UDP       +66（= 24 + 14 以太网首部 + 20 IPv4 首部 + 8 UDP 首部）
 #   UDP/IPv6  +86（= 24 + 14 + 40 IPv6 首部 + 8 UDP 首部）
-set _ovh_defaults {udp 66 fb_udp 66 udp_ipv6 86 fb_udp_ipv6 86 ipv4_06 38 icmp 38 ospf 38 ip6icmp 38 ip6ospf 38 \
-                   fb_ipv4 38 fb_ipv6 38 mac_88b5 24 mac_88cc 24 fb_mac 24}
+set _ovh_defaults {udp 66 fb_udp 66 udp_ipv6 86 fb_udp_ipv6 86 ipv4_06 58 icmp 66 ospf 58 ip6icmp 78 ip6ospf 78 \
+                   fb_ipv4 58 fb_ipv6 78 mac_88b5 38 mac_88cc 38 fb_mac 38}
 if {![info exists ::CHAN_OVH]} {
   set ::CHAN_OVH $_ovh_defaults
 } else {
   # 重载脚本时补齐新增通道，已设置的值仍优先。
   set ::CHAN_OVH [dict merge $_ovh_defaults $::CHAN_OVH]
-  set _ovh_def {udp 66 fb_udp 66 udp_ipv6 86 fb_udp_ipv6 86}
+  set _ovh_def $_ovh_defaults
   foreach {_k _v} $_ovh_def {
     if {[dict exists $::CHAN_OVH $_k] && [dict get $::CHAN_OVH $_k] != $_v} {
       puts "\[hw\] 警告: ::CHAN_OVH 的 $_k = [dict get $::CHAN_OVH $_k]（脚本默认 $_v），\n\[hw\]       很可能是同一会话残留的旧值；如非有意，请先执行 unset -nocomplain ::CHAN_OVH 再重新 source"
@@ -1018,20 +1019,21 @@ proc cnt_all {kind} {
   return $out
 }
 
-# 总线字节吞吐 → 以太网线速 (Gbps)：bw × 8 × (L+24) / L
-# 通道的额外长度（未知通道按 MAC 层 24 处理）
+# 负载字节吞吐 → 以太网线速，L 为业务接收每包的有效负载字节数。
+# 通道的额外长度（未知通道按 MAC 层 38 处理）
 proc chan_ovh {ch} {
   if {[dict exists $::CHAN_OVH $ch]} { return [dict get $::CHAN_OVH $ch] }
-  return 24
+  return 38
 }
 
 # 总线字节吞吐 → 以太网线速 (Gbps)：bw × 8 × (L + ovh) / L
-proc bw_gbps {bw {ovh 24}} {
+proc bw_gbps {bw {ovh 38} {payload_bytes {}}} {
   if {$bw eq ""} { return "" }
-  return [expr {$bw * 8.0 * ($::FRAME_BYTES + $ovh) / $::FRAME_BYTES / 1e9}]
+  if {$payload_bytes eq ""} { set payload_bytes $::FRAME_BYTES }
+  return [expr {$bw * 8.0 * ($payload_bytes + $ovh) / $payload_bytes / 1e9}]
 }
 
-# MAC 层通道（成帧由打流机自己组 MAC 头）：其错误计数可能来自交换机其他帧
+# MAC 层通道（打流机提供负载，由 MAC 层加头）：其错误计数可能来自交换机其他帧
 proc is_mac_chan {ch} { expr {[string match "mac_*" $ch] || $ch eq "fb_mac"} }
 
 # 仅 MAC 未匹配档（fb_mac）允许非零错误计数（交换机其他帧自然落进该档）
@@ -1046,7 +1048,7 @@ proc en_chan {en} { return [string range $en 5 end] }
 proc tester_chan {t} { return [string range $t 5 end] }
 
 # 打印一台打流机的一行读数，返回 {pkt bw err lenerr 线速}
-proc show_tester {t {tag {}} {ovh 24}} {
+proc show_tester {t {tag {}} {ovh 38}} {
   set pkt [cnt $t pkt]; set bw [cnt $t bw]; set err [cnt $t err]; set le [cnt $t lenerr]
   set gb  [bw_gbps $bw $ovh]
   puts [format "    %-14s %-7s pkt=%-12s bw=%-14s 线速=%s  err=%-6s len_err=%s" \

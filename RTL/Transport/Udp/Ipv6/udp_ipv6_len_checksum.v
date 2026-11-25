@@ -7,8 +7,7 @@
 
 // Description : 计算IPv6 UDP发送长度和校验和，整包缓存后输出。
 // Note        : 输入为最多65527字节的应用载荷，非末拍keep全1，末拍keep低位连续。
-//               total_len和head_checksum保留总线字节序，与首拍对齐且包内保持恒定。
-//               usr为{目的IP, 源IP, 目的端口, 源端口, Hop Limit, 请求}，包内保持恒定。
+//               usr为{UDP首部,IPv6首部,请求}，包内保持恒定。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -17,7 +16,7 @@
 
 module udp_ipv6_len_checksum #(
     parameter  integer ReqWidth = 4,
-    localparam integer UsrWidth = ReqWidth + 296
+    localparam integer UsrWidth = ReqWidth + 384
 ) (
     input wire clk,
     input wire rst,
@@ -34,10 +33,7 @@ module udp_ipv6_len_checksum #(
     output wire                axis_mlast,
     output wire                axis_mvalid,
     output wire [UsrWidth-1:0] axis_musr,
-    input  wire                axis_mready,
-
-    output wire [15:0] total_len,     // UDP长度(=8+载荷)
-    output wire [15:0] head_checksum  // UDP校验和(含伪首部)
+    input  wire                axis_mready
 );
 
   // 写入
@@ -70,9 +66,9 @@ module udp_ipv6_len_checksum #(
   localparam integer FifoDepth = 1024;
   localparam integer PipelineDepth = 7;
   localparam integer ShiftDepth = PipelineDepth - 1;
-  localparam integer UsrSrcPortLsb = ReqWidth + 8;
-  localparam integer UsrDstPortLsb = ReqWidth + 24;
-  localparam integer UsrSrcIpLsb = ReqWidth + 40;
+  localparam integer UsrSrcPortLsb = ReqWidth + 320;
+  localparam integer UsrDstPortLsb = ReqWidth + 336;
+  localparam integer UsrSrcIpLsb = ReqWidth + 64;
   localparam integer UsrDstIpLsb = UsrSrcIpLsb + 128;
 
   // 入口skid接口
@@ -174,6 +170,7 @@ module udp_ipv6_len_checksum #(
   wire                        result_head_take;
 
   // 出口skid接口
+  wire    [     UsrWidth-1:0] axis_musr_skid;
   wire                        axis_mready_skid;
   wire                        axis_mvalid_skid;
 
@@ -505,9 +502,19 @@ module udp_ipv6_len_checksum #(
   end
 
   // 读侧skid
+  // 逐帧结果回填首部侧带，载荷与其余字段保持不变。
+  assign axis_musr_skid = {
+    selected_result[15:0],
+    selected_result[31:16],
+    fifo_axis_musr[ReqWidth+320+:32],
+    fifo_axis_musr[ReqWidth+48+:272],
+    selected_result[31:16],
+    fifo_axis_musr[ReqWidth+31:0]
+  };
+
   axis_skid_buffer #(
       .DataWidth(512),
-      .UsrWidth (UsrWidth + 32)
+      .UsrWidth (UsrWidth)
   ) axis_skid_buffer_out (
       .clk        (clk),
       .rst        (rst),
@@ -515,14 +522,14 @@ module udp_ipv6_len_checksum #(
       .axis_skeep (fifo_axis_mkeep),
       .axis_slast (fifo_axis_mlast),
       .axis_svalid(axis_mvalid_skid),
-      .axis_susr  ({selected_result, fifo_axis_musr}),
+      .axis_susr  (axis_musr_skid),
       .axis_sready(axis_mready_skid),
       .axis_mdata (axis_mdata),
       .axis_mkeep (axis_mkeep),
       .axis_mlast (axis_mlast),
       .axis_mvalid(axis_mvalid),
       .axis_mready(axis_mready),
-      .axis_musr  ({total_len, head_checksum, axis_musr})
+      .axis_musr  (axis_musr)
   );
 endmodule
 `resetall

@@ -14,9 +14,9 @@
 `timescale 1ns / 100ps
 
 module eth_type_demux #(
-    parameter integer TypeCount = 2,
+    parameter  integer TypeCount    = 2,
     localparam integer TypeCountEff = (TypeCount > 0) ? TypeCount : 1,
-    parameter integer UsrWidth = 1
+    parameter  integer UsrWidth     = 113
 ) (
     input wire clk,
     input wire rst,
@@ -49,6 +49,9 @@ module eth_type_demux #(
       $finish;
     end
   end
+
+  // 接收usr中的首部字段位置
+  localparam integer EthHeaderOffset = 1;
 
   // 字典配置
   reg  [TypeCountEff*16-1:0] cfg_type_dict_d1;
@@ -116,7 +119,8 @@ module eth_type_demux #(
       assign matched_channel_onehot[type_index] = !has_prior_type_match[type_index];
     end else begin : gen_range_type
       wire type_matches_header;
-      assign type_matches_header = cfg_type_dict_d1[type_index*16+:16] == axis_sdata_skid[96+:16];
+      assign type_matches_header =
+        cfg_type_dict_d1[type_index*16+:16] == axis_susr_skid[EthHeaderOffset+96+:16];
       assign matched_channel_onehot[type_index] =
           type_matches_header && !has_prior_type_match[type_index];
       assign has_prior_type_match[type_index+1] =

@@ -53,12 +53,16 @@ module tb_arp_announce_integration;
       .b_gt_rxp_in(4'd0), .b_gt_rxn_in(4'd0),
       .b_gt_ref_clk_p(init_clk), .b_gt_ref_clk_n(!init_clk), .b_qsfp_present_n(1'b0),
       .a_mac_axis_mready('1), .a_ipv4_axis_mready('1), .a_icmp_axis_mready(1'b1),
+      .a_icmpv6_axis_mready(1'b1),
       .a_ipv6_axis_mready('1), .a_udp_ipv4_axis_mready('1), .a_udp_ipv6_axis_mready('1),
       .b_mac_axis_mready('1), .b_ipv4_axis_mready('1), .b_icmp_axis_mready(1'b1),
+      .b_icmpv6_axis_mready(1'b1),
       .b_ipv6_axis_mready('1), .b_udp_ipv4_axis_mready('1), .b_udp_ipv6_axis_mready('1),
       .a_mac_axis_svalid('0), .a_ipv4_axis_svalid('0), .a_icmp_axis_svalid(1'b0),
+      .a_icmpv6_axis_svalid(1'b0),
       .a_ipv6_axis_svalid('0), .a_udp_ipv4_axis_svalid('0), .a_udp_ipv6_axis_svalid('0),
       .b_mac_axis_svalid('0), .b_ipv4_axis_svalid('0), .b_icmp_axis_svalid(1'b0),
+      .b_icmpv6_axis_svalid(1'b0),
       .b_ipv6_axis_svalid('0), .b_udp_ipv4_axis_svalid('0), .b_udp_ipv6_axis_svalid('0)
   );
 

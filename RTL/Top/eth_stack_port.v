@@ -5,7 +5,7 @@
 // Created     : 2026-11-19
 // Version     : v1.0
 // -----------------------------------------------------------------------------
-// Description : 连接单网口链路层、IP、ARP、ICMPv4、UDP和配置。
+// Description : 连接单网口链路层、IP、ARP、ICMPv4/v6、UDP和配置。
 // Note        : 配置通路为本口UDP/IPv4；物理口封装给出固定通道数及默认值。
 // -----------------------------------------------------------------------------
 
@@ -22,14 +22,16 @@ module eth_stack_port #(
     parameter  integer MacTxCount     = 2,
     parameter  integer Ipv4RxCount    = 3,
     parameter  integer Ipv4TxCount    = 4,
-    parameter  integer Ipv6RxCount    = 3,
-    parameter  integer Ipv6TxCount    = 3,
+    parameter  integer Ipv6RxCount    = 2,
+    parameter  integer Ipv6TxCount    = 2,
     parameter  integer UdpIpv4RxCount = 3,
     parameter  integer UdpIpv6RxCount = 3,
     parameter  integer UdpIpv4TxCount = 8,
     parameter  integer UdpIpv6TxCount = 2,
     localparam integer IcmpRxCount    = 1,
     parameter  integer IcmpTxCount    = 1,
+    localparam integer Icmpv6RxCount  = 1,
+    parameter  integer Icmpv6TxCount  = 1,
 
     // 地址表规模
     parameter integer LocalIpv4Count = 3,
@@ -47,16 +49,18 @@ module eth_stack_port #(
     localparam integer Ipv4RxUsrWidth    = 273,
     localparam integer Ipv6RxUsrWidth    = 433,
     localparam integer IcmpRxUsrWidth    = 337,
+    localparam integer Icmpv6RxUsrWidth  = 497,
     localparam integer UdpIpv4RxUsrWidth = 337,
     localparam integer UdpIpv6RxUsrWidth = 497,
     localparam integer IcmpTxUsrWidth    = 224 + ReqWidth,
+    localparam integer Icmpv6TxUsrWidth  = 384 + ReqWidth,
     localparam integer UdpTxUsrWidth     = 224 + ReqWidth,
     localparam integer UdpIpv6TxUsrWidth = 384 + ReqWidth,
 
     // 固定接收字典
     parameter [16*MacRxCount-1:0] MacTypeDict  = {16'hcc88, 16'hb588},
     parameter [8*Ipv4RxCount-1:0] Ipv4TypeDict = {8'h06, 8'h59, 8'hfd},
-    parameter [8*Ipv6RxCount-1:0] Ipv6TypeDict = {8'h59, 8'h3a, 8'h11},
+    parameter [8*Ipv6RxCount-1:0] Ipv6TypeDict = {8'h59, 8'h11},
 
     // 管理地址与路由
     parameter [47:0] MgmtMac        = 48'h010000_311900,
@@ -161,6 +165,22 @@ module eth_stack_port #(
     input  wire [               IcmpTxCount-1:0] icmp_axis_slast,
     output wire [               IcmpTxCount-1:0] icmp_axis_sready,
 
+    // ICMPv6接收
+    output wire [             512*Icmpv6RxCount-1:0] icmpv6_axis_mdata,
+    output wire [              64*Icmpv6RxCount-1:0] icmpv6_axis_mkeep,
+    output wire [Icmpv6RxUsrWidth*Icmpv6RxCount-1:0] icmpv6_axis_musr,
+    output wire [                 Icmpv6RxCount-1:0] icmpv6_axis_mvalid,
+    output wire [                 Icmpv6RxCount-1:0] icmpv6_axis_mlast,
+    input  wire [                 Icmpv6RxCount-1:0] icmpv6_axis_mready,
+
+    // ICMPv6发送
+    input  wire [             512*Icmpv6TxCount-1:0] icmpv6_axis_sdata,
+    input  wire [              64*Icmpv6TxCount-1:0] icmpv6_axis_skeep,
+    input  wire [Icmpv6TxUsrWidth*Icmpv6TxCount-1:0] icmpv6_axis_susr,
+    input  wire [                 Icmpv6TxCount-1:0] icmpv6_axis_svalid,
+    input  wire [                 Icmpv6TxCount-1:0] icmpv6_axis_slast,
+    output wire [                 Icmpv6TxCount-1:0] icmpv6_axis_sready,
+
     // IPv6接收
     output wire [           512*(Ipv6RxCount+1)-1:0] ipv6_axis_mdata,
     output wire [            64*(Ipv6RxCount+1)-1:0] ipv6_axis_mkeep,
@@ -218,7 +238,7 @@ module eth_stack_port #(
   initial begin
     if (MacRxCount < 1 || MacTxCount < 1 || Ipv4RxCount < 1 || Ipv4TxCount < 1 || Ipv6RxCount < 1 ||
         Ipv6TxCount < 1 || UdpIpv4RxCount < 1 || UdpIpv4TxCount < 1 ||
-        UdpIpv6RxCount < 1 || UdpIpv6TxCount < 1 || IcmpTxCount < 1 || ClkFreqHz < 1000) begin
+        UdpIpv6RxCount < 1 || UdpIpv6TxCount < 1 || IcmpTxCount < 1 || Icmpv6TxCount < 1 || ClkFreqHz < 1000) begin
       $display("错误：eth_stack_port：不支持的通道数量或时钟频率。");
       $finish;
     end
@@ -392,6 +412,20 @@ module eth_stack_port #(
   wire                                 ipv4_icmp_tx_valid;
   wire                                 ipv4_icmp_tx_last;
   wire                                 ipv4_icmp_tx_ready;
+  //// ICMPv6接收
+  wire [                        511:0] ipv6_icmp_rx_data;
+  wire [                         63:0] ipv6_icmp_rx_keep;
+  wire [           Ipv6RxUsrWidth-1:0] ipv6_icmp_rx_usr;
+  wire                                 ipv6_icmp_rx_valid;
+  wire                                 ipv6_icmp_rx_last;
+  wire                                 ipv6_icmp_rx_ready;
+  //// ICMPv6发送
+  wire [                        511:0] ipv6_icmp_tx_data;
+  wire [                         63:0] ipv6_icmp_tx_keep;
+  wire [           Ipv6TxUsrWidth-1:0] ipv6_icmp_tx_usr;
+  wire                                 ipv6_icmp_tx_valid;
+  wire                                 ipv6_icmp_tx_last;
+  wire                                 ipv6_icmp_tx_ready;
   //// 配置命令接收
   wire [                        511:0] cmd_rx_data;
   wire [                         63:0] cmd_rx_keep;
@@ -622,36 +656,36 @@ module eth_stack_port #(
       .stat_ttl_error   (stat_icmp_ttl_error)
   );
 
-  // IPv6：内部档0接收UDP，其余用户通道保持原索引。
+  // IPv6：UDP在档0，ICMPv6在档1。
   ipv6_top #(
-      .RxTypeCount     (Ipv6RxCount + 1),
+      .RxTypeCount     (Ipv6RxCount + 2),
       .DstMacEntryCount(DstIpv6Count),
       .SrcMacEntryCount(SrcIpv6Count),
-      .TxChannelCount  (Ipv6TxCount + 1),
+      .TxChannelCount  (Ipv6TxCount + 2),
       .TxReqWidth      (ReqWidth)
   ) ipv6_top_inst (
       .clk             (clk),
       .rst             (rst),
       .cfg_stat_clear  (cfg_stat_clear),
-      .cfg_rx_type_dict({Ipv6TypeDict, 8'h11}),
+      .cfg_rx_type_dict({Ipv6TypeDict, 8'h3a, 8'h11}),
       .rx_axis_sdata   (ipv6_eth_rx_data),
       .rx_axis_skeep   (ipv6_eth_rx_keep),
       .rx_axis_susr    (ipv6_eth_rx_usr),
       .rx_axis_svalid  (ipv6_eth_rx_valid),
       .rx_axis_slast   (ipv6_eth_rx_last),
       .rx_axis_sready  (ipv6_eth_rx_ready),
-      .rx_axis_mdata   ({ipv6_axis_mdata, ipv6_udp_rx_data}),
-      .rx_axis_mkeep   ({ipv6_axis_mkeep, ipv6_udp_rx_keep}),
-      .rx_axis_musr    ({ipv6_axis_musr, ipv6_udp_rx_usr}),
-      .rx_axis_mvalid  ({ipv6_axis_mvalid, ipv6_udp_rx_valid}),
-      .rx_axis_mlast   ({ipv6_axis_mlast, ipv6_udp_rx_last}),
-      .rx_axis_mready  ({ipv6_axis_mready, ipv6_udp_rx_ready}),
-      .tx_axis_sdata   ({ipv6_axis_sdata, ipv6_udp_tx_data}),
-      .tx_axis_skeep   ({ipv6_axis_skeep, ipv6_udp_tx_keep}),
-      .tx_axis_susr    ({ipv6_axis_susr, ipv6_udp_tx_usr}),
-      .tx_axis_svalid  ({ipv6_axis_svalid, ipv6_udp_tx_valid}),
-      .tx_axis_slast   ({ipv6_axis_slast, ipv6_udp_tx_last}),
-      .tx_axis_sready  ({ipv6_axis_sready, ipv6_udp_tx_ready}),
+      .rx_axis_mdata   ({ipv6_axis_mdata, ipv6_icmp_rx_data, ipv6_udp_rx_data}),
+      .rx_axis_mkeep   ({ipv6_axis_mkeep, ipv6_icmp_rx_keep, ipv6_udp_rx_keep}),
+      .rx_axis_musr    ({ipv6_axis_musr, ipv6_icmp_rx_usr, ipv6_udp_rx_usr}),
+      .rx_axis_mvalid  ({ipv6_axis_mvalid, ipv6_icmp_rx_valid, ipv6_udp_rx_valid}),
+      .rx_axis_mlast   ({ipv6_axis_mlast, ipv6_icmp_rx_last, ipv6_udp_rx_last}),
+      .rx_axis_mready  ({ipv6_axis_mready, ipv6_icmp_rx_ready, ipv6_udp_rx_ready}),
+      .tx_axis_sdata   ({ipv6_axis_sdata, ipv6_icmp_tx_data, ipv6_udp_tx_data}),
+      .tx_axis_skeep   ({ipv6_axis_skeep, ipv6_icmp_tx_keep, ipv6_udp_tx_keep}),
+      .tx_axis_susr    ({ipv6_axis_susr, ipv6_icmp_tx_usr, ipv6_udp_tx_usr}),
+      .tx_axis_svalid  ({ipv6_axis_svalid, ipv6_icmp_tx_valid, ipv6_udp_tx_valid}),
+      .tx_axis_slast   ({ipv6_axis_slast, ipv6_icmp_tx_last, ipv6_udp_tx_last}),
+      .tx_axis_sready  ({ipv6_axis_sready, ipv6_icmp_tx_ready, ipv6_udp_tx_ready}),
       .tx_axis_mdata   (ipv6_eth_tx_data),
       .tx_axis_mkeep   (ipv6_eth_tx_keep),
       .tx_axis_musr    (ipv6_eth_tx_usr),
@@ -663,6 +697,40 @@ module eth_stack_port #(
       .cfg_src_ipv6    (cfg_src_ipv6),
       .cfg_src_mac     (cfg_src_mac),
       .stat_tx_drop    (stat_ipv6_tx_drop)
+  );
+
+  // ICMPv6
+  icmpv6_top #(
+      .ReqWidth      (ReqWidth),
+      .TxChannelCount(Icmpv6TxCount)
+  ) icmpv6_top_inst (
+      .clk              (clk),
+      .rst              (rst),
+      .cfg_arbiter_value(cfg_icmp_priority),
+      .rx_axis_sdata    (ipv6_icmp_rx_data),
+      .rx_axis_skeep    (ipv6_icmp_rx_keep),
+      .rx_axis_susr     (ipv6_icmp_rx_usr),
+      .rx_axis_svalid   (ipv6_icmp_rx_valid),
+      .rx_axis_slast    (ipv6_icmp_rx_last),
+      .rx_axis_sready   (ipv6_icmp_rx_ready),
+      .other_axis_mdata (icmpv6_axis_mdata),
+      .other_axis_mkeep (icmpv6_axis_mkeep),
+      .other_axis_musr  (icmpv6_axis_musr),
+      .other_axis_mvalid(icmpv6_axis_mvalid),
+      .other_axis_mlast (icmpv6_axis_mlast),
+      .other_axis_mready(icmpv6_axis_mready),
+      .tx_axis_sdata    (icmpv6_axis_sdata),
+      .tx_axis_skeep    (icmpv6_axis_skeep),
+      .tx_axis_susr     (icmpv6_axis_susr),
+      .tx_axis_svalid   (icmpv6_axis_svalid),
+      .tx_axis_slast    (icmpv6_axis_slast),
+      .tx_axis_sready   (icmpv6_axis_sready),
+      .tx_axis_mdata    (ipv6_icmp_tx_data),
+      .tx_axis_mkeep    (ipv6_icmp_tx_keep),
+      .tx_axis_musr     (ipv6_icmp_tx_usr),
+      .tx_axis_mvalid   (ipv6_icmp_tx_valid),
+      .tx_axis_mlast    (ipv6_icmp_tx_last),
+      .tx_axis_mready   (ipv6_icmp_tx_ready)
   );
 
   // UDP(IPv6)：端口字典独立配置，末路为兜底。

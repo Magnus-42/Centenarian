@@ -26,7 +26,8 @@
 | MAC RX / TX | 3 / 2 | 2 / 3 |
 | IPv4 RX / TX | 4 / 4 | 4 / 4 |
 | ICMPv4 RX / TX | 1 / 1 | 1 / 1 |
-| IPv6 RX / TX | 4 / 3 | 4 / 3 |
+| ICMPv6 RX / TX | 1 / 1 | 1 / 1 |
+| IPv6 RX / TX | 3 / 2 | 3 / 2 |
 | UDP(IPV4) RX / TX | 4 / 8 | 4 / 4 |
 | UDP(IPV4) RX 业务档 0 / 1 / 2 | 0–8 / 16 / 32–48 | 0–8 / 16 / 32–48 |
 | UDP(IPV6) RX / TX | 4 / 2 | 4 / 2 |
@@ -41,9 +42,9 @@
 | --- | ---: | ---: |
 | ARP 请求、应答和主动通告 | 15 | 15 |
 | UDP/IPv4 配置应答 | 14 | 14 |
-| ICMPv4 自动回显应答 | 13 | 13 |
+| ICMPv4/v6 自动回显应答 | 13 | 13 |
 | OSPFv4 和 OSPFv3 测试 | 12 | 12 |
-| ICMPv4 Echo Reply 测试、IPv6 `Next Header=0x3A` 分流测试 | 10 | 10 |
+| ICMPv4/v6 Echo Reply 测试 | 10 | 10 |
 | UDP/IPv4 和 UDP/IPv6 业务测试 | 8 | 8 |
 | 原始 IPv4 `Protocol=0x06` 测试 | 7 | 7 |
 | 自定义 MAC `0x88B5` 测试 | 6 | 6 |
@@ -52,7 +53,7 @@
 
 参考设计的 `ReqWidth` 为 4。请求值为 0 时不参与仲裁，数值越大越优先。同一仲裁器对同优先级请求按帧轮询。发送路径使用分层仲裁，跨层或跨协议的同优先级流仍受各自路径的仲裁结果和背压影响，带宽可能不同。 [打流顶层](../RTL/Test/Top/subsys_test_top.v) · [TX 仲裁器](../RTL/Bsp/Axis/axis_value_rr_arbiter.v)
 
-配置应答、ARP 和 ICMPv4 自动回显的优先级分别通过本口配置项 `0x13`、`0x25` 和 `0x2C` 修改。[配置项](05-config-command.md#配置项) · [单口协议栈](../RTL/Top/eth_stack_port.v)
+配置应答、ARP 和 ICMPv4/v6 自动回显的优先级分别通过本口配置项 `0x13`、`0x25` 和 `0x2C` 修改。[配置项](05-config-command.md#配置项) · [单口协议栈](../RTL/Top/eth_stack_port.v)
 
 ## 排列规则与地址
 

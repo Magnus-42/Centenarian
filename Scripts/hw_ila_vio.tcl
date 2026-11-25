@@ -74,10 +74,10 @@ if {![info exists ::FRAME_BYTES   ]} { set ::FRAME_BYTES    1024 }
 if {![info exists ::BW_FULL_REF   ]} { set ::BW_FULL_REF   12213921472 } ;# PKT_LEN_BEATS(16) × 64B
 # 线速换算的"额外长度"（字节）：按打流机所在层次，L = 打流机每包计数的字节数
 #   MAC 层    +38（前导码/SFD 8 + FCS 4 + IFG 12 + Ethernet 首部 14）
-#   IPv4     +58，IPv6 +78；ICMPv4 +66，打流机收发均为本层负载
+#   IPv4     +58，IPv6 +78；ICMPv4 +66，ICMPv6 +86，打流机收发均为本层负载
 #   UDP       +66（= 24 + 14 以太网首部 + 20 IPv4 首部 + 8 UDP 首部）
 #   UDP/IPv6  +86（= 24 + 14 + 40 IPv6 首部 + 8 UDP 首部）
-set _ovh_defaults {udp 66 fb_udp 66 udp_ipv6 86 fb_udp_ipv6 86 ipv4_06 58 icmp 66 ospf 58 ip6icmp 78 ip6ospf 78 \
+set _ovh_defaults {udp 66 fb_udp 66 udp_ipv6 86 fb_udp_ipv6 86 ipv4_06 58 icmp 66 ospf 58 icmpv6 86 ip6ospf 78 \
                    fb_ipv4 58 fb_ipv6 78 mac_88b5 38 mac_88cc 38 fb_mac 38}
 if {![info exists ::CHAN_OVH]} {
   set ::CHAN_OVH $_ovh_defaults
@@ -103,10 +103,12 @@ if {![info exists ::BASE_LEAK_RATIO]} { set ::BASE_LEAK_RATIO 0.005 }
 if {![info exists ::DEFAULT_SETTLE]} { set ::DEFAULT_SETTLE 3.0  } ;# 使能后等待秒数(计数每秒锁存)
 
 # ---- VIO 位 → 使能名（与 RTL/Test/Top/subsys_test_top.v 的 probe_out 注释一致）----
+# bit 10、12 为 ICMPv6 TX 测试，本层载荷不包含 ICMPv6 首部。
+# probe_out23 为包间隔，位图 bit 23..26 对应 probe_out24..27。
 set ::EN_NAMES {
   en_a_udp      en_a_icmp     en_a_ospf     en_a_ipv4_06  en_a_mac_88b5
   en_b_udp      en_b_icmp     en_b_ospf     en_b_ipv4_06  en_b_mac_88b5
-  en_a_ip6icmp  en_a_ip6ospf  en_b_ip6icmp  en_b_ip6ospf
+  en_a_icmpv6  en_a_ip6ospf  en_b_icmpv6  en_b_ip6ospf
   en_a_fb_mac   en_a_fb_ipv4  en_a_fb_ipv6  en_a_fb_udp
   en_b_mac_88cc en_b_fb_mac   en_b_fb_ipv4  en_b_fb_ipv6 en_b_fb_udp
   en_a_udp_ipv6 en_b_udp_ipv6 en_a_fb_udp_ipv6 en_b_fb_udp_ipv6
@@ -115,10 +117,10 @@ set ::EN_NAMES {
 # ---- 27 台打流机例化名（与 subsys_test_top.v 一致；用于把 ILA 探针归到"哪台"）----
 set ::TESTERS {
   u_ta_udp      u_ta_icmp     u_ta_ospf     u_ta_ipv4_06  u_ta_mac_88b5
-  u_ta_ip6icmp  u_ta_ip6ospf
+  u_ta_icmpv6   u_ta_ip6ospf
   u_ta_fb_mac   u_ta_fb_ipv4  u_ta_fb_ipv6  u_ta_fb_udp
   u_tb_udp      u_tb_icmp     u_tb_ospf     u_tb_ipv4_06  u_tb_mac_88b5
-  u_tb_mac_88cc u_tb_ip6icmp  u_tb_ip6ospf
+  u_tb_mac_88cc u_tb_icmpv6   u_tb_ip6ospf
   u_tb_fb_mac   u_tb_fb_ipv4  u_tb_fb_ipv6  u_tb_fb_udp
   u_ta_udp_ipv6 u_tb_udp_ipv6 u_ta_fb_udp_ipv6 u_tb_fb_udp_ipv6
 }
@@ -133,7 +135,7 @@ set ::CNT_KEYS {
 }
 
 # ---- 通道分组 ----
-set ::DUAL_CHANS {udp udp_ipv6 icmp ospf ipv4_06 mac_88b5 ip6icmp ip6ospf} ;# A/B 两侧都有的
+set ::DUAL_CHANS {udp udp_ipv6 icmp ospf ipv4_06 mac_88b5 icmpv6 ip6ospf} ;# A/B 两侧都有的
 set ::FB_CHANS   {fb_mac fb_ipv4 fb_ipv6 fb_udp fb_udp_ipv6}                   ;# 未匹配兜底探测
 # 场景 3 选用不同优先级的通道，按 subsys_test_top.v 中的 PRIO_* 值从高到低排列。
 set ::SC3_PRIORITIES {ospf 12 icmp 10 udp 8 mac_88b5 6 fb_ipv4 2}
@@ -1039,7 +1041,7 @@ proc is_mac_chan {ch} { expr {[string match "mac_*" $ch] || $ch eq "fb_mac"} }
 # 仅 MAC 未匹配档（fb_mac）允许非零错误计数（交换机其他帧自然落进该档）
 # 错误计数豁免的通道（天然会收到交换机其它帧）：默认仅 MAC 未匹配档 fb_mac。
 # 若确认某通道的错误计数同样来自交换机流量，可追加，例如：
-#   set ::ERR_IGNORE_CHANS {fb_mac ip6icmp fb_ipv6 fb_udp}
+#   set ::ERR_IGNORE_CHANS {fb_mac icmpv6 fb_ipv6 fb_udp}
 if {![info exists ::ERR_IGNORE_CHANS]} { set ::ERR_IGNORE_CHANS {fb_mac} }
 proc err_ignored {ch} { expr {[lsearch -exact $::ERR_IGNORE_CHANS $ch] >= 0} }
 
@@ -1451,6 +1453,7 @@ if {[llength $argv] == 0} {
   log "  hw_run sc1                           # ① 通道连通性（逐路全自动核对）"
   log "  hw_run sc2                           # ② 单通道线速（双向满载，换算线速）"
   log "  hw_run sc2 udp udp_ipv6              #    依次测 UDP/IPv4 和 UDP/IPv6"
+  log "  hw_run sc2 icmp icmpv6                #    依次测 ICMPv4 和 ICMPv6"
   log "  hw_run sc3                           # ③ 严格优先级（逐路关闭 + 饿死判据）"
   log "  hw_run sc4                           # ④ 未匹配通道（各协议兜底探测）"
   log "  hw_run scall                         #  ①~④ 全跑 + 总判定表"

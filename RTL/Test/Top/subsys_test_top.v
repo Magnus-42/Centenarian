@@ -74,7 +74,7 @@ module subsys_test_top (
   localparam [3:0] PRIO_OSPF = 4'd12;  // OSPFv4测试
   localparam [3:0] PRIO_OSPFV3 = 4'd12;  // OSPFv3测试
   localparam [3:0] PRIO_ICMP = 4'd10;  // ICMPv4 Echo Reply测试
-  localparam [3:0] PRIO_ICMPV6 = 4'd10;  // IPv6 Next Header 0x3A分流测试
+  localparam [3:0] PRIO_ICMPV6 = 4'd10;  // ICMPv6 Echo Reply测试
   localparam [3:0] PRIO_UDP = 4'd8;  // UDP(v4/v6)业务测试
   localparam [3:0] PRIO_IP06 = 4'd7;  // 原始IPv4协议0x06
   localparam [3:0] PRIO_MAC = 4'd6;  // 自定义类型0x88B5和0x88CC
@@ -275,11 +275,11 @@ module subsys_test_top (
   localparam [15:0] IPV6_PL_LE = {
     IPV6_PL[7:0], IPV6_PL[15:8]
   };  // 长度字段交换字节顺序后放入总线
-  localparam [319:0] HDR_IP6_ICMP_A = {
-    DST_IPV6_A, SRC_IPV6_A, 8'h40, 8'h3A, IPV6_PL_LE, 24'd0, 8'h60
+  localparam [383:0] HDR_IP6_ICMP_A = {
+    32'd0, 16'd0, 8'd0, 8'h81, DST_IPV6_A, SRC_IPV6_A, 8'h40, 8'h3A, 16'd0, 24'd0, 8'h60
   };
-  localparam [319:0] HDR_IP6_ICMP_B = {
-    DST_IPV6_B, SRC_IPV6_B, 8'h40, 8'h3A, IPV6_PL_LE, 24'd0, 8'h60
+  localparam [383:0] HDR_IP6_ICMP_B = {
+    32'd0, 16'd0, 8'd0, 8'h81, DST_IPV6_B, SRC_IPV6_B, 8'h40, 8'h3A, 16'd0, 24'd0, 8'h60
   };
   localparam [319:0] HDR_IP6_OSPF_A = {
     DST_IPV6_A, SRC_IPV6_A, 8'h40, 8'h59, IPV6_PL_LE, 24'd0, 8'h60
@@ -313,9 +313,9 @@ module subsys_test_top (
   wire en_b_ospf;
   wire en_b_ipv4_06;
   wire en_b_mac_88b5;
-  wire en_a_ip6icmp;
+  wire en_a_icmpv6;
   wire en_a_ip6ospf;
-  wire en_b_ip6icmp;
+  wire en_b_icmpv6;
   wire en_b_ip6ospf;
   wire en_a_fb_mac;
   wire en_a_fb_ipv4;
@@ -377,20 +377,35 @@ module subsys_test_top (
   wire a_icmp_axis_slast;
   wire a_icmp_axis_sready;
 
+  // A口ICMPv6接收接口
+  wire [511:0] a_icmpv6_axis_mdata;
+  wire [63:0] a_icmpv6_axis_mkeep;
+  wire a_icmpv6_axis_mvalid;
+  wire a_icmpv6_axis_mlast;
+  wire a_icmpv6_axis_mready;
+
+  // A口ICMPv6发送接口
+  wire [511:0] a_icmpv6_axis_sdata;
+  wire [63:0] a_icmpv6_axis_skeep;
+  wire [387:0] a_icmpv6_axis_susr;
+  wire a_icmpv6_axis_svalid;
+  wire a_icmpv6_axis_slast;
+  wire a_icmpv6_axis_sready;
+
   // A口IPv6接收接口
-  wire [2047:0] a_ipv6_axis_mdata;
-  wire [255:0] a_ipv6_axis_mkeep;
-  wire [3:0] a_ipv6_axis_mvalid;
-  wire [3:0] a_ipv6_axis_mlast;
-  wire [3:0] a_ipv6_axis_mready;
+  wire [1535:0] a_ipv6_axis_mdata;
+  wire [191:0] a_ipv6_axis_mkeep;
+  wire [2:0] a_ipv6_axis_mvalid;
+  wire [2:0] a_ipv6_axis_mlast;
+  wire [2:0] a_ipv6_axis_mready;
 
   // A口IPv6发送接口
-  wire [1535:0] a_ipv6_axis_sdata;
-  wire [191:0] a_ipv6_axis_skeep;
-  wire [3*324-1:0] a_ipv6_axis_susr;
-  wire [2:0] a_ipv6_axis_svalid;
-  wire [2:0] a_ipv6_axis_slast;
-  wire [2:0] a_ipv6_axis_sready;
+  wire [1023:0] a_ipv6_axis_sdata;
+  wire [127:0] a_ipv6_axis_skeep;
+  wire [2*324-1:0] a_ipv6_axis_susr;
+  wire [1:0] a_ipv6_axis_svalid;
+  wire [1:0] a_ipv6_axis_slast;
+  wire [1:0] a_ipv6_axis_sready;
 
   // A口UDP(IPV4)接收接口
   wire [2047:0] a_udp_ipv4_axis_mdata;
@@ -468,20 +483,35 @@ module subsys_test_top (
   wire b_icmp_axis_slast;
   wire b_icmp_axis_sready;
 
+  // B口ICMPv6接收接口
+  wire [511:0] b_icmpv6_axis_mdata;
+  wire [63:0] b_icmpv6_axis_mkeep;
+  wire b_icmpv6_axis_mvalid;
+  wire b_icmpv6_axis_mlast;
+  wire b_icmpv6_axis_mready;
+
+  // B口ICMPv6发送接口
+  wire [511:0] b_icmpv6_axis_sdata;
+  wire [63:0] b_icmpv6_axis_skeep;
+  wire [387:0] b_icmpv6_axis_susr;
+  wire b_icmpv6_axis_svalid;
+  wire b_icmpv6_axis_slast;
+  wire b_icmpv6_axis_sready;
+
   // B口IPv6接收接口
-  wire [2047:0] b_ipv6_axis_mdata;
-  wire [255:0] b_ipv6_axis_mkeep;
-  wire [3:0] b_ipv6_axis_mvalid;
-  wire [3:0] b_ipv6_axis_mlast;
-  wire [3:0] b_ipv6_axis_mready;
+  wire [1535:0] b_ipv6_axis_mdata;
+  wire [191:0] b_ipv6_axis_mkeep;
+  wire [2:0] b_ipv6_axis_mvalid;
+  wire [2:0] b_ipv6_axis_mlast;
+  wire [2:0] b_ipv6_axis_mready;
 
   // B口IPv6发送接口
-  wire [1535:0] b_ipv6_axis_sdata;
-  wire [191:0] b_ipv6_axis_skeep;
-  wire [3*324-1:0] b_ipv6_axis_susr;
-  wire [2:0] b_ipv6_axis_svalid;
-  wire [2:0] b_ipv6_axis_slast;
-  wire [2:0] b_ipv6_axis_sready;
+  wire [1023:0] b_ipv6_axis_sdata;
+  wire [127:0] b_ipv6_axis_skeep;
+  wire [2*324-1:0] b_ipv6_axis_susr;
+  wire [1:0] b_ipv6_axis_svalid;
+  wire [1:0] b_ipv6_axis_slast;
+  wire [1:0] b_ipv6_axis_sready;
 
   // B口UDP(IPV4)接收接口
   wire [2047:0] b_udp_ipv4_axis_mdata;
@@ -595,6 +625,20 @@ module subsys_test_top (
       .a_icmp_axis_slast (a_icmp_axis_slast),
       .a_icmp_axis_sready(a_icmp_axis_sready),
 
+      .a_icmpv6_axis_mdata (a_icmpv6_axis_mdata),
+      .a_icmpv6_axis_mkeep (a_icmpv6_axis_mkeep),
+      .a_icmpv6_axis_musr  (),
+      .a_icmpv6_axis_mvalid(a_icmpv6_axis_mvalid),
+      .a_icmpv6_axis_mlast (a_icmpv6_axis_mlast),
+      .a_icmpv6_axis_mready(a_icmpv6_axis_mready),
+
+      .a_icmpv6_axis_sdata (a_icmpv6_axis_sdata),
+      .a_icmpv6_axis_skeep (a_icmpv6_axis_skeep),
+      .a_icmpv6_axis_susr  (a_icmpv6_axis_susr),
+      .a_icmpv6_axis_svalid(a_icmpv6_axis_svalid),
+      .a_icmpv6_axis_slast (a_icmpv6_axis_slast),
+      .a_icmpv6_axis_sready(a_icmpv6_axis_sready),
+
       .a_ipv6_axis_mdata (a_ipv6_axis_mdata),
       .a_ipv6_axis_mkeep (a_ipv6_axis_mkeep),
       .a_ipv6_axis_musr  (),
@@ -692,6 +736,20 @@ module subsys_test_top (
       .b_icmp_axis_slast (b_icmp_axis_slast),
       .b_icmp_axis_sready(b_icmp_axis_sready),
 
+      .b_icmpv6_axis_mdata (b_icmpv6_axis_mdata),
+      .b_icmpv6_axis_mkeep (b_icmpv6_axis_mkeep),
+      .b_icmpv6_axis_musr  (),
+      .b_icmpv6_axis_mvalid(b_icmpv6_axis_mvalid),
+      .b_icmpv6_axis_mlast (b_icmpv6_axis_mlast),
+      .b_icmpv6_axis_mready(b_icmpv6_axis_mready),
+
+      .b_icmpv6_axis_sdata (b_icmpv6_axis_sdata),
+      .b_icmpv6_axis_skeep (b_icmpv6_axis_skeep),
+      .b_icmpv6_axis_susr  (b_icmpv6_axis_susr),
+      .b_icmpv6_axis_svalid(b_icmpv6_axis_svalid),
+      .b_icmpv6_axis_slast (b_icmpv6_axis_slast),
+      .b_icmpv6_axis_sready(b_icmpv6_axis_sready),
+
       .b_ipv6_axis_mdata (b_ipv6_axis_mdata),
       .b_ipv6_axis_mkeep (b_ipv6_axis_mkeep),
       .b_ipv6_axis_musr  (),
@@ -756,9 +814,8 @@ module subsys_test_top (
     HDR_IP_FB_A, PRIO_FB, HDR_IP_06_A, PRIO_IP06, HDR_IP_OSPF_A, PRIO_OSPF, 164'd0
   };
   assign a_icmp_axis_susr = {HDR_IP_ICMP_A[223:160], HDR_IP_ICMP_A[159:0], PRIO_ICMP};
-  assign a_ipv6_axis_susr = {
-    HDR_IP6_OSPF_A, PRIO_OSPFV3, HDR_IP6_ICMP_A, PRIO_ICMPV6, HDR_IP6_FB_A, PRIO_FB
-  };
+  assign a_icmpv6_axis_susr = {HDR_IP6_ICMP_A, PRIO_ICMPV6};
+  assign a_ipv6_axis_susr = {HDR_IP6_OSPF_A, PRIO_OSPFV3, HDR_IP6_FB_A, PRIO_FB};
   assign a_udp_ipv4_axis_susr = {1368'd0, UDP_USR_FB_A, UDP_USR_DATA_A};
   assign a_udp_ipv6_axis_susr = {UDP_IPV6_USR_FB_A, UDP_IPV6_USR_DATA_A};
 
@@ -785,9 +842,8 @@ module subsys_test_top (
     HDR_IP_FB_B, PRIO_FB, HDR_IP_06_B, PRIO_IP06, HDR_IP_OSPF_B, PRIO_OSPF, 164'd0
   };
   assign b_icmp_axis_susr = {HDR_IP_ICMP_B[223:160], HDR_IP_ICMP_B[159:0], PRIO_ICMP};
-  assign b_ipv6_axis_susr = {
-    HDR_IP6_OSPF_B, PRIO_OSPFV3, HDR_IP6_ICMP_B, PRIO_ICMPV6, HDR_IP6_FB_B, PRIO_FB
-  };
+  assign b_icmpv6_axis_susr = {HDR_IP6_ICMP_B, PRIO_ICMPV6};
+  assign b_ipv6_axis_susr = {HDR_IP6_OSPF_B, PRIO_OSPFV3, HDR_IP6_FB_B, PRIO_FB};
   assign b_udp_ipv4_axis_susr = {456'd0, UDP_USR_FB_B, UDP_USR_DATA_B};
   assign b_udp_ipv6_axis_susr = {UDP_IPV6_USR_FB_B, UDP_IPV6_USR_DATA_B};
 
@@ -916,29 +972,29 @@ module subsys_test_top (
       .axis_sready(b_mac_axis_mready[0])
   );
   //// IPv6业务流
-  ////// A 口 IPv6-icmpv6 -> 口B ch2(0x3A)
+  ////// A口ICMPv6 TX发送Echo Reply，B口ICMPv6 RX校验载荷。
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
       .PKT_LEN_BEATS (PKT_LEN_BEATS),
       .ONE_SEC_CYCLES(ONE_SEC_CYCLES),
       .HDR_BYTES     (320'd0)
-  ) u_ta_ip6icmp (
+  ) u_ta_icmpv6 (
       .clk           (clk_400m),
       .rst           (usr_rst),
-      .test_enable   (en_a_ip6icmp),
+      .test_enable   (en_a_icmpv6),
       .cfg_gap_cycles(cfg_gap_cycles),
 
-      .axis_mdata (a_ipv6_axis_sdata[1*512+:512]),
-      .axis_mkeep (a_ipv6_axis_skeep[1*64+:64]),
-      .axis_mvalid(a_ipv6_axis_svalid[1]),
-      .axis_mlast (a_ipv6_axis_slast[1]),
-      .axis_mready(a_ipv6_axis_sready[1]),
+      .axis_mdata (a_icmpv6_axis_sdata),
+      .axis_mkeep (a_icmpv6_axis_skeep),
+      .axis_mvalid(a_icmpv6_axis_svalid),
+      .axis_mlast (a_icmpv6_axis_slast),
+      .axis_mready(a_icmpv6_axis_sready),
 
-      .axis_sdata (b_ipv6_axis_mdata[2*512+:512]),
-      .axis_skeep (b_ipv6_axis_mkeep[2*64+:64]),
-      .axis_svalid(b_ipv6_axis_mvalid[2]),
-      .axis_slast (b_ipv6_axis_mlast[2]),
-      .axis_sready(b_ipv6_axis_mready[2])
+      .axis_sdata (b_icmpv6_axis_mdata),
+      .axis_skeep (b_icmpv6_axis_mkeep),
+      .axis_svalid(b_icmpv6_axis_mvalid),
+      .axis_slast (b_icmpv6_axis_mlast),
+      .axis_sready(b_icmpv6_axis_mready)
   );
   ////// A 口 IPv6-ospfv3 -> 口B ch1(0x59)
   subsys_100g_tester #(
@@ -952,11 +1008,11 @@ module subsys_test_top (
       .test_enable   (en_a_ip6ospf),
       .cfg_gap_cycles(cfg_gap_cycles),
 
-      .axis_mdata (a_ipv6_axis_sdata[2*512+:512]),
-      .axis_mkeep (a_ipv6_axis_skeep[2*64+:64]),
-      .axis_mvalid(a_ipv6_axis_svalid[2]),
-      .axis_mlast (a_ipv6_axis_slast[2]),
-      .axis_mready(a_ipv6_axis_sready[2]),
+      .axis_mdata (a_ipv6_axis_sdata[1*512+:512]),
+      .axis_mkeep (a_ipv6_axis_skeep[1*64+:64]),
+      .axis_mvalid(a_ipv6_axis_svalid[1]),
+      .axis_mlast (a_ipv6_axis_slast[1]),
+      .axis_mready(a_ipv6_axis_sready[1]),
 
       .axis_sdata (b_ipv6_axis_mdata[1*512+:512]),
       .axis_skeep (b_ipv6_axis_mkeep[1*64+:64]),
@@ -1031,11 +1087,11 @@ module subsys_test_top (
       .axis_mlast (a_ipv6_axis_slast[0]),
       .axis_mready(a_ipv6_axis_sready[0]),
 
-      .axis_sdata (b_ipv6_axis_mdata[3*512+:512]),
-      .axis_skeep (b_ipv6_axis_mkeep[3*64+:64]),
-      .axis_svalid(b_ipv6_axis_mvalid[3]),
-      .axis_slast (b_ipv6_axis_mlast[3]),
-      .axis_sready(b_ipv6_axis_mready[3])
+      .axis_sdata (b_ipv6_axis_mdata[2*512+:512]),
+      .axis_skeep (b_ipv6_axis_mkeep[2*64+:64]),
+      .axis_svalid(b_ipv6_axis_mvalid[2]),
+      .axis_slast (b_ipv6_axis_mlast[2]),
+      .axis_sready(b_ipv6_axis_mready[2])
   );
   ////// A 发 UDP 端口0x1234(不在区间) -> 口B UDP 兜底档
   subsys_100g_tester #(
@@ -1211,16 +1267,40 @@ module subsys_test_top (
       .axis_sready(a_mac_axis_mready[1])
   );
   //// IPv6业务流
-  ////// B 口 IPv6-icmpv6 -> 口A ch1(0x3A)
+  ////// B口ICMPv6 TX发送Echo Reply，A口ICMPv6 RX校验载荷。
   subsys_100g_tester #(
       .AXIS_WIDTH    (AXIS_WIDTH),
       .PKT_LEN_BEATS (PKT_LEN_BEATS),
       .ONE_SEC_CYCLES(ONE_SEC_CYCLES),
       .HDR_BYTES     (320'd0)
-  ) u_tb_ip6icmp (
+  ) u_tb_icmpv6 (
       .clk           (clk_400m),
       .rst           (usr_rst),
-      .test_enable   (en_b_ip6icmp),
+      .test_enable   (en_b_icmpv6),
+      .cfg_gap_cycles(cfg_gap_cycles),
+
+      .axis_mdata (b_icmpv6_axis_sdata),
+      .axis_mkeep (b_icmpv6_axis_skeep),
+      .axis_mvalid(b_icmpv6_axis_svalid),
+      .axis_mlast (b_icmpv6_axis_slast),
+      .axis_mready(b_icmpv6_axis_sready),
+
+      .axis_sdata (a_icmpv6_axis_mdata),
+      .axis_skeep (a_icmpv6_axis_mkeep),
+      .axis_svalid(a_icmpv6_axis_mvalid),
+      .axis_slast (a_icmpv6_axis_mlast),
+      .axis_sready(a_icmpv6_axis_mready)
+  );
+  ////// B 口 IPv6-ospfv3 -> 口A ch1(0x59)
+  subsys_100g_tester #(
+      .AXIS_WIDTH    (AXIS_WIDTH),
+      .PKT_LEN_BEATS (PKT_LEN_BEATS),
+      .ONE_SEC_CYCLES(ONE_SEC_CYCLES),
+      .HDR_BYTES     (320'd0)
+  ) u_tb_ip6ospf (
+      .clk           (clk_400m),
+      .rst           (usr_rst),
+      .test_enable   (en_b_ip6ospf),
       .cfg_gap_cycles(cfg_gap_cycles),
 
       .axis_mdata (b_ipv6_axis_sdata[1*512+:512]),
@@ -1234,30 +1314,6 @@ module subsys_test_top (
       .axis_svalid(a_ipv6_axis_mvalid[1]),
       .axis_slast (a_ipv6_axis_mlast[1]),
       .axis_sready(a_ipv6_axis_mready[1])
-  );
-  ////// B 口 IPv6-ospfv3 -> 口A ch2(0x59)
-  subsys_100g_tester #(
-      .AXIS_WIDTH    (AXIS_WIDTH),
-      .PKT_LEN_BEATS (PKT_LEN_BEATS),
-      .ONE_SEC_CYCLES(ONE_SEC_CYCLES),
-      .HDR_BYTES     (320'd0)
-  ) u_tb_ip6ospf (
-      .clk           (clk_400m),
-      .rst           (usr_rst),
-      .test_enable   (en_b_ip6ospf),
-      .cfg_gap_cycles(cfg_gap_cycles),
-
-      .axis_mdata (b_ipv6_axis_sdata[2*512+:512]),
-      .axis_mkeep (b_ipv6_axis_skeep[2*64+:64]),
-      .axis_mvalid(b_ipv6_axis_svalid[2]),
-      .axis_mlast (b_ipv6_axis_slast[2]),
-      .axis_mready(b_ipv6_axis_sready[2]),
-
-      .axis_sdata (a_ipv6_axis_mdata[2*512+:512]),
-      .axis_skeep (a_ipv6_axis_mkeep[2*64+:64]),
-      .axis_svalid(a_ipv6_axis_mvalid[2]),
-      .axis_slast (a_ipv6_axis_mlast[2]),
-      .axis_sready(a_ipv6_axis_mready[2])
   );
   //// 默认通道探测
   ////// B 发 0x88DD(两口字典都无) -> 口A MAC 兜底档
@@ -1326,11 +1382,11 @@ module subsys_test_top (
       .axis_mlast (b_ipv6_axis_slast[0]),
       .axis_mready(b_ipv6_axis_sready[0]),
 
-      .axis_sdata (a_ipv6_axis_mdata[3*512+:512]),
-      .axis_skeep (a_ipv6_axis_mkeep[3*64+:64]),
-      .axis_svalid(a_ipv6_axis_mvalid[3]),
-      .axis_slast (a_ipv6_axis_mlast[3]),
-      .axis_sready(a_ipv6_axis_mready[3])
+      .axis_sdata (a_ipv6_axis_mdata[2*512+:512]),
+      .axis_skeep (a_ipv6_axis_mkeep[2*64+:64]),
+      .axis_svalid(a_ipv6_axis_mvalid[2]),
+      .axis_slast (a_ipv6_axis_mlast[2]),
+      .axis_sready(a_ipv6_axis_mready[2])
   );
   ////// B 发 UDP 端口0x1234(不在区间) -> 口A UDP 兜底档
   subsys_100g_tester #(
@@ -1468,9 +1524,9 @@ module subsys_test_top (
       .probe_out7 (en_b_ospf),         // B 口 IPv4-ospf
       .probe_out8 (en_b_ipv4_06),      // B 口 IPv4-协议0x06
       .probe_out9 (en_b_mac_88b5),     // B 口 MAC-自定义0x88B5
-      .probe_out10(en_a_ip6icmp),      // A 口 IPv6-icmpv6
+      .probe_out10(en_a_icmpv6),       // A 口 ICMPv6 TX
       .probe_out11(en_a_ip6ospf),      // A 口 IPv6-ospfv3
-      .probe_out12(en_b_ip6icmp),      // B 口 IPv6-icmpv6
+      .probe_out12(en_b_icmpv6),       // B 口 ICMPv6 TX
       .probe_out13(en_b_ip6ospf),      // B 口 IPv6-ospfv3
       .probe_out14(en_a_fb_mac),       // A 发 MAC兜底探测(0x88DD)->B兜底档
       .probe_out15(en_a_fb_ipv4),      // A 发 IPv4兜底探测(0x2F)->B兜底档

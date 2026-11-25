@@ -81,8 +81,8 @@ module eth_stack_port_a #(
     localparam integer MacTxCount        = 2,
     localparam integer Ipv4RxCount       = 3,
     localparam integer Ipv4TxCount       = 4,
-    localparam integer Ipv6RxCount       = 3,
-    localparam integer Ipv6TxCount       = 3,
+    localparam integer Ipv6RxCount       = 2,
+    localparam integer Ipv6TxCount       = 2,
     localparam integer UdpIpv4TxCount    = 8,
     localparam integer UdpIpv6TxCount    = 2,
     localparam integer MacTxUsrWidth     = 112 + ReqWidth,
@@ -92,9 +92,11 @@ module eth_stack_port_a #(
     localparam integer Ipv4RxUsrWidth    = 273,
     localparam integer Ipv6RxUsrWidth    = 433,
     localparam integer IcmpRxUsrWidth    = 337,
+    localparam integer Icmpv6RxUsrWidth  = 497,
     localparam integer UdpIpv4RxUsrWidth = 337,
     localparam integer UdpIpv6RxUsrWidth = 497,
     localparam integer IcmpTxUsrWidth    = 224 + ReqWidth,
+    localparam integer Icmpv6TxUsrWidth  = 384 + ReqWidth,
     localparam integer UdpTxUsrWidth     = 224 + ReqWidth,
     localparam integer UdpIpv6TxUsrWidth = 384 + ReqWidth
 ) (
@@ -168,6 +170,22 @@ module eth_stack_port_a #(
     input  wire                      icmp_axis_slast,
     output wire                      icmp_axis_sready,
 
+    // ICMPv6接收
+    output wire [                 511:0] icmpv6_axis_mdata,
+    output wire [                  63:0] icmpv6_axis_mkeep,
+    output wire [1*Icmpv6RxUsrWidth-1:0] icmpv6_axis_musr,
+    output wire                          icmpv6_axis_mvalid,
+    output wire                          icmpv6_axis_mlast,
+    input  wire                          icmpv6_axis_mready,
+
+    // ICMPv6发送
+    input  wire [               511:0] icmpv6_axis_sdata,
+    input  wire [                63:0] icmpv6_axis_skeep,
+    input  wire [Icmpv6TxUsrWidth-1:0] icmpv6_axis_susr,
+    input  wire                        icmpv6_axis_svalid,
+    input  wire                        icmpv6_axis_slast,
+    output wire                        icmpv6_axis_sready,
+
     // IPv6接收
     output wire [           512*(Ipv6RxCount+1)-1:0] ipv6_axis_mdata,
     output wire [            64*(Ipv6RxCount+1)-1:0] ipv6_axis_mkeep,
@@ -219,10 +237,10 @@ module eth_stack_port_a #(
 
   // 给出A口固定接收字典与管理路由，连接公共单口协议栈。
 
-  // 固定接收字典：IPv4的内置UDP、ICMPv4由公共单口封装添加。
+  // 固定接收字典：内置UDP、ICMPv4/v6由公共单口封装添加。
   localparam [16*MacRxCount-1:0] MacTypeDict = {16'hcc88, 16'hb588};
   localparam [8*Ipv4RxCount-1:0] Ipv4TypeDict = {8'h06, 8'h59, 8'hfd};
-  localparam [8*Ipv6RxCount-1:0] Ipv6TypeDict = {8'h59, 8'h3a, 8'h11};
+  localparam [8*Ipv6RxCount-1:0] Ipv6TypeDict = {8'h59, 8'h11};
 
   // 管理地址槽使用本口的固定网关和掩码。
   localparam [31:0] MgmtGatewayIp = 32'h0101_a8c0;
@@ -325,6 +343,18 @@ module eth_stack_port_a #(
       .icmp_axis_svalid    (icmp_axis_svalid),
       .icmp_axis_slast     (icmp_axis_slast),
       .icmp_axis_sready    (icmp_axis_sready),
+      .icmpv6_axis_mdata   (icmpv6_axis_mdata),
+      .icmpv6_axis_mkeep   (icmpv6_axis_mkeep),
+      .icmpv6_axis_musr    (icmpv6_axis_musr),
+      .icmpv6_axis_mvalid  (icmpv6_axis_mvalid),
+      .icmpv6_axis_mlast   (icmpv6_axis_mlast),
+      .icmpv6_axis_mready  (icmpv6_axis_mready),
+      .icmpv6_axis_sdata   (icmpv6_axis_sdata),
+      .icmpv6_axis_skeep   (icmpv6_axis_skeep),
+      .icmpv6_axis_susr    (icmpv6_axis_susr),
+      .icmpv6_axis_svalid  (icmpv6_axis_svalid),
+      .icmpv6_axis_slast   (icmpv6_axis_slast),
+      .icmpv6_axis_sready  (icmpv6_axis_sready),
       .ipv6_axis_mdata     (ipv6_axis_mdata),
       .ipv6_axis_mkeep     (ipv6_axis_mkeep),
       .ipv6_axis_musr      (ipv6_axis_musr),

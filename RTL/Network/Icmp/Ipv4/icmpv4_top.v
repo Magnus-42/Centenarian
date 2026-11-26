@@ -73,36 +73,20 @@ module icmpv4_top #(
   end
 
   // 接收通路
-  wire [                            511:0] echo_rx_data;
-  wire [                             63:0] echo_rx_keep;
-  wire                                     echo_rx_last;
-  wire                                     echo_rx_valid;
-  wire [                   RxUsrWidth-1:0] echo_rx_usr;
-  wire                                     echo_rx_ready;
+  wire [         511:0] echo_rx_data;
+  wire [          63:0] echo_rx_keep;
+  wire                  echo_rx_last;
+  wire                  echo_rx_valid;
+  wire [RxUsrWidth-1:0] echo_rx_usr;
+  wire                  echo_rx_ready;
 
   // 回显应答通路
-  wire [                            511:0] echo_tx_data;
-  wire [                             63:0] echo_tx_keep;
-  wire                                     echo_tx_last;
-  wire                                     echo_tx_valid;
-  wire [                   TxUsrWidth-1:0] echo_tx_usr;
-  wire                                     echo_tx_ready;
-
-  // 发送仲裁输出
-  wire [                            511:0] tx_mux_data;
-  wire [                             63:0] tx_mux_keep;
-  wire [                   TxUsrWidth-1:0] tx_mux_usr;
-  wire                                     tx_mux_valid;
-  wire                                     tx_mux_last;
-  wire                                     tx_mux_ready;
-
-  // 发送仲裁接口
-  wire [       512*(TxChannelCount+1)-1:0] mux_data;
-  wire [        64*(TxChannelCount+1)-1:0] mux_keep;
-  wire [           (TxChannelCount+1)-1:0] mux_last;
-  wire [           (TxChannelCount+1)-1:0] mux_valid;
-  wire [TxUsrWidth*(TxChannelCount+1)-1:0] mux_usr;
-  wire [           (TxChannelCount+1)-1:0] mux_ready;
+  wire [         511:0] echo_tx_data;
+  wire [          63:0] echo_tx_keep;
+  wire                  echo_tx_last;
+  wire                  echo_tx_valid;
+  wire [TxUsrWidth-1:0] echo_tx_usr;
+  wire                  echo_tx_ready;
 
   // 接收通路
   icmpv4_rx #(
@@ -154,48 +138,19 @@ module icmpv4_top #(
       .stat_ttl_error   (stat_ttl_error)
   );
 
-  // 发送仲裁
-  assign mux_data       = {tx_axis_sdata, echo_tx_data};
-  assign mux_keep       = {tx_axis_skeep, echo_tx_keep};
-  assign mux_last       = {tx_axis_slast, echo_tx_last};
-  assign mux_valid      = {tx_axis_svalid, echo_tx_valid};
-  assign mux_usr        = {tx_axis_susr, echo_tx_usr};
-
-  assign echo_tx_ready  = mux_ready[0];
-  assign tx_axis_sready = mux_ready[TxChannelCount:1];
-
-  icmpv4_tx_mux #(
-      .PortCount(TxChannelCount + 1),
-      .ReqWidth (ReqWidth)
-  ) icmpv4_tx_mux_inst (
-      .clk        (clk),
-      .rst        (rst),
-      .axis_sdata (mux_data),
-      .axis_skeep (mux_keep),
-      .axis_susr  (mux_usr),
-      .axis_svalid(mux_valid),
-      .axis_slast (mux_last),
-      .axis_sready(mux_ready),
-      .axis_mdata (tx_mux_data),
-      .axis_mkeep (tx_mux_keep),
-      .axis_musr  (tx_mux_usr),
-      .axis_mvalid(tx_mux_valid),
-      .axis_mlast (tx_mux_last),
-      .axis_mready(tx_mux_ready)
-  );
-
-  // ICMP发送。
+  // 发送通路
   icmpv4_tx #(
-      .ReqWidth(ReqWidth)
+      .TxChannelCount(TxChannelCount + 1),
+      .ReqWidth      (ReqWidth)
   ) icmpv4_tx_inst (
       .clk        (clk),
       .rst        (rst),
-      .axis_sdata (tx_mux_data),
-      .axis_skeep (tx_mux_keep),
-      .axis_susr  (tx_mux_usr),
-      .axis_svalid(tx_mux_valid),
-      .axis_slast (tx_mux_last),
-      .axis_sready(tx_mux_ready),
+      .axis_sdata ({tx_axis_sdata, echo_tx_data}),
+      .axis_skeep ({tx_axis_skeep, echo_tx_keep}),
+      .axis_susr  ({tx_axis_susr, echo_tx_usr}),
+      .axis_svalid({tx_axis_svalid, echo_tx_valid}),
+      .axis_slast ({tx_axis_slast, echo_tx_last}),
+      .axis_sready({tx_axis_sready, echo_tx_ready}),
       .axis_mdata (tx_axis_mdata),
       .axis_mkeep (tx_axis_mkeep),
       .axis_musr  (tx_axis_musr),

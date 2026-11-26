@@ -70,20 +70,13 @@ module ipv4_top #(
   // 接收通路剥离本层IP头，按IPv4协议字段分流。
   // 发送通路逐路封装IP报文，再完成仲裁、ARP查询并输出MAC首部侧带。
 
-  // 发送仲裁接口
-  wire [       512*TxChannelCount-1:0] header_data;
-  wire [        64*TxChannelCount-1:0] header_keep;
-  wire [           TxChannelCount-1:0] header_last;
-  wire [           TxChannelCount-1:0] header_valid;
-  wire [           TxChannelCount-1:0] header_ready;
-  wire [TxReqWidth*TxChannelCount-1:0] header_usr;
-
-  wire [                        511:0] mux_data;
-  wire [                         63:0] mux_keep;
-  wire                                 mux_last;
-  wire                                 mux_valid;
-  wire [               TxReqWidth-1:0] mux_usr;
-  wire                                 mux_ready;
+  // IP发送输出
+  wire [         511:0] mux_data;
+  wire [          63:0] mux_keep;
+  wire                  mux_last;
+  wire                  mux_valid;
+  wire [TxReqWidth-1:0] mux_usr;
+  wire                  mux_ready;
 
   // 接收通路
   ipv4_rx #(
@@ -107,41 +100,18 @@ module ipv4_top #(
   );
 
   // 发送通路
-  //// IPv4首部校验和与加头
-  genvar tx_index;
-  for (tx_index = 0; tx_index < TxChannelCount; tx_index = tx_index + 1) begin : gen_tx_header
-    ipv4_tx #(
-        .ReqWidth(TxReqWidth)
-    ) ipv4_tx_inst (
-        .clk        (clk),
-        .rst        (rst),
-        .axis_sdata (tx_axis_sdata[tx_index*512+:512]),
-        .axis_skeep (tx_axis_skeep[tx_index*64+:64]),
-        .axis_susr  (tx_axis_susr[tx_index*TxUsrWidth+:TxUsrWidth]),
-        .axis_slast (tx_axis_slast[tx_index]),
-        .axis_svalid(tx_axis_svalid[tx_index]),
-        .axis_sready(tx_axis_sready[tx_index]),
-        .axis_mdata (header_data[tx_index*512+:512]),
-        .axis_mkeep (header_keep[tx_index*64+:64]),
-        .axis_musr  (header_usr[tx_index*TxReqWidth+:TxReqWidth]),
-        .axis_mlast (header_last[tx_index]),
-        .axis_mvalid(header_valid[tx_index]),
-        .axis_mready(header_ready[tx_index])
-    );
-  end
-  //// 发送仲裁
-  ipv4_tx_mux #(
+  ipv4_tx #(
       .TxChannelCount(TxChannelCount),
       .ReqWidth      (TxReqWidth)
-  ) ipv4_tx_mux_inst (
+  ) ipv4_tx_inst (
       .clk        (clk),
       .rst        (rst),
-      .axis_sdata (header_data),
-      .axis_skeep (header_keep),
-      .axis_susr  (header_usr),
-      .axis_svalid(header_valid),
-      .axis_slast (header_last),
-      .axis_sready(header_ready),
+      .axis_sdata (tx_axis_sdata),
+      .axis_skeep (tx_axis_skeep),
+      .axis_susr  (tx_axis_susr),
+      .axis_svalid(tx_axis_svalid),
+      .axis_slast (tx_axis_slast),
+      .axis_sready(tx_axis_sready),
       .axis_mdata (mux_data),
       .axis_mkeep (mux_keep),
       .axis_musr  (mux_usr),
@@ -149,7 +119,8 @@ module ipv4_top #(
       .axis_mlast (mux_last),
       .axis_mready(mux_ready)
   );
-  //// ARP查询与MAC首部侧带
+
+  // ARP查询与MAC首部侧带
   ipv4_arp_service #(
       .ReqWidth(TxReqWidth)
   ) ipv4_arp_service_inst (

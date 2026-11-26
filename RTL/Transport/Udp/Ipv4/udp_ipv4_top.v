@@ -71,101 +71,45 @@ module udp_ipv4_top #(
     end
   end
 
-  // 接收载荷接口
-  wire [         511:0] rx_payload_data;
-  wire [          63:0] rx_payload_keep;
-  wire                  rx_payload_last;
-  wire                  rx_payload_valid;
-  wire [RxUsrWidth-1:0] rx_payload_usr;
-  wire                  rx_payload_ready;
-
-  // 发送仲裁接口
-  wire [         511:0] tx_mux_data;
-  wire [          63:0] tx_mux_keep;
-  wire                  tx_mux_last;
-  wire                  tx_mux_valid;
-  wire [TxUsrWidth-1:0] tx_mux_usr;
-  wire                  tx_mux_ready;
-
   // 接收通路
-  //// UDP首部剥离，输入已由IP层去除IP头。
-  udp_ipv4_header_strip udp_ipv4_header_strip_inst (
-      .clk        (clk),
-      .rst        (rst),
-      .axis_sdata (rx_axis_sdata),
-      .axis_skeep (rx_axis_skeep),
-      .axis_susr  (rx_axis_susr),
-      .axis_svalid(rx_axis_svalid),
-      .axis_slast (rx_axis_slast),
-      .axis_sready(rx_axis_sready),
-      .axis_mdata (rx_payload_data),
-      .axis_mkeep (rx_payload_keep),
-      .axis_musr  (rx_payload_usr),
-      .axis_mvalid(rx_payload_valid),
-      .axis_mlast (rx_payload_last),
-      .axis_mready(rx_payload_ready)
-  );
-  //// 目的端口分流
-  udp_ipv4_port_demux #(
-      .PortCount(RxPortCount)
-  ) udp_ipv4_port_demux_inst (
+  udp_ipv4_rx #(
+      .RxPortCount(RxPortCount)
+  ) udp_ipv4_rx_inst (
       .clk               (clk),
       .rst               (rst),
       .cfg_dst_port_range(cfg_dst_port_range),
-      .axis_sdata        (rx_payload_data),
-      .axis_skeep        (rx_payload_keep),
-      .axis_slast        (rx_payload_last),
-      .axis_svalid       (rx_payload_valid),
-      .axis_susr         (rx_payload_usr),
-      .axis_sready       (rx_payload_ready),
+      .axis_sdata        (rx_axis_sdata),
+      .axis_skeep        (rx_axis_skeep),
+      .axis_susr         (rx_axis_susr),
+      .axis_svalid       (rx_axis_svalid),
+      .axis_slast        (rx_axis_slast),
+      .axis_sready       (rx_axis_sready),
       .axis_mdata        (rx_axis_mdata),
       .axis_mkeep        (rx_axis_mkeep),
-      .axis_mlast        (rx_axis_mlast),
-      .axis_mvalid       (rx_axis_mvalid),
       .axis_musr         (rx_axis_musr),
+      .axis_mvalid       (rx_axis_mvalid),
+      .axis_mlast        (rx_axis_mlast),
       .axis_mready       (rx_axis_mready)
   );
 
   // 发送通路
-  //// 数值优先级仲裁
-  udp_ipv4_tx_mux #(
+  udp_ipv4_tx #(
       .TxChannelCount(TxChannelCount),
       .ReqWidth      (TxReqWidth)
-  ) udp_ipv4_tx_mux_inst (
-      .clk        (clk),
-      .rst        (rst),
-      // 入口
-      .axis_sdata (tx_axis_sdata),
-      .axis_skeep (tx_axis_skeep),
-      .axis_slast (tx_axis_slast),
-      .axis_svalid(tx_axis_svalid),
-      .axis_susr  (tx_axis_susr),
-      .axis_sready(tx_axis_sready),
-      // 出口
-      .axis_mdata (tx_mux_data),
-      .axis_mkeep (tx_mux_keep),
-      .axis_mlast (tx_mux_last),
-      .axis_mvalid(tx_mux_valid),
-      .axis_musr  (tx_mux_usr),
-      .axis_mready(tx_mux_ready)
-  );
-  //// UDP与IPv4封装
-  udp_ipv4_tx #(
-      .ReqWidth(TxReqWidth)
   ) udp_ipv4_tx_inst (
       .clk        (clk),
       .rst        (rst),
-      .axis_sdata (tx_mux_data),
-      .axis_skeep (tx_mux_keep),
-      .axis_slast (tx_mux_last),
-      .axis_svalid(tx_mux_valid),
-      .axis_susr  (tx_mux_usr),
-      .axis_sready(tx_mux_ready),
+      .axis_sdata (tx_axis_sdata),
+      .axis_skeep (tx_axis_skeep),
+      .axis_susr  (tx_axis_susr),
+      .axis_svalid(tx_axis_svalid),
+      .axis_slast (tx_axis_slast),
+      .axis_sready(tx_axis_sready),
       .axis_mdata (tx_axis_mdata),
       .axis_mkeep (tx_axis_mkeep),
-      .axis_mlast (tx_axis_mlast),
-      .axis_mvalid(tx_axis_mvalid),
       .axis_musr  (tx_axis_musr),
+      .axis_mvalid(tx_axis_mvalid),
+      .axis_mlast (tx_axis_mlast),
       .axis_mready(tx_axis_mready)
   );
 

@@ -15,6 +15,7 @@
 `timescale 1ns / 100ps
 
 module icmpv6_top #(
+    parameter  integer LocalIpCount   = 1,
     parameter  integer ReqWidth       = 4,
     localparam integer TxUsrWidth     = ReqWidth + 384,
     localparam integer IpTxUsrWidth   = ReqWidth + 320,
@@ -24,6 +25,8 @@ module icmpv6_top #(
 ) (
     input wire clk,
     input wire rst,
+
+    input wire [128*LocalIpCount-1:0] cfg_local_ip,
 
     input wire [ReqWidth-1:0] cfg_arbiter_value,
 
@@ -56,12 +59,12 @@ module icmpv6_top #(
     input  wire                    tx_axis_mready
 );
 
-  // 接收通路先剥离ICMP头并打包头字段，再区分回显请求和其他ICMP报文。
+  // 接收通路先剥离ICMP头并打包头字段，再区分本机回显请求和其他ICMP报文。
   // 应答与用户发送载荷按帧仲裁，计算校验和并添加ICMP基本首部。
 
   // 参数范围检查
   initial begin
-    if (ReqWidth < 1 || RxUsrWidth < 1 || TxChannelCount < 1) begin
+    if (LocalIpCount < 1 || ReqWidth < 1 || RxUsrWidth < 1 || TxChannelCount < 1) begin
       $display("错误：icmpv6_top：不支持的参数配置。");
       $finish;
     end
@@ -100,9 +103,12 @@ module icmpv6_top #(
   wire [           (TxChannelCount+1)-1:0] mux_ready;
 
   // 接收通路
-  icmpv6_rx icmpv6_rx_inst (
+  icmpv6_rx #(
+      .LocalIpCount(LocalIpCount)
+  ) icmpv6_rx_inst (
       .clk              (clk),
       .rst              (rst),
+      .cfg_local_ip     (cfg_local_ip),
       .axis_sdata       (rx_axis_sdata),
       .axis_skeep       (rx_axis_skeep),
       .axis_susr        (rx_axis_susr),

@@ -15,6 +15,7 @@
 `timescale 1ns / 100ps
 
 module icmpv4_top #(
+    parameter  integer LocalIpCount   = 1,
     parameter  integer ReqWidth       = 4,
     localparam integer TxUsrWidth     = ReqWidth + 224,
     localparam integer IpTxUsrWidth   = ReqWidth + 160,
@@ -25,8 +26,9 @@ module icmpv4_top #(
     input wire clk,
     input wire rst,
 
-    input wire [ReqWidth-1:0] cfg_arbiter_value,
-    input wire                cfg_clear_error,
+    input wire [32*LocalIpCount-1:0] cfg_local_ip,
+    input wire [       ReqWidth-1:0] cfg_arbiter_value,
+    input wire                       cfg_clear_error,
 
     input  wire [             511:0] rx_axis_sdata,
     input  wire [              63:0] rx_axis_skeep,
@@ -59,24 +61,16 @@ module icmpv4_top #(
     output wire stat_ttl_error
 );
 
-  // 接收通路先剥离ICMP头并打包头字段，再区分回显请求和其他ICMP报文。
+  // 接收通路先剥离ICMP头并打包头字段，再区分本机回显请求和其他ICMP报文。
   // 应答与用户发送载荷按帧仲裁，计算校验和并添加ICMP基本首部。
 
   // 参数范围检查
   initial begin
-    if (ReqWidth < 1 || RxUsrWidth < 1 || TxChannelCount < 1) begin
+    if (LocalIpCount < 1 || ReqWidth < 1 || RxUsrWidth < 1 || TxChannelCount < 1) begin
       $display("错误：icmpv4_top：不支持的参数配置。");
       $finish;
     end
   end
-
-  // ICMP剥头后的载荷与侧带
-  wire [                            511:0] rx_icmp_data;
-  wire [                             63:0] rx_icmp_keep;
-  wire [                   RxUsrWidth-1:0] rx_icmp_usr;
-  wire                                     rx_icmp_valid;
-  wire                                     rx_icmp_last;
-  wire                                     rx_icmp_ready;
 
   // 接收通路
   wire [                            511:0] echo_rx_data;
@@ -111,33 +105,18 @@ module icmpv4_top #(
   wire [           (TxChannelCount+1)-1:0] mux_ready;
 
   // 接收通路
-  //// ICMP基本首部剥离
-  icmpv4_header_strip icmpv4_header_strip_inst (
-      .clk        (clk),
-      .rst        (rst),
-      .axis_sdata (rx_axis_sdata),
-      .axis_skeep (rx_axis_skeep),
-      .axis_susr  (rx_axis_susr),
-      .axis_svalid(rx_axis_svalid),
-      .axis_slast (rx_axis_slast),
-      .axis_sready(rx_axis_sready),
-      .axis_mdata (rx_icmp_data),
-      .axis_mkeep (rx_icmp_keep),
-      .axis_musr  (rx_icmp_usr),
-      .axis_mvalid(rx_icmp_valid),
-      .axis_mlast (rx_icmp_last),
-      .axis_mready(rx_icmp_ready)
-  );
-  //// ICMP类型分流
-  icmpv4_type_demux icmpv4_type_demux_inst (
+  icmpv4_rx #(
+      .LocalIpCount(LocalIpCount)
+  ) icmpv4_rx_inst (
       .clk              (clk),
       .rst              (rst),
-      .axis_sdata       (rx_icmp_data),
-      .axis_skeep       (rx_icmp_keep),
-      .axis_susr        (rx_icmp_usr),
-      .axis_svalid      (rx_icmp_valid),
-      .axis_slast       (rx_icmp_last),
-      .axis_sready      (rx_icmp_ready),
+      .cfg_local_ip     (cfg_local_ip),
+      .axis_sdata       (rx_axis_sdata),
+      .axis_skeep       (rx_axis_skeep),
+      .axis_susr        (rx_axis_susr),
+      .axis_svalid      (rx_axis_svalid),
+      .axis_slast       (rx_axis_slast),
+      .axis_sready      (rx_axis_sready),
       .echo_axis_mdata  (echo_rx_data),
       .echo_axis_mkeep  (echo_rx_keep),
       .echo_axis_musr   (echo_rx_usr),

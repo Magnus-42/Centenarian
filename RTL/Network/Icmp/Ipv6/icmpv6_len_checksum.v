@@ -286,8 +286,9 @@ module icmpv6_len_checksum #(
   //// p1 计算data掩码，相加stg0~stg1。
   ////// 无效字节补0，奇数尾字高字节补0。
   for (g_i = 0; g_i < 32; g_i = g_i + 1) begin : gen_mask
-    assign stg0_masked_raw[g_i] = (axis_skeep_skid[g_i*2+:2] == 2'b11) ? axis_sdata_skid[g_i*16+:16]
-        : ((axis_skeep_skid[g_i*2+:2] == 2'b01) ? {8'h00, axis_sdata_skid[g_i*16+:8]} : 16'd0);
+    assign stg0_masked_raw[g_i] = (axis_skeep_skid[g_i*2+:2] == 2'b11)
+      ? axis_sdata_skid[g_i*16+:16]
+      : ((axis_skeep_skid[g_i*2+:2] == 2'b01) ? {8'h00, axis_sdata_skid[g_i*16+:8]} : 16'd0);
   end
   for (g_i = 0; g_i < 16; g_i = g_i + 1) begin : gen_stg1
     always @(posedge clk) begin

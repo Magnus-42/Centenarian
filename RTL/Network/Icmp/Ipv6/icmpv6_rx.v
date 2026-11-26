@@ -7,7 +7,7 @@
 // -----------------------------------------------------------------------------
 // Description : ICMPv6接收链，剥离基本首部并区分回显请求与其他报文。
 // Note        : 输入data为ICMP报文，输出data为本层负载，首部追加到usr高位。
-//               仅单播Echo Request进入回显通道，其他报文进入默认通道。
+//               仅匹配cfg_local_ip表中任一地址的单播Echo Request进入回显通道。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -15,11 +15,14 @@
 `timescale 1ns / 100ps
 
 module icmpv6_rx #(
+    parameter  integer LocalIpCount   = 1,
     localparam integer RxUsrWidth     = 497,
     localparam integer Ipv6RxUsrWidth = 433
 ) (
     input wire clk,
     input wire rst,
+
+    input wire [128*LocalIpCount-1:0] cfg_local_ip,
 
     input  wire [             511:0] axis_sdata,
     input  wire [              63:0] axis_skeep,
@@ -70,9 +73,12 @@ module icmpv6_rx #(
       .axis_mready(rx_icmp_ready)
   );
   //// ICMP类型分流
-  icmpv6_type_demux icmpv6_type_demux_inst (
+  icmpv6_type_demux #(
+      .LocalIpCount(LocalIpCount)
+  ) icmpv6_type_demux_inst (
       .clk              (clk),
       .rst              (rst),
+      .cfg_local_ip     (cfg_local_ip),
       .axis_sdata       (rx_icmp_data),
       .axis_skeep       (rx_icmp_keep),
       .axis_susr        (rx_icmp_usr),

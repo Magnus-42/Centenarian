@@ -5,8 +5,8 @@
 // Created     : 2026-11-25
 // Version     : v1.0
 // -----------------------------------------------------------------------------
-// Description : ICMPv6类型分流，区分回显请求与其他报文。
-// Note        : 输入为ICMP载荷，usr携带ICMP及上游首部；检查单播地址与type/code。
+// Description : ICMPv6类型分流，区分发往本机的回显请求与其他报文。
+// Note        : 输入为ICMP载荷，usr携带ICMP及上游首部；检查目的IP、单播地址与type/code。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -14,11 +14,14 @@
 `timescale 1ns / 100ps
 
 module icmpv6_type_demux #(
+    parameter  integer LocalIpCount     = 1,
     localparam integer UsrWidth         = 497,
     localparam integer Ipv6HeaderOffset = 113
 ) (
     input wire clk,
     input wire rst,
+
+    input wire [128*LocalIpCount-1:0] cfg_local_ip,
 
     input  wire [       511:0] axis_sdata,
     input  wire [        63:0] axis_skeep,
@@ -42,12 +45,12 @@ module icmpv6_type_demux #(
     input  wire                other_axis_mready
 );
 
-  // 入口skid后匹配type/code与usr中的IPv6地址字段。
+  // 入口skid后匹配type/code、目的IP与usr中的IPv6地址字段。
   // p1缓存输入并锁定帧路由，各通道skid独立缓存输出。
 
   // 参数范围检查
   initial begin
-    if (UsrWidth < 1) begin
+    if (LocalIpCount < 1 || UsrWidth < 1) begin
       $display("错误：icmpv6_type_demux：不支持的参数配置。");
       $finish;
     end
@@ -56,45 +59,60 @@ module icmpv6_type_demux #(
   // 接收usr中的首部字段位置
   localparam integer IcmpHeaderOffset = 433;
 
+  // 本机IP配置寄存
+  reg  [128*LocalIpCount-1:0] cfg_local_ip_d1;
+
   // 入口skid接口
-  wire [       511:0] axis_sdata_skid;
-  wire [        63:0] axis_skeep_skid;
-  wire                axis_slast_skid;
-  wire                axis_svalid_skid;
-  wire                axis_sready_skid;
-  wire [UsrWidth-1:0] axis_susr_skid;
-  wire                s_handshake_skid;
+  wire [               511:0] axis_sdata_skid;
+  wire [                63:0] axis_skeep_skid;
+  wire                        axis_slast_skid;
+  wire                        axis_svalid_skid;
+  wire                        axis_sready_skid;
+  wire [        UsrWidth-1:0] axis_susr_skid;
+  wire                        s_handshake_skid;
 
   // p1 输入缓存
-  reg  [       511:0] p1_axis_sdata;
-  reg  [        63:0] p1_axis_skeep;
-  reg                 p1_axis_slast;
-  reg                 p1_axis_svalid;
-  reg  [UsrWidth-1:0] p1_axis_susr;
+  reg  [               511:0] p1_axis_sdata;
+  reg  [                63:0] p1_axis_skeep;
+  reg                         p1_axis_slast;
+  reg                         p1_axis_svalid;
+  reg  [        UsrWidth-1:0] p1_axis_susr;
 
   // 首拍标志
-  reg                 is_first_beat;
+  reg                         is_first_beat;
+
+  // 本机IP配置表匹配
+  wire [    LocalIpCount-1:0] local_ip_match;
+  genvar g_local;
 
   // 协议匹配与帧路由
-  wire                is_unicast;
-  wire                is_echo_request;
-  wire                matches_echo;
-  reg                 echo_selected_locked;
+  wire is_echo_request;
+  wire is_local_dst;
+  wire matches_echo;
+  reg  echo_selected_locked;
 
   // 流水控制
-  wire                p1_ready;
-  wire                p1_handshake;
+  wire p1_ready;
+  wire p1_handshake;
 
   // 出口skid接口
-  wire                echo_axis_mready_skid;
-  wire                other_axis_mready_skid;
+  wire echo_axis_mready_skid;
+  wire other_axis_mready_skid;
+
+  // 本地配置与地址匹配
+  //// 寄存配置
+  always @(posedge clk) begin
+    cfg_local_ip_d1 <= cfg_local_ip;
+  end
 
   // 协议匹配
-  assign is_unicast = (axis_susr_skid[Ipv6HeaderOffset+192+:8] != 8'hff) &&
-      (axis_susr_skid[Ipv6HeaderOffset+64+:8] != 8'hff) &&
-      (axis_susr_skid[Ipv6HeaderOffset+64+:128] != 128'd0);
   assign is_echo_request = (axis_susr_skid[IcmpHeaderOffset+:16] == 16'h0080);
-  assign matches_echo = is_unicast && is_echo_request;
+  for (g_local = 0; g_local < LocalIpCount; g_local = g_local + 1) begin : gen_local_ip
+    assign local_ip_match[g_local] =
+        axis_susr_skid[Ipv6HeaderOffset+192+:128] == cfg_local_ip_d1[g_local*128+:128];
+  end
+  assign is_local_dst = |local_ip_match;
+  assign matches_echo = is_echo_request && is_local_dst;
 
   // 流水控制
   assign s_handshake_skid = axis_svalid_skid && axis_sready_skid;

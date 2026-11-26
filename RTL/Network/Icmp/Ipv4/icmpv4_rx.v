@@ -5,8 +5,9 @@
 // Created     : 2026-11-24
 // Version     : v1.0
 // -----------------------------------------------------------------------------
-// Description : 剥离固定20字节IPv4头，输出ICMP报文与IPv4字段。
-// Note        : 上游保证IHL=5；字段保留总线字节序，与出口数据同步。
+// Description : ICMPv4接收链，剥离基本首部并区分回显请求与其他报文。
+// Note        : 输入data为ICMP报文，输出data为本层负载，首部追加到usr高位。
+//               仅匹配cfg_local_ip表中任一地址的Echo Request进入回显通道。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -14,263 +15,88 @@
 `timescale 1ns / 100ps
 
 module icmpv4_rx #(
-    localparam integer UsrWidth = 97
+    parameter  integer LocalIpCount   = 1,
+    localparam integer RxUsrWidth     = 337,
+    localparam integer Ipv4RxUsrWidth = 273
 ) (
     input wire clk,
     input wire rst,
 
-    input  wire [       511:0] axis_sdata,
-    input  wire [        63:0] axis_skeep,
-    input  wire                axis_slast,
-    input  wire                axis_svalid,
-    input  wire [UsrWidth-1:0] axis_susr,
-    output wire                axis_sready,
+    input wire [32*LocalIpCount-1:0] cfg_local_ip,
 
-    output wire [       511:0] axis_mdata,
-    output wire [        63:0] axis_mkeep,
-    output wire                axis_mlast,
-    output wire                axis_mvalid,
-    output wire [UsrWidth-1:0] axis_musr,
-    input  wire                axis_mready,
+    input  wire [             511:0] axis_sdata,
+    input  wire [              63:0] axis_skeep,
+    input  wire [Ipv4RxUsrWidth-1:0] axis_susr,
+    input  wire                      axis_svalid,
+    input  wire                      axis_slast,
+    output wire                      axis_sready,
 
-    output wire [ 7:0] protocol,
-    output wire [15:0] total_len,
-    output wire [ 7:0] ttl,
-    output wire [31:0] src_ip,
-    output wire [31:0] dst_ip,
-    output wire [ 7:0] version_ihl,
-    output wire [ 7:0] dscp_ecn,
-    output wire [15:0] identification,
-    output wire [15:0] flags_fragment,
-    output wire [15:0] header_checksum
+    output wire [         511:0] other_axis_mdata,
+    output wire [          63:0] other_axis_mkeep,
+    output wire [RxUsrWidth-1:0] other_axis_musr,
+    output wire                  other_axis_mvalid,
+    output wire                  other_axis_mlast,
+    input  wire                  other_axis_mready,
+
+    output wire [         511:0] echo_axis_mdata,
+    output wire [          63:0] echo_axis_mkeep,
+    output wire [RxUsrWidth-1:0] echo_axis_musr,
+    output wire                  echo_axis_mvalid,
+    output wire                  echo_axis_mlast,
+    input  wire                  echo_axis_mready
 );
 
-  // 入口skid同步缓存IPv4报文与usr。
-  // p1缓存输入及首拍标志。
-  // p2剥离20字节IPv4头，跨拍拼接并保存头字段。
-  // 出口skid同步缓存ICMP报文、usr及160位IPv4字段。
+  // ICMP剥头后的载荷与侧带
+  wire [         511:0] rx_icmp_data;
+  wire [          63:0] rx_icmp_keep;
+  wire [RxUsrWidth-1:0] rx_icmp_usr;
+  wire                  rx_icmp_valid;
+  wire                  rx_icmp_last;
+  wire                  rx_icmp_ready;
 
-  // 入口skid接口
-  wire [       511:0] axis_sdata_skid;
-  wire [        63:0] axis_skeep_skid;
-  wire [UsrWidth-1:0] axis_susr_skid;
-  wire                axis_slast_skid;
-  wire                axis_svalid_skid;
-  wire                axis_sready_skid;
-  wire                s_handshake_skid;
-
-  // 出口skid接口
-  wire                axis_mready_skid;
-  wire                m_handshake_skid;
-
-  // p1 数据与边带
-  reg  [       511:0] p1_axis_sdata;
-  reg  [        63:0] p1_axis_skeep;
-  reg                 p1_axis_slast;
-  reg                 p1_axis_svalid;
-  reg  [UsrWidth-1:0] p1_axis_susr;
-
-  // p2 数据与边带
-  reg  [       511:0] p2_axis_mdata;
-  reg  [        63:0] p2_axis_mkeep;
-  reg                 p2_axis_mlast;
-  reg                 p2_axis_mvalid;
-  reg  [UsrWidth-1:0] p2_axis_musr;
-
-  // p2 首拍字段
-  reg  [         7:0] p2_protocol;
-  reg  [        15:0] p2_total_len;
-  reg  [         7:0] p2_ttl;
-  reg  [        31:0] p2_src_ip;
-  reg  [        31:0] p2_dst_ip;
-
-  reg  [         7:0] p2_version_ihl;
-  reg  [         7:0] p2_dscp_ecn;
-  reg  [        15:0] p2_identification;
-  reg  [        15:0] p2_flags_fragment;
-  reg  [        15:0] p2_header_checksum;
-
-  // 首拍标志
-  reg                 is_first_beat;
-  reg                 p1_is_first_beat;
-
-  // 流水控制
-  wire                p2_ready;
-  wire                p1_ready;
-  wire                p1_tail_has_data;
-  wire                p1_tail_no_data;
-  wire                p1_handshake;
-
-  // 入口skid
-  axis_skid_buffer #(
-      .DataWidth(512),
-      .UsrWidth (UsrWidth)
-  ) axis_skid_buffer_in (
+  // 接收通路
+  //// ICMP基本首部剥离
+  icmpv4_header_strip icmpv4_header_strip_inst (
       .clk        (clk),
       .rst        (rst),
-      .axis_sready(axis_sready),
       .axis_sdata (axis_sdata),
       .axis_skeep (axis_skeep),
       .axis_susr  (axis_susr),
-      .axis_slast (axis_slast),
       .axis_svalid(axis_svalid),
-      .axis_mready(axis_sready_skid),
-      .axis_mdata (axis_sdata_skid),
-      .axis_mkeep (axis_skeep_skid),
-      .axis_musr  (axis_susr_skid),
-      .axis_mlast (axis_slast_skid),
-      .axis_mvalid(axis_svalid_skid)
+      .axis_slast (axis_slast),
+      .axis_sready(axis_sready),
+      .axis_mdata (rx_icmp_data),
+      .axis_mkeep (rx_icmp_keep),
+      .axis_musr  (rx_icmp_usr),
+      .axis_mvalid(rx_icmp_valid),
+      .axis_mlast (rx_icmp_last),
+      .axis_mready(rx_icmp_ready)
   );
-
-  // 流水控制
-  assign p2_ready = !p2_axis_mvalid || axis_mready_skid;
-  assign p1_ready = p2_ready;
-  assign axis_sready_skid = !p1_axis_svalid || p1_ready;
-  assign p1_tail_has_data = p1_axis_slast && (p1_axis_skeep[20] != 1'b0);
-  assign p1_tail_no_data = p1_axis_slast && (p1_axis_skeep[20] == 1'b0);
-  assign p1_handshake = p1_ready && p1_axis_svalid &&
-      (p1_axis_slast || axis_svalid_skid);  // 非末拍需要下一拍参与拼接
-
-  assign s_handshake_skid = axis_sready_skid && axis_svalid_skid;
-  assign m_handshake_skid = axis_mready_skid && p2_axis_mvalid;
-  // p1 输入缓存
-  //// 数据与边带
-  always @(posedge clk) begin
-    if (s_handshake_skid) begin
-      p1_axis_sdata <= axis_sdata_skid;
-      p1_axis_skeep <= axis_skeep_skid;
-      p1_axis_slast <= axis_slast_skid;
-      p1_axis_susr  <= axis_susr_skid;
-    end
-  end
-  //// 有效位
-  always @(posedge clk) begin
-    if (rst) begin
-      p1_axis_svalid <= 'd0;
-    end else begin
-      if (s_handshake_skid) begin
-        p1_axis_svalid <= 1'b1;
-      end else if (p1_handshake) begin
-        p1_axis_svalid <= 1'b0;
-      end
-    end
-  end
-
-  // p2 剥头与跨拍拼接
-  //// 数据与边带
-  always @(posedge clk) begin
-    if (p1_handshake) begin
-      if (!p1_axis_slast && axis_svalid_skid && axis_slast_skid && !axis_skeep_skid[20]) begin
-        p2_axis_mdata <= {axis_sdata_skid[159:0], p1_axis_sdata[511:160]};
-        p2_axis_mkeep <= {axis_skeep_skid[19:0], p1_axis_skeep[63:20]};
-        p2_axis_mlast <= 1'b1;
-        p2_axis_musr  <= axis_susr_skid;  // 合并末拍时保留末拍坏帧标志。
-      end else if (p1_tail_has_data) begin  // 最后一拍
-        p2_axis_mdata <= {160'd0, p1_axis_sdata[511:160]};
-        p2_axis_mkeep <= {20'd0, p1_axis_skeep[63:20]};
-        p2_axis_mlast <= 1'b1;
-        p2_axis_musr  <= p1_axis_susr;
-      end else begin
-        p2_axis_mdata <= {axis_sdata_skid[159:0], p1_axis_sdata[511:160]};
-        p2_axis_mkeep <= {axis_skeep_skid[19:0], p1_axis_skeep[63:20]};
-        p2_axis_mlast <= 1'b0;
-        p2_axis_musr  <= p1_axis_susr;
-      end
-    end
-  end
-  //// 有效位
-  always @(posedge clk) begin
-    if (rst) begin
-      p2_axis_mvalid <= 1'b0;
-    end else begin
-      if (p1_handshake) begin
-        if (p1_tail_no_data) begin
-          p2_axis_mvalid <= 1'b0;  // 末拍无载荷 => 本拍不产生输出
-        end else begin
-          p2_axis_mvalid <= 1'b1;
-        end
-      end else if (m_handshake_skid) begin
-        p2_axis_mvalid <= 1'b0;
-      end
-    end
-  end
-  //// IPv4字段
-  always @(posedge clk) begin
-    if (p1_handshake) begin
-      if (p1_is_first_beat) begin  // 首拍保存IPv4字段
-        p2_version_ihl <= p1_axis_sdata[7:0];
-        p2_dscp_ecn <= p1_axis_sdata[15:8];
-        p2_identification <= p1_axis_sdata[47:32];
-        p2_flags_fragment <= p1_axis_sdata[63:48];
-        p2_header_checksum <= p1_axis_sdata[95:80];
-        p2_protocol <= p1_axis_sdata[79:72];
-        p2_total_len <= p1_axis_sdata[31:16];
-        p2_ttl <= p1_axis_sdata[71:64];
-        p2_src_ip <= p1_axis_sdata[127:96];
-        p2_dst_ip <= p1_axis_sdata[159:128];
-      end
-    end
-  end
-
-  // 输入首拍标志
-  always @(posedge clk) begin
-    if (rst) begin
-      is_first_beat <= 1'b1;
-    end else begin
-      if (s_handshake_skid) begin
-        is_first_beat <= axis_slast_skid;
-      end
-    end
-  end
-  always @(posedge clk) begin
-    if (s_handshake_skid) begin
-      p1_is_first_beat <= is_first_beat;
-    end
-  end
-
-  // 出口skid
-  axis_skid_buffer #(
-      .DataWidth(512),
-      .UsrWidth (UsrWidth + 160)
-  ) axis_skid_buffer_out (
-      .clk(clk),
-      .rst(rst),
-      .axis_sready(axis_mready_skid),
-      .axis_sdata(p2_axis_mdata),
-      .axis_skeep(p2_axis_mkeep),
-      .axis_susr({
-        p2_dst_ip,
-        p2_src_ip,
-        p2_header_checksum,
-        p2_protocol,
-        p2_ttl,
-        p2_flags_fragment,
-        p2_identification,
-        p2_total_len,
-        p2_dscp_ecn,
-        p2_version_ihl,
-        p2_axis_musr
-      }),
-      .axis_slast(p2_axis_mlast),
-      .axis_svalid(p2_axis_mvalid),
-      .axis_mready(axis_mready),
-      .axis_mdata(axis_mdata),
-      .axis_mkeep(axis_mkeep),
-      .axis_musr({
-        dst_ip,
-        src_ip,
-        header_checksum,
-        protocol,
-        ttl,
-        flags_fragment,
-        identification,
-        total_len,
-        dscp_ecn,
-        version_ihl,
-        axis_musr
-      }),
-      .axis_mlast(axis_mlast),
-      .axis_mvalid(axis_mvalid)
+  //// ICMP类型分流
+  icmpv4_type_demux #(
+      .LocalIpCount(LocalIpCount)
+  ) icmpv4_type_demux_inst (
+      .clk              (clk),
+      .rst              (rst),
+      .cfg_local_ip     (cfg_local_ip),
+      .axis_sdata       (rx_icmp_data),
+      .axis_skeep       (rx_icmp_keep),
+      .axis_susr        (rx_icmp_usr),
+      .axis_svalid      (rx_icmp_valid),
+      .axis_slast       (rx_icmp_last),
+      .axis_sready      (rx_icmp_ready),
+      .echo_axis_mdata  (echo_axis_mdata),
+      .echo_axis_mkeep  (echo_axis_mkeep),
+      .echo_axis_musr   (echo_axis_musr),
+      .echo_axis_mvalid (echo_axis_mvalid),
+      .echo_axis_mlast  (echo_axis_mlast),
+      .echo_axis_mready (echo_axis_mready),
+      .other_axis_mdata (other_axis_mdata),
+      .other_axis_mkeep (other_axis_mkeep),
+      .other_axis_musr  (other_axis_musr),
+      .other_axis_mvalid(other_axis_mvalid),
+      .other_axis_mlast (other_axis_mlast),
+      .other_axis_mready(other_axis_mready)
   );
 
 endmodule

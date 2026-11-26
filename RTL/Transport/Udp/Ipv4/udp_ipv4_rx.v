@@ -20,17 +20,17 @@ module udp_ipv4_rx #(
     localparam integer RxUsrWidth           = 337,
     localparam integer Ipv4RxUsrWidth       = 273
 ) (
-    input  wire    clk,
-    input  wire    rst,
+    input wire clk,
+    input wire rst,
 
-    input  wire [EffectiveRxPortCount*32-1:0] cfg_dst_port_range,
+    input wire [EffectiveRxPortCount*32-1:0] cfg_dst_port_range,
 
-    input  wire [                         511:0] axis_sdata,
-    input  wire [                          63:0] axis_skeep,
-    input  wire                                  axis_slast,
-    input  wire                                  axis_svalid,
-    input  wire [            Ipv4RxUsrWidth-1:0] axis_susr,
-    output wire                                  axis_sready,
+    input  wire [             511:0] axis_sdata,
+    input  wire [              63:0] axis_skeep,
+    input  wire                      axis_slast,
+    input  wire                      axis_svalid,
+    input  wire [Ipv4RxUsrWidth-1:0] axis_susr,
+    output wire                      axis_sready,
 
     output wire [       512*(RxPortCount+1)-1:0] axis_mdata,
     output wire [        64*(RxPortCount+1)-1:0] axis_mkeep,
@@ -56,8 +56,7 @@ module udp_ipv4_rx #(
   wire [RxUsrWidth-1:0] rx_payload_usr;
   wire                  rx_payload_ready;
 
-  // 接收通路
-  //// UDP首部剥离，输入已由IP层去除IP头。
+  // UDP首部剥离，输入已由IP层去除IP头。
   udp_ipv4_header_strip udp_ipv4_header_strip_inst (
       .clk        (clk),
       .rst        (rst),
@@ -74,7 +73,8 @@ module udp_ipv4_rx #(
       .axis_mlast (rx_payload_last),
       .axis_mready(rx_payload_ready)
   );
-  //// 目的端口分流
+
+  // 目的端口分流
   udp_ipv4_port_demux #(
       .PortCount(RxPortCount)
   ) udp_ipv4_port_demux_inst (

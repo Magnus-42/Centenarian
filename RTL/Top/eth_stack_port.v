@@ -620,13 +620,15 @@ module eth_stack_port #(
       .stat_tx_drop     (stat_ipv4_tx_drop)
   );
 
-  // ICMPv4：业务发送与内部回显应答仲裁，其他接收报文交给用户。
+  // ICMPv4
   icmpv4_top #(
+      .LocalIpCount  (LocalIpv4Count + 1),
       .ReqWidth      (ReqWidth),
       .TxChannelCount(IcmpTxCount)
   ) icmpv4_top_inst (
       .clk              (clk),
       .rst              (rst),
+      .cfg_local_ip     ({cfg_local_ip, cfg_mgmt_ipv4_addr}),
       .cfg_arbiter_value(cfg_icmp_priority),
       .cfg_clear_error  (cfg_stat_clear),
       .rx_axis_sdata    (ipv4_icmp_rx_data),
@@ -701,11 +703,13 @@ module eth_stack_port #(
 
   // ICMPv6
   icmpv6_top #(
+      .LocalIpCount  (SrcIpv6Count),
       .ReqWidth      (ReqWidth),
       .TxChannelCount(Icmpv6TxCount)
   ) icmpv6_top_inst (
       .clk              (clk),
       .rst              (rst),
+      .cfg_local_ip     (cfg_src_ipv6),
       .cfg_arbiter_value(cfg_icmp_priority),
       .rx_axis_sdata    (ipv6_icmp_rx_data),
       .rx_axis_skeep    (ipv6_icmp_rx_keep),

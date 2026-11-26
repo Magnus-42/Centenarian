@@ -6,7 +6,8 @@
 // Version     : v1.0
 // -----------------------------------------------------------------------------
 // Description : 剥离8字节UDP首部，输出本层负载与首部侧带。
-// Note        :
+// Note        : 上游保证UDP报文正确；首部完整的空载荷保留一拍。
+//               非末拍keep全1，末拍keep低位连续。
 // -----------------------------------------------------------------------------
 
 `resetall
@@ -73,6 +74,7 @@ module udp_ipv4_header_strip #(
   wire                   p1_handshake;
   wire                   p2_ready;
   wire                   p2_handshake;
+  wire                   p1_payload_empty;
   wire                   p1_tail_has_data;
   wire                   p1_tail_no_data;
 
@@ -137,8 +139,10 @@ module udp_ipv4_header_strip #(
   end
 
   // p2 剥离8字节首部
+  assign p1_payload_empty = p1_is_first_beat && p1_axis_slast &&
+      p1_axis_skeep[7] && !p1_axis_skeep[8];
   assign p1_tail_has_data = p1_axis_slast && (p1_axis_skeep[8] != 1'b0);
-  assign p1_tail_no_data  = p1_axis_slast && (p1_axis_skeep[8] == 1'b0);
+  assign p1_tail_no_data = p1_axis_slast && (p1_axis_skeep[8] == 1'b0);
   //// 数据
   always @(posedge clk) begin
     if (p1_handshake) begin
@@ -148,7 +152,7 @@ module udp_ipv4_header_strip #(
         p2_axis_mkeep <= {axis_skeep_skid[7:0], p1_axis_skeep[63:8]};
         p2_axis_mlast <= 1'b1;
         p2_axis_musr  <= axis_susr_skid;
-      end else if (p1_tail_has_data) begin  // 输出缓存末拍的剩余载荷
+      end else if (p1_tail_has_data || p1_payload_empty) begin  // 末拍剩余载荷或空载荷
         p2_axis_mdata <= {64'd0, p1_axis_sdata[511:64]};
         p2_axis_mkeep <= {8'd0, p1_axis_skeep[63:8]};
         p2_axis_mlast <= 1'b1;
@@ -168,7 +172,7 @@ module udp_ipv4_header_strip #(
     end else begin
       if (p1_handshake) begin
         if (p1_tail_no_data) begin
-          p2_axis_mvalid <= 1'b0;  // 无剩余载荷的单拍或已合并的短尾不再输出
+          p2_axis_mvalid <= p1_payload_empty;  // 完整首部的空载荷仍提交一次
         end else begin
           p2_axis_mvalid <= 1'b1;
         end
